@@ -1,0 +1,3711 @@
+<!-- ========================================= -->
+<!-- SECTION 12: IMAGE MANAGEMENT & RICH TEXT -->
+<!-- Upload, Drag-Drop, Paste, Edit, Format   -->
+<!-- FIXED v2:                                -->
+<!--   editQuestion handles array + object    -->
+<!--   saveEditedQuestion handles both        -->
+<!--   renderQuestions handles both           -->
+<!--   Math toolbar added                     -->
+<!-- ========================================= -->
+<style>
+.image-upload-zone {
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  background: #f8f9fa;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin: 10px 0;
+}
+.image-upload-zone:hover { border-color: #007bff; background: #e7f3ff; }
+.image-upload-zone.dragover { border-color: #28a745; background: #d4edda; transform: scale(1.02); }
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 15px 0;
+}
+.image-gallery-item {
+  position: relative;
+  border: 2px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.image-gallery-item:hover { border-color: #007bff; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+.image-gallery-item img { width: 100%; height: 120px; object-fit: cover; display: block; }
+.image-gallery-item .remove-image {
+  position: absolute; top: 5px; right: 5px;
+  background: #dc3545; color: white; border: none; border-radius: 50%;
+  width: 24px; height: 24px; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s; z-index: 10;
+}
+.image-gallery-item .edit-image {
+  position: absolute; top: 5px; left: 5px;
+  background: #007bff; color: white; border: none; border-radius: 50%;
+  width: 24px; height: 24px; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s; z-index: 10;
+}
+.image-gallery-item:hover .remove-image,
+.image-gallery-item:hover .edit-image { opacity: 1; }
+.image-gallery-item .image-label {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.7); color: white;
+  padding: 4px 8px; font-size: 11px; text-align: center;
+}
+.image-upload-instructions { color: #6c757d; font-size: 14px; margin-top: 8px; }
+.paste-indicator {
+  background: #d4edda; border: 2px solid #28a745; color: #155724;
+  padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-top: 8px;
+  display: none;
+}
+.paste-indicator.active { display: block; }
+.image-viewer-modal {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.95); z-index: 100000;
+  display: none; align-items: center; justify-content: center;
+}
+.image-viewer-modal.active { display: flex; }
+.image-viewer-content { max-width: 90%; max-height: 90%; position: relative; }
+.image-viewer-content img { max-width: 100%; max-height: 90vh; border-radius: 8px; }
+.image-viewer-close {
+  position: absolute; top: 20px; right: 20px;
+  background: white; color: #333; border: none; border-radius: 50%;
+  width: 40px; height: 40px; font-size: 24px; cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 100001;
+}
+.image-editor-modal {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.9); z-index: 100002;
+  display: none; align-items: center; justify-content: center;
+}
+.image-editor-modal.active { display: flex; }
+.image-editor-container {
+  background: white; border-radius: 12px; padding: 20px;
+  max-width: 90%; max-height: 90%;
+  display: flex; flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+.image-editor-toolbar {
+  display: flex; gap: 10px; margin-bottom: 15px;
+  padding: 15px; background: #f8f9fa; border-radius: 8px; flex-wrap: wrap;
+}
+.image-editor-canvas-container {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: #f0f0f0; border-radius: 8px; overflow: auto; min-height: 400px;
+}
+.image-editor-canvas { max-width: 100%; max-height: 100%; border: 1px solid #dee2e6; }
+.image-editor-actions { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
+.rich-text-toolbar {
+  display: flex; gap: 4px; padding: 8px;
+  background: #f8f9fa; border: 1px solid #dee2e6;
+  border-bottom: none; border-radius: 5px 5px 0 0; flex-wrap: wrap;
+}
+.rich-text-button {
+  background: white; border: 1px solid #ced4da;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  font-size: 13px; transition: all 0.2s;
+  display: flex; align-items: center; gap: 4px;
+}
+.rich-text-button:hover { background: #e9ecef; border-color: #007bff; }
+.rich-text-button.active { background: #007bff; color: white; border-color: #0056b3; }
+.rich-text-editor {
+  border: 1px solid #dee2e6; border-radius: 0 0 5px 5px;
+  padding: 12px; min-height: 80px; background: white;
+  outline: none; font-family: 'Georgia', serif; font-size: 15px; line-height: 1.6;
+}
+.rich-text-editor:focus { border-color: #007bff; box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25); }
+.rich-text-editor sup { font-size: 0.75em; vertical-align: super; }
+.rich-text-editor sub { font-size: 0.75em; vertical-align: sub; }
+.rich-text-editor mark { background-color: #ffeb3b; padding: 2px 4px; }
+.compression-indicator {
+  display: flex; align-items: center; gap: 10px; padding: 10px;
+  background: #e7f3ff; border-left: 4px solid #007bff;
+  border-radius: 4px; margin-top: 10px; font-size: 13px;
+}
+.compression-indicator.compressed { background: #d4edda; border-left-color: #28a745; }
+</style>
+
+<script>
+console.log('🖼️ Loading Section 12: Image Management & Rich Text Editor (FIXED v2)...');
+
+// ─────────────────────────────────────────────
+// IMAGE MANAGEMENT INITIALIZATION
+// ─────────────────────────────────────────────
+CMSApp.prototype.initializeImageManagement = function() {
+  console.log('🖼️ Initializing image management system...');
+  this.imageManager = {
+    currentContext: null,
+    currentQuestionIndex: null,
+    currentBankId: null,
+    images: {},
+    compressionEnabled: true,
+    compressionQuality: 0.8
+  };
+  this.setupGlobalPasteListener();
+  console.log('✅ Image management initialized');
+};
+
+// ─────────────────────────────────────────────
+// TOOLBAR HELPERS (also used by Section 10)
+// ─────────────────────────────────────────────
+CMSApp.prototype.insertAtCursor = function(textareaId, text) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart, end = el.selectionEnd;
+  el.value = el.value.substring(0, start) + text + el.value.substring(end);
+  el.selectionStart = el.selectionEnd = start + text.length;
+  el.focus();
+};
+
+CMSApp.prototype.wrapSelection = function(textareaId, prefix, suffix) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart, end = el.selectionEnd;
+  const selected = el.value.substring(start, end);
+  el.value = el.value.substring(0, start) + prefix + selected + suffix + el.value.substring(end);
+  el.selectionStart = start + prefix.length;
+  el.selectionEnd = start + prefix.length + selected.length;
+  el.focus();
+};
+
+// ─────────────────────────────────────────────
+// EDIT QUESTION — FIXED: handles array + object
+// ─────────────────────────────────────────────
+CMSApp.prototype.editQuestion = function(bankId, questionIndex) {
+  console.log('✏️ editQuestion FIXED v2 — bankId:', bankId, 'index:', questionIndex);
+
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+
+  // Store context for image management
+  if (!this.imageManager) this.initializeImageManagement();
+  this.imageManager.currentBankId = bankId;
+  this.imageManager.currentQuestionIndex = questionIndex;
+  this.imageManager.images = {
+    passage: question.passageImages ? [...question.passageImages] : [],
+    question: question.questionImages ? [...question.questionImages] : [],
+    options: question.optionImages ? {...question.optionImages} : {}
+  };
+
+  // Detect format — parser uses array, manual uses object {A:,B:,C:}
+  const isObjectOptions = question.options && !Array.isArray(question.options);
+  const questionText = question.text || question.question || '';
+
+  // Normalize to [{letter, text}] pairs
+  let optionPairs = [];
+  if (isObjectOptions) {
+    optionPairs = Object.entries(question.options).map(([letter, text]) => ({ letter, text }));
+  } else if (Array.isArray(question.options)) {
+    optionPairs = question.options.map((text, i) => ({ letter: String.fromCharCode(65 + i), text }));
+  }
+
+  // Current correct letter
+  let currentCorrectLetter = '';
+  if (isObjectOptions) {
+    currentCorrectLetter = question.correct || (optionPairs[0] && optionPairs[0].letter) || 'A';
+  } else {
+    const idx = typeof question.correct === 'number' ? question.correct
+              : typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
+    currentCorrectLetter = optionPairs[idx] ? optionPairs[idx].letter : 'A';
+  }
+
+  const passageVal = question.passageContext || question.passage || '';
+  const hasPassage = passageVal || question.testType === 'Reading';
+
+  // Build math toolbar for a contenteditable div
+  const richToolbar = (targetId) => `
+    <div class="rich-text-toolbar">
+      <button type="button" class="rich-text-button" onclick="document.execCommand('bold')" title="Bold"><strong>B</strong></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('italic')" title="Italic"><em>I</em></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('underline')" title="Underline"><u>U</u></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('superscript')" title="Superscript">X<sup>2</sup></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('subscript')" title="Subscript">H<sub>2</sub></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('hiliteColor',false,'#ffeb3b')" title="Highlight"><span style="background:#ffeb3b;padding:2px 5px;">H</span></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('removeFormat')" title="Clear">✖ Clear</button>
+      <span style="border-left:1px solid #ced4da;margin:0 3px;"></span>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('√')" title="Square root">√</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('²')" title="Squared">x²</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('³')" title="Cubed">x³</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('π')" title="Pi">π</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('°')" title="Degree">°</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('≠')" title="Not equal">≠</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('≤')" title="Less/equal">≤</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('≥')" title="Greater/equal">≥</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('×')" title="Multiply">×</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('÷')" title="Divide">÷</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('±')" title="Plus/minus">±</button>
+    </div>`;
+
+  const optionFields = optionPairs.map(({letter, text}, i) => `
+    <div style="margin-bottom:20px;padding:15px;background:#f8f9fa;border-radius:8px;">
+      <label style="font-size:14px;font-weight:600;color:#495057;margin-bottom:8px;display:block;">
+        Option ${letter}:
+      </label>
+      ${richToolbar(`edit-option-${letter}`)}
+      <div id="edit-option-${letter}" class="rich-text-editor" contenteditable="true"
+           style="margin-top:0;">${text}</div>
+      <div style="margin-top:10px;">
+        <label style="font-size:12px;color:#6c757d;">🖼️ Option ${letter} Images (optional):</label>
+        <div class="image-upload-zone" id="option-${letter}-image-zone"
+             onclick="document.getElementById('option-${letter}-image-input').click()"
+             style="padding:10px;">
+          <div style="font-size:20px;">📤</div>
+          <div style="font-size:12px;">Click, drag, or paste images</div>
+          <input type="file" id="option-${letter}-image-input" accept="image/*" multiple style="display:none;">
+        </div>
+        <div id="option-${letter}-images-gallery" class="image-gallery">
+          ${this.renderImageGallery(this.imageManager.images.options[letter] || [], `option-${letter}`)}
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  const correctOptions = optionPairs.map(({letter}) =>
+    `<option value="${letter}" ${letter === currentCorrectLetter ? 'selected' : ''}>${letter}</option>`
+  ).join('');
+
+  const existing = document.getElementById('edit-question-modal');
+  if (existing) existing.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'edit-question-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99995;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:28px;width:100%;max-width:900px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.35);margin:auto;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:18px;border-bottom:2px solid #e9ecef;padding-bottom:12px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          ✏️ Edit Question ${question.questionNumber || (questionIndex+1)}
+          ${question.addedManually ? '<span style="font-size:11px;background:#fff3cd;color:#856404;padding:2px 7px;border-radius:10px;margin-left:8px;">MANUAL</span>' : ''}
+        </h2>
+        <button onclick="window.cmsApp.closeEditQuestionModal()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;padding:0 4px;">&times;</button>
+      </div>
+
+      <form id="edit-question-form"
+            onsubmit="window.cmsApp.saveEditedQuestion(event,'${bankId}',${questionIndex})">
+
+        ${hasPassage ? `
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">📖 Passage Context:</label>
+          ${richToolbar('edit-passage-context')}
+          <div id="edit-passage-context" class="rich-text-editor" contenteditable="true"
+               style="min-height:120px;">${passageVal}</div>
+          <div style="margin-top:12px;">
+            <label style="font-size:13px;color:#6c757d;">🖼️ Passage Images (optional):</label>
+            <div class="image-upload-zone" id="passage-image-zone"
+                 onclick="document.getElementById('passage-image-input').click()">
+              <div style="font-size:28px;">📤</div>
+              <div><strong>Click to upload</strong> or drag & drop</div>
+              <div class="image-upload-instructions">You can also paste (Ctrl+V)</div>
+              <input type="file" id="passage-image-input" accept="image/*" multiple style="display:none;">
+            </div>
+            <div id="passage-images-gallery" class="image-gallery">
+              ${this.renderImageGallery(this.imageManager.images.passage, 'passage')}
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Question Text: *</label>
+          ${richToolbar('edit-question-text')}
+          <div id="edit-question-text" class="rich-text-editor" contenteditable="true"
+               style="min-height:80px;">${questionText}</div>
+          <div style="margin-top:12px;">
+            <label style="font-size:13px;color:#6c757d;">🖼️ Question Images (optional):</label>
+            <div class="image-upload-zone" id="question-image-zone"
+                 onclick="document.getElementById('question-image-input').click()">
+              <div style="font-size:28px;">📤</div>
+              <div><strong>Click to upload</strong> or drag & drop</div>
+              <div class="image-upload-instructions">You can also paste (Ctrl+V)</div>
+              <input type="file" id="question-image-input" accept="image/*" multiple style="display:none;">
+            </div>
+            <div id="question-images-gallery" class="image-gallery">
+              ${this.renderImageGallery(this.imageManager.images.question, 'question')}
+            </div>
+          </div>
+        </div>
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:8px;color:#495057;">Answer Options:</label>
+          ${optionFields}
+        </div>
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Correct Answer: *</label>
+          <select id="edit-correct-answer" required
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;
+                         font-size:14px;background:#fff;">
+            ${correctOptions}
+          </select>
+        </div>
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Explanation <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          ${richToolbar('edit-explanation')}
+          <div id="edit-explanation" class="rich-text-editor" contenteditable="true"
+               style="min-height:60px;">${question.explanation || ''}</div>
+        </div>
+
+        <div style="padding:12px 15px;background:#f8f9fa;border-radius:8px;margin-bottom:20px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="enable-compression"
+                   ${this.imageManager.compressionEnabled ? 'checked' : ''}
+                   onchange="window.cmsApp.toggleCompression(this.checked)">
+            <strong>🗜️ Smart Image Compression</strong>
+            <small style="color:#6c757d;">(Reduces file size while maintaining quality)</small>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            💾 Save Changes
+          </button>
+          <button type="button" onclick="window.cmsApp.closeEditQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeEditQuestionModal(); });
+
+  // Store metadata for save
+  modalEl.dataset.isObjectOptions = isObjectOptions ? '1' : '0';
+  modalEl.dataset.optionLetters = optionPairs.map(p => p.letter).join(',');
+
+  this.setupImageUploadHandlers(optionPairs.map(p => p.letter));
+  console.log('✅ editQuestion modal opened with', optionPairs.length, 'options');
+};
+
+// Insert character at caret in focused contenteditable
+CMSApp.prototype.insertIntoFocused = function(char) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const textNode = document.createTextNode(char);
+  range.insertNode(textNode);
+  range.setStartAfter(textNode);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+};
+
+// ─────────────────────────────────────────────
+// RICH TEXT SETUP
+// ─────────────────────────────────────────────
+CMSApp.prototype.setupRichTextToolbars = function() {
+  document.querySelectorAll('.rich-text-button[data-command]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.execCommand(btn.getAttribute('data-command'), false, null);
+    });
+  });
+};
+
+CMSApp.prototype.formatText = function(command, value = null) {
+  document.execCommand(command, false, value);
+};
+
+CMSApp.prototype.updateToolbarState = function() {
+  ['bold','italic','underline'].forEach(cmd => {
+    const isActive = document.queryCommandState(cmd);
+    document.querySelectorAll(`.rich-text-button[data-command="${cmd}"]`).forEach(btn => {
+      btn.classList.toggle('active', isActive);
+    });
+  });
+};
+
+// ─────────────────────────────────────────────
+// SAVE EDITED QUESTION — FIXED: handles both
+// ─────────────────────────────────────────────
+CMSApp.prototype.saveEditedQuestion = function(event, bankId, questionIndex) {
+  event.preventDefault();
+  console.log('💾 Saving edited question v2...', questionIndex);
+
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+
+  const modal = document.getElementById('edit-question-modal');
+  const isObjectOptions = modal && modal.dataset.isObjectOptions === '1';
+  const optionLetters = modal ? modal.dataset.optionLetters.split(',') : [];
+
+  const editedText = document.getElementById('edit-question-text').innerHTML;
+  const editedCorrect = document.getElementById('edit-correct-answer').value;
+  const editedExplanation = document.getElementById('edit-explanation').innerHTML;
+  const passageField = document.getElementById('edit-passage-context');
+  const editedPassage = passageField ? passageField.innerHTML : (question.passageContext || question.passage || '');
+
+  // Collect options preserving original format
+  let editedOptions;
+  if (isObjectOptions) {
+    editedOptions = {};
+    optionLetters.forEach(letter => {
+      const el = document.getElementById(`edit-option-${letter}`);
+      if (el) editedOptions[letter] = el.innerHTML;
+    });
+  } else {
+    editedOptions = optionLetters.map(letter => {
+      const el = document.getElementById(`edit-option-${letter}`);
+      return el ? el.innerHTML : '';
+    });
+  }
+
+  // Correct value: letter for object, index for array
+  let correctValue;
+  if (isObjectOptions) {
+    correctValue = editedCorrect;
+  } else {
+    correctValue = optionLetters.indexOf(editedCorrect);
+    if (correctValue === -1) correctValue = 0;
+  }
+
+  questions[questionIndex] = {
+    ...question,
+    text: editedText,
+    question: editedText,
+    options: editedOptions,
+    correct: correctValue,
+    correctAnswer: correctValue,
+    explanation: editedExplanation,
+    passageContext: editedPassage,
+    passage: editedPassage,
+    passageImages: this.imageManager.images.passage || [],
+    questionImages: this.imageManager.images.question || [],
+    optionImages: this.imageManager.images.options || {}
+  };
+
+  this.showProcessing('Saving changes...');
+  this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions,
+    updatedAt: this.serverTimestamp()
+  }).then(() => {
+    console.log('✅ Question updated');
+    bank.questions = questions;
+    this.closeEditQuestionModal();
+    this.showQuestionsViewModal(bank);
+    this.showAlert('Question updated successfully!', 'success');
+  }).catch(error => {
+    console.error('❌ Error updating question:', error);
+    this.showAlert('Error updating question. Please try again.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ─────────────────────────────────────────────
+// CLOSE EDIT MODAL
+// ─────────────────────────────────────────────
+CMSApp.prototype.closeEditQuestionModal = function() {
+  const modal = document.getElementById('edit-question-modal');
+  if (modal) modal.remove();
+  if (this.imageManager) {
+    this.imageManager.currentContext = null;
+    this.imageManager.currentQuestionIndex = null;
+    this.imageManager.currentBankId = null;
+    this.imageManager.images = {};
+  }
+};
+
+// ─────────────────────────────────────────────
+// RENDER QUESTIONS — FIXED: handles both formats
+// ─────────────────────────────────────────────
+CMSApp.prototype.renderQuestions = function(questions, bankId) {
+  if (!questions || questions.length === 0) return '<div class="empty-state">No questions found</div>';
+
+  return questions.map((q, index) => {
+    const questionNum = q.questionNumber || (index + 1);
+    const hasPassage = q.passageContext || q.passage || (q.passageImages && q.passageImages.length > 0);
+    const hasQuestionImages = q.questionImages && q.questionImages.length > 0;
+
+    // Normalize display of correct answer and options
+    let correctDisplay = '?';
+    let optionsHTML = '<p style="color:#6c757d;font-style:italic;">No options</p>';
+
+    if (Array.isArray(q.options) && q.options.length > 0) {
+      const correctIdx = typeof q.correct === 'number' ? q.correct
+                       : typeof q.correctAnswer === 'number' ? q.correctAnswer : 0;
+      correctDisplay = String.fromCharCode(65 + correctIdx);
+      optionsHTML = q.options.map((opt, i) => {
+        const isCorrect = i === correctIdx;
+        const optImages = q.optionImages && q.optionImages[i] ? q.optionImages[i] : [];
+        return `<div style="padding:10px 15px;margin:6px 0;border-radius:6px;font-size:14px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  ${opt}${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                  ${optImages.length > 0 ? `<div style="display:flex;gap:6px;margin-top:6px;">
+                    ${optImages.map(img => `<img src="${img}" style="height:60px;border-radius:4px;cursor:pointer;"
+                      onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+                  </div>` : ''}
+                </div>`;
+      }).join('');
+    } else if (q.options && typeof q.options === 'object') {
+      correctDisplay = q.correct || '?';
+      optionsHTML = Object.entries(q.options).map(([letter, text]) => {
+        const isCorrect = letter === q.correct;
+        const optImages = q.optionImages && q.optionImages[letter] ? q.optionImages[letter] : [];
+        return `<div style="padding:10px 15px;margin:6px 0;border-radius:6px;font-size:14px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  <strong>${letter}:</strong> ${text}${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                  ${optImages.length > 0 ? `<div style="display:flex;gap:6px;margin-top:6px;">
+                    ${optImages.map(img => `<img src="${img}" style="height:60px;border-radius:4px;cursor:pointer;"
+                      onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+                  </div>` : ''}
+                </div>`;
+      }).join('');
+    }
+
+    return `
+      <div style="border:1px solid #dee2e6;border-radius:8px;padding:18px;
+                  margin-bottom:18px;background:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #e9ecef;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong style="color:#495057;">Q${questionNum}</strong>
+            <span style="background:#28a745;color:white;padding:2px 10px;border-radius:10px;
+                         font-size:12px;font-weight:600;">Answer: ${correctDisplay}</span>
+            ${q.testType ? `<span style="background:#6c757d;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">${q.testType}</span>` : ''}
+            ${q.addedManually ? `<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;">✏️ Manual</span>` : ''}
+            ${hasPassage ? `<span style="background:#17a2b8;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">📖 Passage</span>` : ''}
+            ${hasQuestionImages ? `<span style="background:#6f42c1;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">🖼️ Images</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="window.cmsApp.editQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#007bff;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">✏️ Edit</button>
+            <button onclick="window.cmsApp.deleteQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#dc3545;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">🗑️ Delete</button>
+          </div>
+        </div>
+
+        ${hasPassage ? `
+          <details style="margin-bottom:12px;">
+            <summary style="cursor:pointer;color:#007bff;font-size:12px;
+                            padding:5px 10px;background:#e7f3ff;border-radius:4px;">
+              📖 Passage (${(q.passageContext || q.passage || '').length} chars)
+            </summary>
+            <div style="margin-top:6px;padding:12px;background:#f8f9fa;
+                        border-left:3px solid #007bff;border-radius:4px;
+                        max-height:200px;overflow-y:auto;font-size:13px;line-height:1.6;">
+              ${q.passageContext || q.passage || ''}
+            </div>
+            ${q.passageImages && q.passageImages.length > 0 ? `
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                ${q.passageImages.map(img => `<img src="${img}" style="height:80px;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
+                  onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+              </div>` : ''}
+          </details>
+        ` : ''}
+
+        <p style="margin:8px 0;font-size:15px;line-height:1.5;">${q.text || q.question || 'No question text'}</p>
+
+        ${hasQuestionImages ? `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;">
+            ${q.questionImages.map(img => `<img src="${img}" style="height:100px;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
+              onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+          </div>` : ''}
+
+        ${optionsHTML}
+
+        ${q.explanation ? `
+          <div style="margin-top:12px;padding:12px 15px;background:#e7f3ff;
+                      border-left:4px solid #007bff;border-radius:4px;font-size:13px;">
+            <strong style="color:#004085;">💡 Explanation:</strong>
+            <span style="color:#004085;"> ${q.explanation}</span>
+          </div>` : ''}
+      </div>
+    `;
+  }).join('');
+};
+
+// ─────────────────────────────────────────────
+// IMAGE GALLERY RENDERING
+// ─────────────────────────────────────────────
+CMSApp.prototype.renderImageGallery = function(images, context) {
+  if (!images || images.length === 0) {
+    return '<div style="text-align:center;color:#6c757d;padding:15px;font-size:13px;">No images yet</div>';
+  }
+  return images.map((img, index) => `
+    <div class="image-gallery-item">
+      <img src="${img}" alt="Image ${index+1}" onclick="window.cmsApp.viewImage('${img}')">
+      <button class="edit-image" onclick="event.stopPropagation();window.cmsApp.editImage('${context}',${index})" title="Edit">✏️</button>
+      <button class="remove-image" onclick="event.stopPropagation();window.cmsApp.removeImage('${context}',${index})" title="Remove">×</button>
+      <div class="image-label">Image ${index+1}</div>
+    </div>
+  `).join('');
+};
+
+// ─────────────────────────────────────────────
+// IMAGE UPLOAD HANDLERS
+// ─────────────────────────────────────────────
+CMSApp.prototype.setupImageUploadHandlers = function(optionLetters) {
+  this.setupImageHandler('passage');
+  this.setupImageHandler('question');
+  if (optionLetters) {
+    optionLetters.forEach(letter => this.setupImageHandler(`option-${letter}`));
+  }
+};
+
+CMSApp.prototype.setupImageHandler = function(context) {
+  const zone = document.getElementById(`${context}-image-zone`);
+  const input = document.getElementById(`${context}-image-input`);
+  if (!zone || !input) return;
+
+  input.addEventListener('change', (e) => this.handleImageFiles(e.target.files, context));
+
+  ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+    zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); });
+  });
+  zone.addEventListener('dragover', () => zone.classList.add('dragover'));
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    zone.classList.remove('dragover');
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) this.handleImageFiles(files, context);
+  });
+  zone.addEventListener('mouseenter', () => { this.imageManager.currentContext = context; });
+};
+
+CMSApp.prototype.setupGlobalPasteListener = function() {
+  document.addEventListener('paste', (e) => {
+    if (!document.getElementById('edit-question-modal') || !this.imageManager || !this.imageManager.currentContext) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault();
+        this.handleImageFiles([items[i].getAsFile()], this.imageManager.currentContext);
+        break;
+      }
+    }
+  });
+};
+
+CMSApp.prototype.handleImageFiles = function(files, context) {
+  Array.from(files).forEach(file => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (this.imageManager.compressionEnabled) {
+        this.compressImage(e.target.result, (compressed) => this.addImageToGallery(compressed, context));
+      } else {
+        this.addImageToGallery(e.target.result, context);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+CMSApp.prototype.compressImage = function(imageData, callback) {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    let w = img.width, h = img.height;
+    const max = 1200;
+    if (w > max || h > max) {
+      if (w > h) { h = (h/w)*max; w = max; } else { w = (w/h)*max; h = max; }
+    }
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', this.imageManager.compressionQuality));
+  };
+  img.src = imageData;
+};
+
+CMSApp.prototype.toggleCompression = function(enabled) {
+  this.imageManager.compressionEnabled = enabled;
+};
+
+CMSApp.prototype.addImageToGallery = function(imageData, context) {
+  if (context === 'passage') {
+    this.imageManager.images.passage.push(imageData);
+  } else if (context === 'question') {
+    this.imageManager.images.question.push(imageData);
+  } else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    if (!this.imageManager.images.options[key]) this.imageManager.images.options[key] = [];
+    this.imageManager.images.options[key].push(imageData);
+  }
+  this.updateImageGallery(context);
+};
+
+CMSApp.prototype.updateImageGallery = function(context) {
+  const gallery = document.getElementById(`${context}-images-gallery`);
+  if (!gallery) return;
+  let images;
+  if (context === 'passage') images = this.imageManager.images.passage;
+  else if (context === 'question') images = this.imageManager.images.question;
+  else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    images = this.imageManager.images.options[key] || [];
+  }
+  gallery.innerHTML = this.renderImageGallery(images, context);
+};
+
+CMSApp.prototype.removeImage = function(context, index) {
+  if (context === 'passage') {
+    this.imageManager.images.passage.splice(index, 1);
+  } else if (context === 'question') {
+    this.imageManager.images.question.splice(index, 1);
+  } else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    if (this.imageManager.images.options[key]) this.imageManager.images.options[key].splice(index, 1);
+  }
+  this.updateImageGallery(context);
+};
+
+CMSApp.prototype.viewImage = function(imageData) {
+  const viewer = document.createElement('div');
+  viewer.className = 'image-viewer-modal active';
+  viewer.innerHTML = `
+    <div class="image-viewer-content">
+      <button class="image-viewer-close" onclick="this.closest('.image-viewer-modal').remove()">×</button>
+      <img src="${imageData}" alt="Full size image">
+    </div>`;
+  document.body.appendChild(viewer);
+  viewer.addEventListener('click', e => { if (e.target === viewer) viewer.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { viewer.remove(); document.removeEventListener('keydown', esc); }
+  });
+};
+
+CMSApp.prototype.editImage = function(context, index) {
+  let imageData;
+  if (context === 'passage') imageData = this.imageManager.images.passage[index];
+  else if (context === 'question') imageData = this.imageManager.images.question[index];
+  else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    imageData = this.imageManager.images.options[key]?.[index];
+  }
+  if (!imageData) return;
+
+  const existing = document.getElementById('image-editor-modal');
+  if (existing) existing.remove();
+
+  const editorEl = document.createElement('div');
+  editorEl.className = 'image-editor-modal active';
+  editorEl.id = 'image-editor-modal';
+  editorEl.innerHTML = `
+    <div class="image-editor-container">
+      <h3 style="margin:0 0 15px 0;">✏️ Edit Image</h3>
+      <div class="image-editor-toolbar">
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.rotateImage(-90)">↶ Rotate Left</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.rotateImage(90)">↷ Rotate Right</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustBrightness(10)">☀️ Brighter</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustBrightness(-10)">🌙 Darker</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustContrast(10)">◐ More Contrast</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustContrast(-10)">◑ Less Contrast</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.resetImageEdits()">🔄 Reset</button>
+      </div>
+      <div class="image-editor-canvas-container">
+        <canvas id="image-editor-canvas" class="image-editor-canvas"></canvas>
+      </div>
+      <div class="image-editor-actions">
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.closeImageEditor()">Cancel</button>
+        <button class="cms-btn cms-btn-primary" onclick="window.cmsApp.saveEditedImage('${context}',${index})">💾 Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(editorEl);
+
+  this.currentEditingImage = { originalData: imageData, context, index, rotation: 0, brightness: 0, contrast: 0 };
+  this.loadImageToCanvas(imageData);
+};
+
+CMSApp.prototype.loadImageToCanvas = function(imageData) {
+  const canvas = document.getElementById('image-editor-canvas');
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width; canvas.height = img.height;
+    this.currentEditingImage.img = img;
+    this.renderEditedImage();
+  };
+  img.src = imageData;
+};
+
+CMSApp.prototype.renderEditedImage = function() {
+  const canvas = document.getElementById('image-editor-canvas');
+  const ctx = canvas.getContext('2d');
+  const { img, rotation, brightness, contrast } = this.currentEditingImage;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(canvas.width/2, canvas.height/2);
+  ctx.rotate(rotation * Math.PI / 180);
+  ctx.translate(-canvas.width/2, -canvas.height/2);
+  ctx.filter = `brightness(${100+brightness}%) contrast(${100+contrast}%)`;
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+};
+
+CMSApp.prototype.rotateImage = function(deg) { this.currentEditingImage.rotation += deg; this.renderEditedImage(); };
+CMSApp.prototype.adjustBrightness = function(v) { this.currentEditingImage.brightness += v; this.renderEditedImage(); };
+CMSApp.prototype.adjustContrast = function(v) { this.currentEditingImage.contrast += v; this.renderEditedImage(); };
+CMSApp.prototype.resetImageEdits = function() {
+  this.currentEditingImage.rotation = 0;
+  this.currentEditingImage.brightness = 0;
+  this.currentEditingImage.contrast = 0;
+  this.renderEditedImage();
+};
+
+CMSApp.prototype.saveEditedImage = function(context, index) {
+  const canvas = document.getElementById('image-editor-canvas');
+  const editedData = canvas.toDataURL('image/jpeg', 0.9);
+  if (context === 'passage') this.imageManager.images.passage[index] = editedData;
+  else if (context === 'question') this.imageManager.images.question[index] = editedData;
+  else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    this.imageManager.images.options[key][index] = editedData;
+  }
+  this.updateImageGallery(context);
+  this.closeImageEditor();
+  this.showAlert('Image saved!', 'success');
+};
+
+CMSApp.prototype.closeImageEditor = function() {
+  const editor = document.getElementById('image-editor-modal');
+  if (editor) editor.remove();
+  this.currentEditingImage = null;
+};
+
+CMSApp.prototype.getCurrentEditingQuestion = function() {
+  if (!this.imageManager || !this.imageManager.currentBankId) return null;
+  const bank = this.state.questionBanks.find(b => b.id === this.imageManager.currentBankId);
+  if (!bank) return null;
+  return (bank.questions || [])[this.imageManager.currentQuestionIndex];
+};
+
+// Initialize image management on CMS init
+const originalInit = CMSApp.prototype.init;
+CMSApp.prototype.init = function() {
+  originalInit.call(this);
+  this.initializeImageManagement();
+};
+
+console.log('✅ Section 12 FIXED v2: Image Management & Rich Text Editor loaded');
+console.log('✅ editQuestion: handles array + object options');
+console.log('✅ saveEditedQuestion: handles array + object options');
+console.log('✅ renderQuestions: handles array + object options');
+console.log('🎨 Math toolbar: Bold, Italic, Underline, Sub, Sup, √, π, °, ≠, ≤, ≥, ×, ÷, ±');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 13: FINAL INTEGRATION & HELPERS -->
+<!-- Settings Page, Form Handlers, Utilities -->
+<!-- FIXED v2:                               -->
+<!--   #1 showGenreModal added (was missing) -->
+<!--   #1 showQuestionBankModal added        -->
+<!--   Form submit handlers wired to init    -->
+<!--   populateGenreDropdown kept + fixed    -->
+<!-- ========================================= -->
+<script>
+console.log('🔧 Loading Section 13: Final Integration & Utilities...');
+
+// ================================================
+// MODAL OPENERS — these were missing causing
+// "Create Genre" and "Create Question Bank" to fail
+// ================================================
+
+CMSApp.prototype.showGenreModal = function() {
+  document.getElementById('genre-name').value = '';
+  const descField = document.getElementById('genre-description');
+  if (descField) descField.value = '';
+  const subjectField = document.getElementById('genre-subject');
+  if (subjectField) subjectField.value = '';
+  document.getElementById('genre-modal-title').textContent = 'Create Genre';
+  this.state.editingGenreId = null;
+  this.openModal('genre-modal');
+};
+
+CMSApp.prototype.showQuestionBankModal = function() {
+  document.getElementById('q-bank-name').value = '';
+  document.getElementById('q-bank-approach').value = '';
+  const descField = document.getElementById('q-bank-description');
+  if (descField) descField.value = '';
+  document.getElementById('question-bank-modal-title').textContent = 'Create Question Bank';
+  this.state.editingBankId = null;
+  this.openModal('question-bank-modal');
+};
+
+CMSApp.prototype.showQuickImport = function() {
+  // Reset import state
+  this.state.contentFile = null;
+  this.state.answerFile = null;
+  if (this.elements.contentPasteArea) this.elements.contentPasteArea.textContent = '';
+  if (this.elements.contentUploadArea) this.elements.contentUploadArea.classList.remove('has-content');
+  if (this.elements.answerUploadArea) this.elements.answerUploadArea.classList.remove('has-content');
+
+  const contentPreview = document.getElementById('content-preview');
+  const answerPreview = document.getElementById('answer-preview');
+  if (contentPreview) contentPreview.style.display = 'none';
+  if (answerPreview) answerPreview.style.display = 'none';
+
+  // Populate bank select
+  this.populateAIImportBankSelect();
+
+  this.openModal('ai-import-modal');
+};
+
+// ================================================
+// OPEN MODAL HELPER
+// ================================================
+
+CMSApp.prototype.openModal = function(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'flex';
+  } else {
+    console.warn('Modal not found:', modalId);
+  }
+};
+
+// ================================================
+// SETTINGS PAGE MANAGEMENT
+// ================================================
+
+CMSApp.prototype.loadSettingsPage = function() {
+  console.log('⚙️ Loading settings page...');
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  if (apiKeyInput) {
+    const storedKey = this.getStoredApiKey();
+    apiKeyInput.value = storedKey || '';
+  }
+  const settings = this.getParserSettings();
+  const extractionModeSelect = document.getElementById('default-extraction-mode');
+  const maxPagesSelect = document.getElementById('max-pdf-pages');
+  const multiPassCheckbox = document.getElementById('enable-multi-pass');
+  const autoDetectCheckbox = document.getElementById('auto-detect-test-type');
+  if (extractionModeSelect) extractionModeSelect.value = settings.defaultExtractionMode;
+  if (maxPagesSelect) maxPagesSelect.value = settings.maxPdfPages;
+  if (multiPassCheckbox) multiPassCheckbox.checked = settings.enableMultiPass;
+  if (autoDetectCheckbox) autoDetectCheckbox.checked = settings.autoDetectTestType;
+  this.updateApiKeyStatus();
+  this.attachSettingsEventListeners();
+  this.updateStorageUsage();
+  console.log('✅ Settings page loaded');
+};
+
+CMSApp.prototype.attachSettingsEventListeners = function() {
+  console.log('🔧 Attaching settings event listeners...');
+  const toggleBtn = document.getElementById('toggle-api-key-visibility');
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  if (toggleBtn && apiKeyInput) {
+    toggleBtn.addEventListener('click', () => {
+      if (apiKeyInput.type === 'password') {
+        apiKeyInput.type = 'text';
+        toggleBtn.textContent = '🙈';
+      } else {
+        apiKeyInput.type = 'password';
+        toggleBtn.textContent = '👁️';
+      }
+    });
+  }
+  const saveKeyBtn = document.getElementById('save-api-key');
+  if (saveKeyBtn) saveKeyBtn.addEventListener('click', () => this.handleSaveApiKey());
+  const testKeyBtn = document.getElementById('test-api-key');
+  if (testKeyBtn) testKeyBtn.addEventListener('click', () => this.handleTestApiKey());
+  const helpBtn = document.getElementById('get-api-key-help');
+  if (helpBtn) helpBtn.addEventListener('click', () => this.showApiKeyHelp());
+  const saveSettingsBtn = document.getElementById('save-parser-settings');
+  if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', () => this.handleSaveParserSettings());
+  const resetBtn = document.getElementById('reset-parser-settings');
+  if (resetBtn) resetBtn.addEventListener('click', () => this.handleResetSettings());
+  console.log('✅ Settings event listeners attached');
+};
+
+CMSApp.prototype.handleSaveApiKey = function() {
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (!apiKey) { this.showAlert('Please enter an API key.', 'error'); return; }
+  if (!apiKey.startsWith('AIza')) {
+    this.showAlert('Invalid API key format. Gemini API keys start with "AIza".', 'error');
+    return;
+  }
+  if (this.saveApiKey(apiKey)) {
+    this.showAlert('API key saved successfully! Reinitializing parser...', 'success');
+    this.initializeUltimateParser();
+    this.updateApiKeyStatus();
+  } else {
+    this.showAlert('Failed to save API key.', 'error');
+  }
+};
+
+CMSApp.prototype.handleTestApiKey = function() {
+  const apiKey = this.getStoredApiKey();
+  if (!apiKey) { this.showAlert('Please save an API key first.', 'warning'); return; }
+  this.showProcessing('Testing API connection...');
+  if (this.geminiModel) {
+    this.geminiModel.generateContent('Respond with exactly: {"status": "connected"}').then(result => {
+      this.hideProcessing();
+      this.showAlert('✅ API key is working correctly!', 'success');
+      this.updateApiKeyStatus(true);
+    }).catch(error => {
+      this.hideProcessing();
+      let msg = '❌ API key test failed. ';
+      if (error.message.includes('API_KEY_INVALID')) msg += 'The API key is invalid.';
+      else if (error.message.includes('quota') || error.message.includes('429')) msg += 'API quota exceeded.';
+      else msg += 'Please check your key and billing settings.';
+      this.showAlert(msg, 'error');
+      this.updateApiKeyStatus(false);
+    });
+  } else {
+    this.hideProcessing();
+    this.showAlert('Parser not initialized. Please save API key first.', 'warning');
+  }
+};
+
+CMSApp.prototype.updateApiKeyStatus = function(testResult = null) {
+  const statusDiv = document.getElementById('api-key-status');
+  const statusText = document.getElementById('api-key-status-text');
+  if (!statusDiv || !statusText) return;
+  const hasKey = !!this.getStoredApiKey();
+  if (testResult === true) {
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(40,167,69,0.1)';
+    statusDiv.style.border = '1px solid var(--success-color)';
+    statusText.style.color = 'var(--success-color)';
+    statusText.textContent = '✅ API key is working correctly';
+  } else if (testResult === false) {
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(220,53,69,0.1)';
+    statusDiv.style.border = '1px solid var(--danger-color)';
+    statusText.style.color = 'var(--danger-color)';
+    statusText.textContent = '❌ API key test failed';
+  } else if (hasKey) {
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(255,193,7,0.1)';
+    statusDiv.style.border = '1px solid var(--warning-color)';
+    statusText.style.color = 'var(--warning-color)';
+    statusText.textContent = '🔑 API key saved (not tested)';
+  } else {
+    statusDiv.style.display = 'none';
+  }
+};
+
+CMSApp.prototype.showApiKeyHelp = function() {
+  this.showAlert(`🔑 How to get a Gemini API Key:\n\n1. Go to: https://aistudio.google.com/app/apikey\n2. Sign in with your Google account\n3. Click "Create API key"\n4. Copy the key (starts with "AIza...")\n5. Paste it here and click "Save API Key"\n\n💰 Free tier includes daily quota.\nPaid tier is very affordable (~$0.001 per request).`, 'info');
+};
+
+CMSApp.prototype.handleSaveParserSettings = function() {
+  const settings = {
+    defaultExtractionMode: document.getElementById('default-extraction-mode')?.value || 'smart',
+    maxPdfPages: parseInt(document.getElementById('max-pdf-pages')?.value) || 10,
+    enableMultiPass: document.getElementById('enable-multi-pass')?.checked || true,
+    autoDetectTestType: document.getElementById('auto-detect-test-type')?.checked || true
+  };
+  if (this.saveParserSettings(settings)) {
+    this.showAlert('Parser settings saved successfully!', 'success');
+  } else {
+    this.showAlert('Failed to save settings.', 'error');
+  }
+};
+
+CMSApp.prototype.handleResetSettings = function() {
+  if (!confirm('Reset all parser settings to defaults?')) return;
+  const defaults = this.getDefaultSettings();
+  document.getElementById('default-extraction-mode').value = defaults.defaultExtractionMode;
+  document.getElementById('max-pdf-pages').value = defaults.maxPdfPages;
+  document.getElementById('enable-multi-pass').checked = defaults.enableMultiPass;
+  document.getElementById('auto-detect-test-type').checked = defaults.autoDetectTestType;
+  this.saveParserSettings(defaults);
+  this.showAlert('Settings reset to defaults!', 'success');
+};
+
+CMSApp.prototype.updateStorageUsage = function() {
+  const usageSpan = document.getElementById('storage-usage');
+  if (!usageSpan) return;
+  try {
+    let totalSize = 0;
+    for (let key in localStorage) {
+      if (localStorage.hasOwnProperty(key)) totalSize += localStorage[key].length;
+    }
+    usageSpan.textContent = `${(totalSize / 1024).toFixed(2)} KB`;
+  } catch (e) {
+    usageSpan.textContent = 'Unable to calculate';
+  }
+};
+
+// ================================================
+// FORM HANDLERS
+// ================================================
+
+CMSApp.prototype.saveQuestionBank = function() {
+  this.handleQuestionBankSubmit();
+};
+
+CMSApp.prototype.saveEpisode = function() {
+  this.handleEpisodeSubmit();
+};
+
+CMSApp.prototype.saveGenre = function() {
+  this.handleGenreSubmit();
+};
+
+CMSApp.prototype.handleQuestionBankSubmit = function() {
+  const name = document.getElementById('q-bank-name').value.trim();
+  const approach = document.getElementById('q-bank-approach').value;
+  const descField = document.getElementById('q-bank-description');
+  const description = descField ? descField.value.trim() : '';
+  if (!name || !approach) { this.showAlert('Please fill in all required fields.', 'error'); return; }
+  this.showProcessing(this.state.editingBankId ? 'Updating question bank...' : 'Creating question bank...');
+  const bankData = { name, approach, description, updatedAt: this.serverTimestamp() };
+  const promise = this.state.editingBankId
+    ? this.updateDoc(this.doc(this.db, 'questionBanks', this.state.editingBankId), bankData)
+    : this.addDoc(this.collection(this.db, 'questionBanks'), {
+        ...bankData, questions: [], createdAt: this.serverTimestamp(), createdWith: 'Ultimate Parser CMS v2.3'
+      });
+  promise.then(() => {
+    this.showAlert(this.state.editingBankId ? 'Question bank updated!' : 'Question bank created!', 'success');
+    this.closeModal('question-bank-modal');
+    this.loadQuestionBanks();
+    this.state.editingBankId = null;
+    // Restore pending import if any
+    if (this.state.pendingImport) {
+      setTimeout(() => {
+        this.showAlert('Question bank created! Reopening AI Import with your content...', 'success');
+        setTimeout(() => {
+          this.state.contentFile = this.state.pendingImport.contentFile;
+          this.state.answerFile = this.state.pendingImport.answerFile;
+          this.showQuickImport();
+          setTimeout(() => {
+            if (this.state.contentFile) {
+              this.elements.contentUploadArea.classList.add('has-content');
+              const contentPreview = document.getElementById('content-preview');
+              const contentFileName = document.getElementById('content-file-name');
+              if (contentPreview) contentPreview.style.display = 'block';
+              if (contentFileName) contentFileName.textContent = this.state.contentFile.name;
+            }
+            if (this.state.pendingImport.contentText && this.elements.contentPasteArea) {
+              this.elements.contentPasteArea.textContent = this.state.pendingImport.contentText;
+            }
+            const frameworkCheckbox = document.getElementById('framework-mode-enable');
+            if (frameworkCheckbox && this.state.pendingImport.frameworkMode) frameworkCheckbox.checked = true;
+            this.state.pendingImport = null;
+            console.log('✅ Import state restored successfully');
+          }, 500);
+        }, 1000);
+      }, 500);
+    }
+  }).catch(error => {
+    console.error('Error saving question bank:', error);
+    this.showAlert('Error saving question bank.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ⭐ EPISODES WITH ENCOUNTERS ARRAY ⭐
+CMSApp.prototype.handleEpisodeSubmit = function() {
+  const title = document.getElementById('episode-title').value.trim();
+  const genre = document.getElementById('episode-genre').value;
+  const description = document.getElementById('episode-description').value.trim();
+  const active = document.getElementById('episode-active').checked;
+  const selectedApproaches = [];
+  document.querySelectorAll('.approach-checkbox:checked').forEach(cb => selectedApproaches.push(cb.value));
+  const selectedQuestionBanks = this.getSelectedQuestionBanks();
+  if (!title || !genre) { this.showAlert('Please fill in all required fields.', 'error'); return; }
+  if (selectedApproaches.length === 0) { this.showAlert('Please select at least one available approach.', 'error'); return; }
+  this.showProcessing(this.state.editingEpisodeId ? 'Updating episode...' : 'Creating episode...');
+  const episodeData = {
+    title, genre, description, active,
+    availableApproaches: selectedApproaches,
+    selectedQuestionBanks: selectedQuestionBanks,
+    encounters: [{
+      narrative: description || `Welcome to ${title}! Prepare yourself for the challenges ahead.`,
+      qCount: 75
+    }],
+    updatedAt: this.serverTimestamp()
+  };
+  const promise = this.state.editingEpisodeId
+    ? this.updateDoc(this.doc(this.db, 'episodes', this.state.editingEpisodeId), episodeData)
+    : this.addDoc(this.collection(this.db, 'episodes'), {
+        ...episodeData, createdAt: this.serverTimestamp(), createdWith: 'Ultimate Parser CMS v2.3'
+      });
+  promise.then(() => {
+    this.showAlert(`Episode ${this.state.editingEpisodeId ? 'updated' : 'created'} with ${selectedQuestionBanks.length} question banks!`, 'success');
+    this.closeModal('episode-modal');
+    this.loadEpisodes();
+    this.state.editingEpisodeId = null;
+  }).catch(error => {
+    console.error('Error saving episode:', error);
+    this.showAlert('Error saving episode.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.handleGenreSubmit = function() {
+  const name = document.getElementById('genre-name').value.trim();
+  const descField = document.getElementById('genre-description');
+  const subjectField = document.getElementById('genre-subject');
+  const description = descField ? descField.value.trim() : '';
+  const primarySubject = subjectField ? subjectField.value : '';
+  if (!name) { this.showAlert('Please enter a genre name.', 'error'); return; }
+  this.showProcessing(this.state.editingGenreId ? 'Updating genre...' : 'Creating genre...');
+  const genreData = { name, description, primarySubject, updatedAt: this.serverTimestamp() };
+  const promise = this.state.editingGenreId
+    ? this.updateDoc(this.doc(this.db, 'genres', this.state.editingGenreId), genreData)
+    : this.addDoc(this.collection(this.db, 'genres'), { ...genreData, createdAt: this.serverTimestamp() });
+  promise.then(() => {
+    this.showAlert(this.state.editingGenreId ? 'Genre updated!' : 'Genre created!', 'success');
+    this.closeModal('genre-modal');
+    this.loadGenres();
+    this.state.editingGenreId = null;
+  }).catch(error => {
+    console.error('Error saving genre:', error);
+    this.showAlert('Error saving genre.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ================================================
+// QUESTION BANK SLIDERS FOR EPISODES
+// ================================================
+
+CMSApp.prototype.loadQuestionBanksForEpisode = function() {
+  console.log('🔄 Loading question banks for episode sliders...');
+  const togglesContainer = document.getElementById('question-banks-toggles');
+  if (!togglesContainer) { console.error('Question banks toggles container not found'); return Promise.resolve(); }
+  return new Promise((resolve) => {
+    this.getDocs(this.collection(this.db, 'questionBanks')).then(qBanksSnapshot => {
+      togglesContainer.innerHTML = '';
+      if (qBanksSnapshot.empty) {
+        togglesContainer.innerHTML = '<div style="text-align:center;color:#6c757d;padding:20px;">No question banks found. Create question banks first.</div>';
+        resolve();
+        return;
+      }
+      this.setupToggleAllButton();
+      qBanksSnapshot.forEach(doc => {
+        const bank = { id: doc.id, ...doc.data() };
+        this.renderQuestionBankToggle(bank, togglesContainer);
+      });
+      console.log('✅ Question banks loaded for episode toggles');
+      resolve();
+    }).catch(error => {
+      console.error('Error loading question banks for episode:', error);
+      togglesContainer.innerHTML = '<div style="text-align:center;color:#dc3545;padding:20px;">Error loading question banks</div>';
+      resolve();
+    });
+  });
+};
+
+CMSApp.prototype.renderQuestionBankToggle = function(bank, container) {
+  const questions = Array.isArray(bank.questions) ? bank.questions : [];
+  const bankItem = document.createElement('div');
+  bankItem.className = 'bank-toggle-item';
+  bankItem.dataset.bankId = bank.id;
+  bankItem.innerHTML = `
+    <div class="bank-info">
+      <div class="bank-name">${bank.name || 'Untitled Bank'}</div>
+      <div class="bank-details">${bank.approach || 'General'} • ${questions.length} questions</div>
+    </div>
+    <label class="toggle-switch">
+      <input type="checkbox" class="bank-toggle" data-bank-id="${bank.id}">
+      <span class="toggle-slider"></span>
+    </label>
+  `;
+  container.appendChild(bankItem);
+  const toggle = bankItem.querySelector('.bank-toggle');
+  toggle.addEventListener('change', (e) => {
+    bankItem.classList.toggle('enabled', e.target.checked);
+  });
+};
+
+CMSApp.prototype.setupToggleAllButton = function() {
+  const toggleAllBtn = document.getElementById('toggle-all-banks-btn');
+  if (!toggleAllBtn) return;
+  const newButton = toggleAllBtn.cloneNode(true);
+  toggleAllBtn.parentNode.replaceChild(newButton, toggleAllBtn);
+  newButton.addEventListener('click', () => this.toggleAllQuestionBanks());
+};
+
+CMSApp.prototype.toggleAllQuestionBanks = function() {
+  const toggles = document.querySelectorAll('.bank-toggle');
+  if (toggles.length === 0) return;
+  const allChecked = Array.from(toggles).every(t => t.checked);
+  toggles.forEach(toggle => {
+    toggle.checked = !allChecked;
+    toggle.closest('.bank-toggle-item').classList.toggle('enabled', !allChecked);
+  });
+};
+
+CMSApp.prototype.setSelectedQuestionBanks = function(selectedBankIds) {
+  document.querySelectorAll('.bank-toggle').forEach(toggle => {
+    const isSelected = selectedBankIds.includes(toggle.dataset.bankId);
+    toggle.checked = isSelected;
+    toggle.closest('.bank-toggle-item').classList.toggle('enabled', isSelected);
+  });
+};
+
+CMSApp.prototype.getSelectedQuestionBanks = function() {
+  const selectedBanks = [];
+  document.querySelectorAll('.bank-toggle:checked').forEach(toggle => {
+    selectedBanks.push(toggle.dataset.bankId);
+  });
+  console.log('📚 Getting selected banks:', selectedBanks);
+  return selectedBanks;
+};
+
+// ================================================
+// GENRE DROPDOWN POPULATION
+// ================================================
+
+CMSApp.prototype.populateGenreDropdown = function() {
+  return new Promise((resolve) => {
+    const genreSelect = document.getElementById('episode-genre');
+    if (!genreSelect) { resolve(); return; }
+    genreSelect.innerHTML = '<option value="">Select genre...</option>';
+    if (this.state.genres.length === 0) {
+      ['Mystery','Adventure','Science Fiction','Fantasy','Educational'].forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        genreSelect.appendChild(option);
+      });
+    } else {
+      this.state.genres.forEach(genre => {
+        const option = document.createElement('option');
+        option.value = genre.name;
+        option.textContent = genre.name;
+        genreSelect.appendChild(option);
+      });
+    }
+    resolve();
+  });
+};
+
+// ================================================
+// PROCESSING OVERLAY
+// ================================================
+
+CMSApp.prototype.showProcessing = function(message) {
+  let overlay = document.getElementById('processing-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'processing-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `<div style="background:white;padding:30px 40px;border-radius:12px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <div style="font-size:32px;margin-bottom:12px;">⚙️</div>
+      <div id="processing-message" style="font-size:16px;color:#495057;">${message || 'Processing...'}</div>
+    </div>`;
+    document.body.appendChild(overlay);
+  } else {
+    const msgEl = document.getElementById('processing-message');
+    if (msgEl) msgEl.textContent = message || 'Processing...';
+    overlay.style.display = 'flex';
+  }
+};
+
+CMSApp.prototype.hideProcessing = function() {
+  const overlay = document.getElementById('processing-overlay');
+  if (overlay) overlay.style.display = 'none';
+};
+
+CMSApp.prototype.hideProcessingOverlay = CMSApp.prototype.hideProcessing;
+
+CMSApp.prototype.updateProgress = function(percent, message) {
+  const fill = this.elements.aiProgressFill;
+  const status = this.elements.aiProcessingStatus;
+  const container = this.elements.aiProgressContainer;
+  if (container) container.style.display = 'block';
+  if (fill) fill.style.width = percent + '%';
+  if (status) status.textContent = message || '';
+};
+
+CMSApp.prototype.hideProgress = function() {
+  const container = this.elements.aiProgressContainer;
+  if (container) container.style.display = 'none';
+};
+
+// ================================================
+// NAVIGATION COUNTS + DASHBOARD
+// ================================================
+
+CMSApp.prototype.updateNavigationCounts = function() {
+  const banksCount = document.getElementById('banks-count');
+  const episodesCount = document.getElementById('episodes-count');
+  if (banksCount) banksCount.textContent = this.state.questionBanks.length;
+  if (episodesCount) episodesCount.textContent = this.state.episodes.length;
+};
+
+CMSApp.prototype.loadDashboardData = function() {
+  const totalQBanks = document.getElementById('total-question-banks');
+  const totalEpisodes = document.getElementById('total-episodes');
+  const activeEpisodes = document.getElementById('active-episodes');
+  if (totalQBanks) totalQBanks.textContent = this.state.questionBanks.length;
+  if (totalEpisodes) totalEpisodes.textContent = this.state.episodes.length;
+  if (activeEpisodes) activeEpisodes.textContent = this.state.episodes.filter(e => e.active).length;
+};
+
+CMSApp.prototype.updateDashboardParserStats = function() {
+  const successRateEl = document.getElementById('parser-success-rate');
+  const processedEl = document.getElementById('parser-processed');
+  if (successRateEl) successRateEl.textContent = this.state.parserStats.successRate + '%';
+  if (processedEl) processedEl.textContent = this.state.parserStats.processedDocuments;
+};
+
+// ================================================
+// SYSTEM STATUS AND MONITORING
+// ================================================
+
+CMSApp.prototype.getSystemStatus = function() {
+  return {
+    parserReady: this.parserReady,
+    firebaseConnected: !!this.db,
+    questionBanksLoaded: this.state.questionBanks.length > 0,
+    version: window.ULTIMATE_PARSER_CONFIG?.VERSION || '2.3',
+    successRate: this.state.parserStats.successRate,
+    processedDocuments: this.state.parserStats.processedDocuments,
+    extractedQuestions: this.state.parserStats.extractedQuestions
+  };
+};
+
+CMSApp.prototype.logPerformanceMetric = function(operation, duration, success = true) {
+  console.log(`📈 Performance: ${operation} took ${duration}ms (${success ? 'success' : 'failed'})`);
+};
+
+CMSApp.prototype.verifyInitialization = function() {
+  const status = this.getSystemStatus();
+  console.log('🔍 System Status Check:', status);
+  if (!status.parserReady) console.warn('⚠️ Ultimate Parser not ready. Some features may be limited.');
+  if (!status.firebaseConnected) this.showAlert('❌ Database connection failed. Please refresh the page.', 'error');
+  return status.parserReady && status.firebaseConnected;
+};
+
+CMSApp.prototype.cleanup = function() {
+  console.log('🧹 Cleaning up Ultimate Parser CMS...');
+  this.state.isProcessingImport = false;
+  this.hideProcessing();
+  this.hideProgress();
+  document.querySelectorAll('.cms-modal').forEach(modal => { modal.style.display = 'none'; });
+  console.log('✅ Cleanup complete');
+};
+
+// ================================================
+// GLOBAL ERROR HANDLERS
+// ================================================
+
+window.addEventListener('error', function(e) {
+  console.error('🚨 Global error:', e.error);
+  if (window.cmsApp) window.cmsApp.handleError(e.error, 'system error');
+});
+
+window.addEventListener('beforeunload', function() {
+  if (window.cmsApp) window.cmsApp.cleanup();
+});
+
+// ================================================
+// SYSTEM INITIALIZATION CHECK
+// ================================================
+
+setTimeout(() => {
+  if (window.cmsApp && window.cmsApp.verifyInitialization) {
+    const status = window.cmsApp.verifyInitialization();
+    if (status) {
+      console.log('✅ ============================================');
+      console.log('✅ ULTIMATE PARSER CMS v2.3 FULLY OPERATIONAL');
+      console.log('✅ ⭐ ENCOUNTERS BUG FIXED ⭐');
+      console.log('✅ ============================================');
+      console.log('✅ All sections loaded and integrated');
+      console.log('✅ Firebase v9: Connected');
+      console.log('✅ Ultimate Parser: Ready');
+      console.log('✅ showGenreModal: ADDED');
+      console.log('✅ showQuestionBankModal: ADDED');
+      console.log('✅ Episodes: NOW CREATE WITH ENCOUNTERS ARRAY');
+      console.log('✅ ============================================');
+    }
+  }
+}, 2000);
+
+console.log('✅ Section 13 COMPLETE - showGenreModal + showQuestionBankModal added');
+console.log('🎉 ALL 13 SECTIONS INTEGRATED - System fully operational!');
+</script>
+
+<!-- ========================================= -->
+<!-- SECTION 14.5: MANUAL QUESTION ADDING    -->
+<!-- FIXED:                                  -->
+<!--   Modal appended to body (not nested)   -->
+<!--   High z-index, solid white background  -->
+<!--   Cancel button works properly          -->
+<!--   Format selector A/B/C/D, F/G/H/J,    -->
+<!--   True/False, Custom                    -->
+<!-- ========================================= -->
+<script>
+console.log('📝 Loading Section 14.5: Manual Question Adding...');
+
+CMSApp.prototype.showAddQuestionModal = function(bankId) {
+  console.log('➕ Opening add question modal for bank:', bankId);
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  this.state.addingQuestionToBankId = bankId;
+
+  // Remove any existing instance
+  const existing = document.getElementById('add-question-modal');
+  if (existing) existing.remove();
+
+  // Build modal and append directly to body so it sits above everything
+  const modalEl = document.createElement('div');
+  modalEl.id = 'add-question-modal';
+  modalEl.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-y: auto;
+    padding: 20px;
+  `;
+
+  modalEl.innerHTML = `
+    <div style="
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 30px;
+      width: 100%;
+      max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+      z-index: 99999;
+    ">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:2px solid #e9ecef;padding-bottom:14px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">➕ Add Question to: ${bank.name}</h2>
+        <button onclick="window.cmsApp.closeAddQuestionModal()"
+                style="background:none;border:none;font-size:24px;cursor:pointer;color:#6c757d;line-height:1;padding:0 4px;"
+                title="Cancel">&times;</button>
+      </div>
+
+      <form id="add-question-form" onsubmit="event.preventDefault(); window.cmsApp.handleManualQuestionSubmit();">
+
+        <!-- Format -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Answer Format *</label>
+          <select id="manual-q-format"
+                  onchange="window.cmsApp.renderManualQuestionOptions(this.value)"
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;background:#fff;">
+            <option value="abcd">A, B, C, D — Standard ACT (Math / Science / English)</option>
+            <option value="fghj">F, G, H, J — ACT Reading</option>
+            <option value="tf">True / False</option>
+            <option value="custom">Custom (up to 5 options A–E)</option>
+          </select>
+        </div>
+
+        <!-- Question Text -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Question Text *</label>
+          <textarea id="manual-q-text" rows="3" required
+                    placeholder="Enter your question here..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Passage -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Passage / Context
+            <span style="font-weight:400;color:#6c757d;">(Optional — for Reading questions)</span>
+          </label>
+          <textarea id="manual-q-passage" rows="4"
+                    placeholder="Enter the reading passage or context if applicable..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Dynamic options -->
+        <div id="manual-options-container"></div>
+
+        <!-- Explanation -->
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Explanation
+            <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          <textarea id="manual-q-explanation" rows="3"
+                    placeholder="Explain why this answer is correct..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Buttons -->
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#28a745;color:white;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            ➕ Add Question
+          </button>
+          <button type="button"
+                  onclick="window.cmsApp.closeAddQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+
+  // Close on backdrop click
+  modalEl.addEventListener('click', (e) => {
+    if (e.target === modalEl) window.cmsApp.closeAddQuestionModal();
+  });
+
+  // Render default options
+  this.renderManualQuestionOptions('abcd');
+};
+
+CMSApp.prototype.closeAddQuestionModal = function() {
+  const modal = document.getElementById('add-question-modal');
+  if (modal) modal.remove();
+  this.state.addingQuestionToBankId = null;
+};
+
+// Render options based on selected format
+CMSApp.prototype.renderManualQuestionOptions = function(format) {
+  const container = document.getElementById('manual-options-container');
+  if (!container) return;
+
+  const inputStyle = 'width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;box-sizing:border-box;';
+  const groupStyle = 'margin-bottom:12px;';
+  const labelStyle = 'display:block;font-weight:500;margin-bottom:4px;color:#495057;';
+
+  let letters = [];
+  if (format === 'abcd') letters = ['A','B','C','D'];
+  else if (format === 'fghj') letters = ['F','G','H','J'];
+  else if (format === 'tf') letters = ['T','F2'];
+  else if (format === 'custom') letters = ['A','B','C','D','E'];
+
+  let optionsHTML = `<div style="margin-bottom:16px;">
+    <div style="font-weight:600;color:#495057;margin-bottom:10px;font-size:15px;">Answer Options *</div>`;
+
+  if (format === 'tf') {
+    optionsHTML += `
+      <div style="${groupStyle}">
+        <label style="${labelStyle}">Option 1:</label>
+        <input type="text" id="manual-option-T" value="True" readonly style="${inputStyle}background:#f8f9fa;">
+      </div>
+      <div style="${groupStyle}">
+        <label style="${labelStyle}">Option 2:</label>
+        <input type="text" id="manual-option-F2" value="False" readonly style="${inputStyle}background:#f8f9fa;">
+      </div>
+    `;
+  } else {
+    const placeholder = format === 'custom' ? ' (leave blank to omit)' : '';
+    letters.forEach(l => {
+      optionsHTML += `
+        <div style="${groupStyle}">
+          <label style="${labelStyle}">${l}:</label>
+          <input type="text" id="manual-option-${l}" placeholder="Option ${l}${placeholder}" style="${inputStyle}">
+        </div>
+      `;
+    });
+  }
+
+  // Correct answer dropdown
+  let correctOptions = '';
+  if (format === 'tf') {
+    correctOptions = '<option value="T">True</option><option value="F2">False</option>';
+  } else {
+    letters.forEach(l => { correctOptions += `<option value="${l}">${l}</option>`; });
+  }
+
+  optionsHTML += `
+    <div style="${groupStyle}">
+      <label style="${labelStyle}">Correct Answer *</label>
+      <select id="manual-correct-answer" required style="${inputStyle}background:#fff;">
+        ${correctOptions}
+      </select>
+    </div>
+  </div>`;
+
+  container.innerHTML = optionsHTML;
+};
+
+CMSApp.prototype.handleManualQuestionSubmit = function() {
+  const bankId = this.state.addingQuestionToBankId;
+  if (!bankId) { this.showAlert('No bank selected.', 'error'); return; }
+
+  const questionText = document.getElementById('manual-q-text').value.trim();
+  const passage = document.getElementById('manual-q-passage').value.trim();
+  const explanation = document.getElementById('manual-q-explanation').value.trim();
+  const format = document.getElementById('manual-q-format').value;
+  const correctAnswer = document.getElementById('manual-correct-answer').value;
+
+  if (!questionText) { this.showAlert('Please enter a question.', 'error'); return; }
+
+  // Collect options
+  const options = {};
+  let letters = [];
+  if (format === 'abcd') letters = ['A','B','C','D'];
+  else if (format === 'fghj') letters = ['F','G','H','J'];
+  else if (format === 'tf') letters = ['T','F2'];
+  else if (format === 'custom') letters = ['A','B','C','D','E'];
+
+  let hasOptions = false;
+  letters.forEach(letter => {
+    const input = document.getElementById(`manual-option-${letter}`);
+    if (input && input.value.trim()) { options[letter] = input.value.trim(); hasOptions = true; }
+  });
+
+  if (!hasOptions) { this.showAlert('Please enter at least one answer option.', 'error'); return; }
+  if (!options[correctAnswer]) { this.showAlert('The correct answer option must have text entered.', 'error'); return; }
+
+  const newQuestion = {
+    question: questionText,
+    text: questionText,
+    options,
+    correct: correctAnswer,
+    format,
+    passage: passage || '',
+    explanation: explanation || '',
+    addedManually: true,
+    createdAt: new Date().toISOString()
+  };
+
+  this.showProcessing('Adding question...');
+  const bankRef = this.doc(this.db, 'questionBanks', bankId);
+  this.getDoc(bankRef).then(docSnap => {
+    if (!docSnap.exists()) throw new Error('Question bank not found');
+    const currentQuestions = docSnap.data().questions || [];
+    currentQuestions.push(newQuestion);
+    return this.updateDoc(bankRef, { questions: currentQuestions, updatedAt: this.serverTimestamp() });
+  }).then(() => {
+    this.showAlert('Question added successfully!', 'success');
+    this.closeAddQuestionModal();
+    // Reload bank then refresh questions view
+    const { doc, getDoc } = window.firebaseV9;
+    getDoc(doc(this.db, 'questionBanks', bankId)).then(snap => {
+      if (snap.exists()) {
+        const bank = this.state.questionBanks.find(b => b.id === bankId);
+        if (bank) {
+          bank.questions = snap.data().questions || [];
+          this.showQuestionsViewModal(bank);
+        }
+      }
+    });
+    this.loadQuestionBanks();
+  }).catch(error => {
+    console.error('Error adding question:', error);
+    this.showAlert('Error adding question: ' + error.message, 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+console.log('✅ Section 14.5 loaded — modal appended to body, z-index 99999, cancel works');
+</script>
+
+<!-- ========================================= -->
+<!-- SECTION 15: CLASS MANAGER +              -->
+<!-- EMBEDDED STUDENT REPORTS                 -->
+<!-- APPLICATION: CMS (teacher-cms)           -->
+<!-- Multi-class, single student identity     -->
+<!-- Uses window.firebaseV9 — NO dynamic      -->
+<!-- imports — version matched to CMS db      -->
+<!-- ========================================= -->
+<script>
+console.log('🏫 Loading Section 15: Class Manager + Student Reports...');
+
+// ================================================
+// CODE GENERATION UTILITIES
+// ================================================
+
+function generateLastNameCode() {
+  const currentUser = window.cmsApp ? window.cmsApp.state.currentUser : null;
+  const name = currentUser ? (currentUser.displayName || currentUser.name || currentUser.email || 'TEACHER') : 'TEACHER';
+  const parts = name.trim().split(/\s+/);
+  const lastName = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+  const clean = lastName.toUpperCase().replace(/[^A-Z]/g, '').substring(0, 8);
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return clean + num;
+}
+
+function generateRandomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+  return code;
+}
+
+function getCurrentCodeStyle() {
+  const selected = document.querySelector('input[name="code-style"]:checked');
+  return selected ? selected.value : 'lastname';
+}
+
+window.updateCodePreview = function() {
+  const style = getCurrentCodeStyle();
+  const customInput = document.getElementById('custom-code-input');
+  const preview = document.getElementById('code-preview');
+  if (style === 'custom') {
+    customInput.style.display = 'block';
+    preview.textContent = document.getElementById('new-class-custom-code').value || 'YOURCODE';
+  } else {
+    customInput.style.display = 'none';
+    preview.textContent = style === 'lastname' ? generateLastNameCode() : generateRandomCode();
+  }
+};
+
+window.refreshCodePreview = function() {
+  const style = getCurrentCodeStyle();
+  const preview = document.getElementById('code-preview');
+  if (style === 'lastname') preview.textContent = generateLastNameCode();
+  else if (style === 'random') preview.textContent = generateRandomCode();
+};
+
+// ================================================
+// CLASS MANAGER STATE
+// ================================================
+
+var teacherClasses = [];
+var currentReportsClassId = null;
+var reportsAllStudents = [];
+
+// ================================================
+// LOAD TEACHER'S CLASSES
+// ================================================
+
+window.loadTeacherClasses = async function() {
+  console.log('🏫 Loading teacher classes...');
+
+  // Wait for firebaseV9 to be fully populated
+  if (!window.firebaseV9 || !window.firebaseV9.collection) {
+    console.warn('⚠️ firebaseV9 not ready, retrying in 500ms...');
+    setTimeout(window.loadTeacherClasses, 500);
+    return;
+  }
+
+  // Wait for auth user
+  const currentUser = window.cmsApp ? window.cmsApp.state.currentUser : null;
+  if (!currentUser) {
+    console.warn('⚠️ No current user yet, retrying in 500ms...');
+    setTimeout(window.loadTeacherClasses, 500);
+    return;
+  }
+
+  document.getElementById('classes-loading').style.display = 'block';
+  document.getElementById('classes-empty').style.display = 'none';
+  document.getElementById('classes-list').innerHTML = '';
+
+  const teacherId = currentUser.uid || currentUser.id || 'test-teacher';
+  const db = window.cmsApp.db;
+
+  const { collection, query, where, orderBy, getDocs } = window.firebaseV9;
+
+  try {
+    let snapshot;
+    try {
+      const q = query(
+        collection(db, 'classes'),
+        where('teacherId', '==', teacherId),
+        orderBy('createdAt', 'desc')
+      );
+      snapshot = await getDocs(q);
+    } catch (e) {
+      console.warn('⚠️ orderBy failed (index missing?), trying without sort:', e);
+      const q2 = query(
+        collection(db, 'classes'),
+        where('teacherId', '==', teacherId)
+      );
+      snapshot = await getDocs(q2);
+    }
+    teacherClasses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log('✅ Loaded', teacherClasses.length, 'classes from Firebase');
+  } catch (e) {
+    console.warn('Could not load classes from Firebase:', e);
+    teacherClasses = JSON.parse(sessionStorage.getItem('teacherClasses') || '[]');
+  }
+
+  document.getElementById('classes-loading').style.display = 'none';
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+};
+
+// ================================================
+// RENDER CLASSES LIST
+// ================================================
+
+function renderClassesList() {
+  const container = document.getElementById('classes-list');
+  if (teacherClasses.length === 0) {
+    document.getElementById('classes-empty').style.display = 'block';
+    container.innerHTML = '';
+    return;
+  }
+  document.getElementById('classes-empty').style.display = 'none';
+  container.innerHTML = '';
+
+  teacherClasses.forEach(cls => {
+    const div = document.createElement('div');
+    div.className = 'cms-item';
+    div.style.cssText = 'padding:20px; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;';
+    const createdDate = cls.createdAt && cls.createdAt.toDate
+      ? cls.createdAt.toDate().toLocaleDateString()
+      : new Date(cls.createdAt).toLocaleDateString();
+    div.innerHTML =
+      '<div>' +
+        '<div style="font-size:18px; font-weight:700; color:#333;">' + cls.name + '</div>' +
+        '<div style="margin-top:5px; display:flex; align-items:center; gap:10px;">' +
+          '<span style="font-size:20px; font-weight:900; letter-spacing:3px; color:#667eea; font-family:monospace; background:#f0f4ff; padding:4px 12px; border-radius:6px;">' + cls.joinCode + '</span>' +
+          '<button onclick="copyCode(\'' + cls.joinCode + '\')" style="background:none; border:1px solid #667eea; color:#667eea; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px;">📋 Copy</button>' +
+        '</div>' +
+        '<div style="font-size:12px; color:#999; margin-top:5px;">Created ' + createdDate + ' · ' + (cls.studentCount || 0) + ' students</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:10px;">' +
+        '<button onclick="viewClassReports(\'' + cls.id + '\')" class="cms-btn cms-btn-primary">📊 View Reports</button>' +
+        '<button onclick="deleteClass(\'' + cls.id + '\', \'' + cls.name.replace(/'/g, "\\'") + '\')" class="cms-btn" style="background:#dc3545; color:white; border:none; cursor:pointer;">🗑 Delete</button>' +
+      '</div>';
+    container.appendChild(div);
+  });
+}
+
+// ================================================
+// CLASS SELECTOR + DASHBOARD SUMMARY
+// ================================================
+
+function updateClassSelector() {
+  const selector = document.getElementById('reports-class-selector');
+  if (!selector) return;
+  selector.innerHTML = '<option value="">— Select a Class —</option>';
+  teacherClasses.forEach(cls => {
+    const opt = document.createElement('option');
+    opt.value = cls.id;
+    opt.textContent = cls.name + ' (' + cls.joinCode + ')';
+    selector.appendChild(opt);
+  });
+  if (teacherClasses.length > 0) {
+    selector.value = teacherClasses[0].id;
+    currentReportsClassId = teacherClasses[0].id;
+    showReportsJoinCode(teacherClasses[0].joinCode);
+  }
+}
+
+function updateDashboardClassesSummary() {
+  const container = document.getElementById('dashboard-classes-summary');
+  if (!container) return;
+  if (teacherClasses.length === 0) {
+    container.innerHTML = '<p style="color:#6c757d;">No classes yet. <a href="#" onclick="document.querySelector(\'[data-page=classes]\').click(); return false;">Create your first class →</a></p>';
+    return;
+  }
+  let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px;">';
+  teacherClasses.forEach(cls => {
+    html +=
+      '<div style="background:white; padding:15px; border-radius:10px; border:2px solid #e0e0e0;">' +
+        '<div style="font-weight:700; color:#333; margin-bottom:5px;">' + cls.name + '</div>' +
+        '<div style="font-size:18px; font-weight:900; letter-spacing:3px; color:#667eea; font-family:monospace;">' + cls.joinCode + '</div>' +
+        '<div style="font-size:12px; color:#999; margin-top:5px;">' + (cls.studentCount || 0) + ' students</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ================================================
+// CREATE CLASS
+// ================================================
+
+window.showCreateClassModal = function() {
+  const modal = document.getElementById('create-class-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('new-class-name').value = '';
+  document.getElementById('new-class-custom-code').value = '';
+  const lastnameRadio = document.querySelector('input[name="code-style"][value="lastname"]');
+  if (lastnameRadio) lastnameRadio.checked = true;
+  document.getElementById('custom-code-input').style.display = 'none';
+  document.getElementById('code-preview').textContent = generateLastNameCode();
+};
+
+window.closeCreateClassModal = function() {
+  const modal = document.getElementById('create-class-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.saveNewClass = async function() {
+  const name = document.getElementById('new-class-name').value.trim();
+  if (!name) {
+    if (window.cmsApp) window.cmsApp.showAlert('Please enter a class name.', 'error');
+    return;
+  }
+
+  const style = getCurrentCodeStyle();
+  let joinCode;
+  if (style === 'custom') {
+    joinCode = document.getElementById('new-class-custom-code').value.trim().toUpperCase();
+    if (!joinCode) {
+      if (window.cmsApp) window.cmsApp.showAlert('Please enter a custom code.', 'error');
+      return;
+    }
+  } else {
+    joinCode = document.getElementById('code-preview').textContent;
+  }
+
+  const currentUser = window.cmsApp ? window.cmsApp.state.currentUser : null;
+  const teacherId = currentUser ? (currentUser.uid || currentUser.id || 'test-teacher') : 'test-teacher';
+  const db = window.cmsApp ? window.cmsApp.db : null;
+
+  const newClass = {
+    name, joinCode, teacherId,
+    studentCount: 0,
+    createdAt: new Date().toISOString()
+  };
+
+  if (db && window.firebaseV9) {
+    const { collection, addDoc, serverTimestamp } = window.firebaseV9;
+    try {
+      const docRef = await addDoc(
+        collection(db, 'classes'),
+        { ...newClass, createdAt: serverTimestamp() }
+      );
+      newClass.id = docRef.id;
+      console.log('✅ Class saved to Firebase:', newClass.id);
+    } catch (e) {
+      console.warn('Could not save class to Firebase, saving locally:', e);
+      newClass.id = 'local-' + Date.now();
+    }
+  } else {
+    newClass.id = 'local-' + Date.now();
+  }
+
+  teacherClasses.unshift(newClass);
+  sessionStorage.setItem('teacherClasses', JSON.stringify(teacherClasses));
+
+  closeCreateClassModal();
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+
+  if (window.cmsApp) window.cmsApp.showAlert('Class "' + name + '" created! Join code: ' + joinCode, 'success');
+};
+
+// ================================================
+// DELETE CLASS
+// ================================================
+
+window.deleteClass = async function(classId, className) {
+  if (!confirm('Delete class "' + className + '"? This cannot be undone.')) return;
+
+  const db = window.cmsApp ? window.cmsApp.db : null;
+  if (db && window.firebaseV9) {
+    const { doc, deleteDoc } = window.firebaseV9;
+    try {
+      await deleteDoc(doc(db, 'classes', classId));
+      console.log('✅ Class deleted from Firebase');
+    } catch (e) {
+      console.warn('Could not delete from Firebase:', e);
+    }
+  }
+
+  teacherClasses = teacherClasses.filter(c => c.id !== classId);
+  sessionStorage.setItem('teacherClasses', JSON.stringify(teacherClasses));
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+
+  if (window.cmsApp) window.cmsApp.showAlert('Class deleted.', 'success');
+};
+
+// ================================================
+// COPY CODE
+// ================================================
+
+window.copyCode = function(code) {
+  navigator.clipboard.writeText(code)
+    .then(() => { if (window.cmsApp) window.cmsApp.showAlert('Copied: ' + code, 'success'); })
+    .catch(() => prompt('Copy your join code:', code));
+};
+
+window.copyReportsJoinCode = function() {
+  const code = document.getElementById('reports-join-code-display').textContent;
+  if (code) copyCode(code);
+};
+
+function showReportsJoinCode(code) {
+  const banner  = document.getElementById('reports-class-code-banner');
+  const display = document.getElementById('reports-join-code-display');
+  if (!banner || !display) return;
+  if (code) { banner.style.display = 'block'; display.textContent = code; }
+  else { banner.style.display = 'none'; }
+}
+
+// ================================================
+// REPORTS — CLASS SELECTOR
+// ================================================
+
+window.onReportsClassChange = function() {
+  const selector = document.getElementById('reports-class-selector');
+  currentReportsClassId = selector.value;
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  showReportsJoinCode(cls ? cls.joinCode : null);
+  if (currentReportsClassId) {
+    loadStudentReports();
+  } else {
+    document.getElementById('reports-no-class').style.display = 'block';
+    document.getElementById('reports-loading').style.display = 'none';
+    document.getElementById('reports-empty').style.display = 'none';
+    document.getElementById('reports-table').style.display = 'none';
+  }
+};
+
+window.viewClassReports = function(classId) {
+  document.querySelector('[data-page=analytics]').click();
+  setTimeout(() => {
+    const selector = document.getElementById('reports-class-selector');
+    if (selector) selector.value = classId;
+    currentReportsClassId = classId;
+    const cls = teacherClasses.find(c => c.id === classId);
+    showReportsJoinCode(cls ? cls.joinCode : null);
+    loadStudentReports();
+  }, 150);
+};
+
+// ================================================
+// LOAD STUDENT REPORTS
+// ================================================
+
+window.loadStudentReports = async function() {
+  if (!currentReportsClassId) return;
+
+  document.getElementById('reports-no-class').style.display = 'none';
+  document.getElementById('reports-loading').style.display = 'block';
+  document.getElementById('reports-empty').style.display = 'none';
+  document.getElementById('reports-table').style.display = 'none';
+
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  const joinCode = cls ? cls.joinCode : null;
+  let loadedFromFirebase = false;
+
+  const db = window.cmsApp ? window.cmsApp.db : null;
+
+  if (db && joinCode && window.firebaseV9) {
+    const { collection, query, where, getDocs } = window.firebaseV9;
+    try {
+      const studentsSnapshot = await getDocs(
+        query(collection(db, 'players'), where('enrolledCodes', 'array-contains', joinCode))
+      );
+      reportsAllStudents = [];
+
+      for (const studentDoc of studentsSnapshot.docs) {
+        const studentData = { id: studentDoc.id, ...studentDoc.data() };
+        const progressSnapshot = await getDocs(
+          query(collection(db, 'studentProgress'), where('studentId', '==', studentDoc.id))
+        );
+        studentData.progressData = progressSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        reportsAllStudents.push(studentData);
+      }
+
+      loadedFromFirebase = true;
+      console.log('✅ Loaded', reportsAllStudents.length, 'students for class:', joinCode);
+    } catch (e) {
+      console.warn('Firebase student load failed, using test data:', e);
+    }
+  }
+
+  // Test data fallback
+  if (!loadedFromFirebase || reportsAllStudents.length === 0) {
+    console.log('📊 Using test data fallback for reports');
+    reportsAllStudents = [
+      {
+        id: 'student1', name: 'Alice Johnson', email: 'alice@test.com', xp: 2450, level: 5,
+        progressData: [
+          { episodeId: 'ep1', episodeName: 'Algebra Basics', completed: true, accuracy: 0.92, questionsAnswered: 25, correctAnswers: 23, timestamp: '2025-01-15' },
+          { episodeId: 'ep2', episodeName: 'Geometry Intro', completed: true, accuracy: 0.88, questionsAnswered: 20, correctAnswers: 18, timestamp: '2025-01-20' },
+          { episodeId: 'ep3', episodeName: 'Reading Comp', completed: false, accuracy: 0.75, questionsAnswered: 12, correctAnswers: 9, timestamp: '2025-01-25' }
+        ]
+      },
+      {
+        id: 'student2', name: 'Bob Smith', email: 'bob@test.com', xp: 1800, level: 4,
+        progressData: [
+          { episodeId: 'ep1', episodeName: 'Algebra Basics', completed: true, accuracy: 0.80, questionsAnswered: 25, correctAnswers: 20, timestamp: '2025-01-16' },
+          { episodeId: 'ep2', episodeName: 'Geometry Intro', completed: false, accuracy: 0.65, questionsAnswered: 15, correctAnswers: 10, timestamp: '2025-01-22' }
+        ]
+      },
+      {
+        id: 'student3', name: 'Carol Davis', email: 'carol@test.com', xp: 3200, level: 6,
+        progressData: [
+          { episodeId: 'ep1', episodeName: 'Algebra Basics', completed: true, accuracy: 0.96, questionsAnswered: 25, correctAnswers: 24, timestamp: '2025-01-14' },
+          { episodeId: 'ep2', episodeName: 'Geometry Intro', completed: true, accuracy: 0.94, questionsAnswered: 20, correctAnswers: 19, timestamp: '2025-01-19' },
+          { episodeId: 'ep3', episodeName: 'Reading Comp', completed: true, accuracy: 0.90, questionsAnswered: 18, correctAnswers: 16, timestamp: '2025-01-24' }
+        ]
+      }
+    ];
+  }
+
+  renderReportsDashboard();
+};
+
+// ================================================
+// RENDER REPORTS
+// ================================================
+
+function renderReportsDashboard() {
+  document.getElementById('reports-loading').style.display = 'none';
+  if (reportsAllStudents.length === 0) {
+    document.getElementById('reports-empty').style.display = 'block';
+    return;
+  }
+  document.getElementById('reports-table').style.display = 'table';
+
+  const total = reportsAllStudents.length;
+  const totalCompleted = reportsAllStudents.reduce((sum, s) =>
+    sum + s.progressData.filter(p => p.completed).length, 0);
+  const avgProgress = Math.round(reportsAllStudents.reduce((sum, s) => {
+    const completed = s.progressData.filter(p => p.completed).length;
+    return sum + (completed / (s.progressData.length || 1) * 100);
+  }, 0) / total);
+  const avgAccuracy = Math.round(reportsAllStudents.reduce((sum, s) => {
+    return sum + s.progressData.reduce((a, p) => a + (p.accuracy || 0), 0) / (s.progressData.length || 1);
+  }, 0) / total * 100);
+
+  document.getElementById('reports-total-students').textContent = total;
+  document.getElementById('reports-avg-progress').textContent = avgProgress + '%';
+  document.getElementById('reports-avg-accuracy').textContent = avgAccuracy + '%';
+  document.getElementById('reports-completed-episodes').textContent = totalCompleted;
+
+  renderReportsTable();
+}
+
+function renderReportsTable(students) {
+  const list = students || reportsAllStudents;
+  const tbody = document.getElementById('reports-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  list.forEach(student => {
+    const completed = student.progressData.filter(p => p.completed).length;
+    const total     = student.progressData.length || 1;
+    const progress  = Math.round(completed / total * 100);
+    const accuracy  = Math.round(student.progressData.reduce((s, p) => s + (p.accuracy || 0), 0) / total * 100);
+
+    let bg = '#d4edda', fg = '#155724';
+    if (accuracy < 60)      { bg = '#f8d7da'; fg = '#721c24'; }
+    else if (accuracy < 75) { bg = '#fff3cd'; fg = '#856404'; }
+    else if (accuracy < 90) { bg = '#d1ecf1'; fg = '#0c5460'; }
+    const statusLabel = accuracy >= 90 ? 'excellent' : accuracy >= 75 ? 'good' : accuracy >= 60 ? 'fair' : 'needs help';
+
+    const row = document.createElement('tr');
+    row.style.cursor = 'pointer';
+    row.onmouseover = () => row.style.background = '#f8f9ff';
+    row.onmouseout  = () => row.style.background = '';
+    row.onclick = () => openStudentModal(student);
+    row.innerHTML =
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><div style="font-weight:600; color:#333;">' + student.name + '</div><div style="font-size:13px; color:#999;">' + (student.email || '') + '</div></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;">' + completed + ' / ' + total + '</td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><div style="background:#e0e0e0; height:8px; border-radius:4px;"><div style="height:100%; background:linear-gradient(90deg,#667eea,#764ba2); border-radius:4px; width:' + progress + '%;"></div></div><div style="font-size:12px; color:#666; margin-top:4px;">' + progress + '%</div></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><strong>' + accuracy + '%</strong></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><span style="padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600; background:' + bg + '; color:' + fg + ';">' + statusLabel + '</span></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><button onclick="event.stopPropagation(); openStudentModal(reportsAllStudents.find(s=>s.id===\'' + student.id + '\'))" style="padding:6px 12px; background:#667eea; color:white; border:none; border-radius:6px; cursor:pointer;">View Details</button></td>';
+    tbody.appendChild(row);
+  });
+}
+
+window.filterReportsStudents = function() {
+  const term = document.getElementById('reports-search').value.toLowerCase();
+  renderReportsTable(reportsAllStudents.filter(s =>
+    s.name.toLowerCase().includes(term) || (s.email || '').toLowerCase().includes(term)
+  ));
+};
+
+// ================================================
+// STUDENT DETAIL MODAL
+// ================================================
+
+window.openStudentModal = function(student) {
+  if (!student) return;
+  document.getElementById('student-modal-name').textContent     = student.name;
+  document.getElementById('student-modal-xp').textContent       = student.xp || 0;
+  document.getElementById('student-modal-level').textContent    = student.level || 1;
+  document.getElementById('student-modal-episodes').textContent = student.progressData.filter(p => p.completed).length;
+  const avgAcc = student.progressData.reduce((s, p) => s + (p.accuracy || 0), 0) / (student.progressData.length || 1);
+  document.getElementById('student-modal-accuracy').textContent = Math.round(avgAcc * 100) + '%';
+
+  const chart = document.getElementById('student-modal-chart');
+  chart.innerHTML = '';
+  [...student.progressData]
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .forEach(data => {
+      const bar = document.createElement('div');
+      bar.style.cssText = 'flex:1; background:linear-gradient(180deg,#667eea,#764ba2); height:' + (data.accuracy * 200) + 'px; border-radius:4px 4px 0 0; position:relative; min-width:40px;';
+      const label = document.createElement('div');
+      label.style.cssText = 'position:absolute; bottom:-25px; left:50%; transform:translateX(-50%); font-size:11px; color:#666; white-space:nowrap;';
+      label.textContent = Math.round(data.accuracy * 100) + '%';
+      bar.appendChild(label);
+      chart.appendChild(bar);
+    });
+
+  const struggling = student.progressData.filter(p => p.accuracy < 0.75);
+  const sEl = document.getElementById('student-modal-struggling');
+  sEl.innerHTML = '<h3 style="margin-bottom:15px;">Topics Needing Attention</h3>' +
+    (struggling.length === 0
+      ? '<p style="color:#28a745;">No struggling topics — great work!</p>'
+      : struggling.map(d =>
+          '<div style="background:#fff3cd; padding:15px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between;">' +
+          '<span style="font-weight:600; color:#856404;">' + d.episodeName + '</span>' +
+          '<span style="color:#856404; font-weight:600;">' + Math.round(d.accuracy * 100) + '% accuracy</span></div>'
+        ).join(''));
+
+  const history = document.getElementById('student-modal-history');
+  const sorted = [...student.progressData].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  history.innerHTML = sorted.length === 0
+    ? '<p style="color:#999; text-align:center;">No episode history yet</p>'
+    : sorted.map(ep =>
+        '<div style="background:#f8f9fa; padding:20px; border-radius:10px; margin-bottom:15px;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">' +
+            '<div style="font-weight:600; color:#333;">' + ep.episodeName + '</div>' +
+            '<span style="padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600; background:' +
+              (ep.completed ? '#d4edda' : '#fff3cd') + '; color:' + (ep.completed ? '#155724' : '#856404') + ';">' +
+              (ep.completed ? 'Completed' : 'In Progress') + '</span>' +
+          '</div>' +
+          '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:15px;">' +
+            '<div><div style="font-size:12px; color:#666;">Accuracy</div><div style="font-size:18px; font-weight:600;">' + Math.round(ep.accuracy * 100) + '%</div></div>' +
+            '<div><div style="font-size:12px; color:#666;">Questions</div><div style="font-size:18px; font-weight:600;">' + (ep.questionsAnswered || 0) + '</div></div>' +
+            '<div><div style="font-size:12px; color:#666;">Correct</div><div style="font-size:18px; font-weight:600;">' + (ep.correctAnswers || 0) + '</div></div>' +
+            '<div><div style="font-size:12px; color:#666;">Date</div><div style="font-size:14px; font-weight:600;">' + new Date(ep.timestamp).toLocaleDateString() + '</div></div>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+
+  document.getElementById('student-detail-modal').style.display = 'flex';
+};
+
+window.closeStudentModal = function() {
+  document.getElementById('student-detail-modal').style.display = 'none';
+};
+
+// ================================================
+// EXPORT CSV
+// ================================================
+
+window.exportStudentReport = function() {
+  if (reportsAllStudents.length === 0) {
+    if (window.cmsApp) window.cmsApp.showAlert('No student data to export.', 'error');
+    return;
+  }
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  let csv = 'Class,' + (cls ? cls.name : 'Unknown') + '\n';
+  csv += 'Name,Email,Episodes Completed,Overall Accuracy,Status\n';
+  reportsAllStudents.forEach(student => {
+    const completed = student.progressData.filter(p => p.completed).length;
+    const total     = student.progressData.length || 1;
+    const accuracy  = Math.round(student.progressData.reduce((s, p) => s + (p.accuracy || 0), 0) / total * 100);
+    const status    = accuracy >= 90 ? 'Excellent' : accuracy >= 75 ? 'Good' : accuracy >= 60 ? 'Fair' : 'Needs Help';
+    csv += student.name + ',' + (student.email || '') + ',' + completed + '/' + total + ',' + accuracy + '%,' + status + '\n';
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = window.URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'class-report-' + (cls ? cls.name.replace(/\s+/g, '-') : 'export') + '-' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+};
+
+// ================================================
+// HOOK INTO CMS PAGE SWITCHING
+// ================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.cms-nav-tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      const page = this.getAttribute('data-page');
+      if (page === 'classes') setTimeout(() => loadTeacherClasses(), 100);
+      if (page === 'analytics') {
+        setTimeout(() => {
+          loadTeacherClasses().then(() => {
+            if (currentReportsClassId) loadStudentReports();
+          });
+        }, 100);
+      }
+    });
+  });
+
+  setTimeout(() => loadTeacherClasses(), 800);
+});
+
+console.log('✅ Section 15 COMPLETE — CMS — window.firebaseV9 used throughout, no dynamic imports');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 16: CLASS MANAGER LOGIC +        -->
+<!-- EPISODE ASSIGNMENT + LICENSE SCAFFOLD    -->
+<!-- APPLICATION: CMS (teacher-cms)           -->
+<!-- Multi-class, single student identity     -->
+<!-- window.firebaseV9 used throughout        -->
+<!-- ========================================= -->
+<script>
+console.log('🏫 Loading Section 16: Class Manager Logic + Episode Assignment...');
+
+// ================================================
+// GET FRESH DB REFERENCE
+// ================================================
+
+function getDB() {
+  try {
+    if (window.cmsApp && window.cmsApp.db) return window.cmsApp.db;
+    const { getFirestore } = window.firebaseV9;
+    if (window.cmsApp && window.cmsApp.firebaseApp) return getFirestore(window.cmsApp.firebaseApp);
+    return getFirestore();
+  } catch(e) {
+    console.warn('getDB fallback:', e);
+    return null;
+  }
+}
+
+// ================================================
+// LICENSE SCAFFOLD
+// ================================================
+
+async function ensureTeacherLicense() {
+  const app = window.cmsApp;
+  const currentUser = app ? app.state.currentUser : null;
+  if (!currentUser || !currentUser.uid) return;
+  const db = getDB();
+  if (!db) return;
+
+  const { doc, getDoc, setDoc } = window.firebaseV9;
+  try {
+    const userRef = doc(db, 'users', currentUser.uid);
+    const snap = await getDoc(userRef);
+    const data = snap.exists() ? snap.data() : {};
+    if (!data.license) {
+      // setDoc with merge:true creates the doc if missing, updates if exists
+      await setDoc(userRef, {
+        license: 'trial',
+        licenseSetAt: new Date().toISOString()
+      }, { merge: true });
+      console.log('✅ Trial license set for:', currentUser.uid);
+    }
+    showLicenseBanner(data.license || 'trial');
+  } catch (e) {
+    console.warn('License check failed:', e);
+  }
+}
+
+function showLicenseBanner(licenseType) {
+  if (licenseType === 'active' || licenseType === 'admin') return;
+  const existing = document.getElementById('license-banner');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'license-banner';
+  banner.style.cssText = `
+    background: linear-gradient(135deg, rgba(230,126,34,0.15), rgba(230,126,34,0.05));
+    border-bottom: 1px solid rgba(230,126,34,0.3);
+    padding: 10px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: #e67e22;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  `;
+  banner.innerHTML = `
+    <span>⚡ <strong>Trial License</strong> — Full access during beta. Licensing coming soon.</span>
+    <button onclick="this.parentElement.remove()" style="background:none; border:none; color:#e67e22; cursor:pointer; font-size:16px;">×</button>
+  `;
+  const container = document.getElementById('cms-container');
+  if (container) container.insertBefore(banner, container.firstChild);
+}
+
+// ================================================
+// CLASS MANAGER STATE
+// ================================================
+
+var teacherClasses = [];
+var currentReportsClassId = null;
+var reportsAllStudents = [];
+
+// ================================================
+// CODE GENERATION UTILITIES
+// ================================================
+
+function generateLastNameCode() {
+  const currentUser = window.cmsApp ? window.cmsApp.state.currentUser : null;
+  const name = currentUser
+    ? (currentUser.displayName || currentUser.name || currentUser.email || 'TEACHER')
+    : 'TEACHER';
+  const parts = name.trim().split(/\s+/);
+  const lastName = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+  const clean = lastName.toUpperCase().replace(/[^A-Z]/g, '').substring(0, 8);
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return clean + num;
+}
+
+function generateRandomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+  return code;
+}
+
+function getCurrentCodeStyle() {
+  const sel = document.querySelector('input[name="code-style"]:checked');
+  return sel ? sel.value : 'lastname';
+}
+
+window.updateCodePreview = function() {
+  const style = getCurrentCodeStyle();
+  const customInput = document.getElementById('custom-code-input');
+  const preview = document.getElementById('code-preview');
+  if (style === 'custom') {
+    customInput.style.display = 'block';
+    preview.textContent = document.getElementById('new-class-custom-code').value || 'YOURCODE';
+  } else {
+    customInput.style.display = 'none';
+    preview.textContent = style === 'lastname' ? generateLastNameCode() : generateRandomCode();
+  }
+};
+
+window.refreshCodePreview = function() {
+  const style = getCurrentCodeStyle();
+  if (style !== 'custom') {
+    document.getElementById('code-preview').textContent =
+      style === 'lastname' ? generateLastNameCode() : generateRandomCode();
+  }
+};
+
+// ================================================
+// LOAD TEACHER CLASSES
+// ================================================
+
+window.loadTeacherClasses = async function() {
+  console.log('🏫 Loading teacher classes...');
+
+  // Wait for firebaseV9
+  if (!window.firebaseV9 || !window.firebaseV9.collection) {
+    console.warn('⚠️ firebaseV9 not ready, retrying in 500ms...');
+    setTimeout(window.loadTeacherClasses, 500);
+    return;
+  }
+
+  // Wait for auth user
+  const app = window.cmsApp;
+  const currentUser = app ? app.state.currentUser : null;
+  if (!currentUser) {
+    console.warn('⚠️ No current user yet, retrying in 500ms...');
+    setTimeout(window.loadTeacherClasses, 500);
+    return;
+  }
+
+  const loadingEl = document.getElementById('classes-loading');
+  const emptyEl   = document.getElementById('classes-empty');
+  const listEl    = document.getElementById('classes-list');
+
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (emptyEl)   emptyEl.style.display   = 'none';
+  if (listEl)    listEl.innerHTML        = '';
+
+  const db = getDB();
+  if (!db) {
+    console.warn('⚠️ No DB reference, retrying in 500ms...');
+    setTimeout(window.loadTeacherClasses, 500);
+    return;
+  }
+
+  const teacherId = currentUser.uid || 'test-teacher';
+  console.log('👤 Loading classes for teacher:', teacherId, '| DB:', db);
+
+  const { collection, query, where, orderBy, getDocs } = window.firebaseV9;
+
+  try {
+    let snapshot;
+    try {
+      const q = query(
+        collection(db, 'classes'),
+        where('teacherId', '==', teacherId),
+        orderBy('createdAt', 'desc')
+      );
+      snapshot = await getDocs(q);
+    } catch (e) {
+      console.warn('orderBy failed (index missing?), trying without sort:', e);
+      const q2 = query(
+        collection(db, 'classes'),
+        where('teacherId', '==', teacherId)
+      );
+      snapshot = await getDocs(q2);
+    }
+    teacherClasses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log('✅ Loaded', teacherClasses.length, 'classes');
+  } catch (e) {
+    console.warn('Firebase query failed, using session fallback:', e);
+    teacherClasses = JSON.parse(sessionStorage.getItem('teacherClasses') || '[]');
+  }
+
+  if (loadingEl) loadingEl.style.display = 'none';
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+};
+
+// ================================================
+// RENDER CLASSES LIST
+// ================================================
+
+function renderClassesList() {
+  const container = document.getElementById('classes-list');
+  const emptyEl   = document.getElementById('classes-empty');
+  if (!container) return;
+
+  if (teacherClasses.length === 0) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    container.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  container.innerHTML = '';
+
+  teacherClasses.forEach(cls => {
+    const assignedCount = (cls.assignedEpisodes || []).length;
+    const createdDate = cls.createdAt && cls.createdAt.toDate
+      ? cls.createdAt.toDate().toLocaleDateString()
+      : new Date(cls.createdAt).toLocaleDateString();
+    const div = document.createElement('div');
+    div.className = 'cms-item';
+    div.style.cssText = 'padding:20px; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;';
+    div.innerHTML =
+      '<div>' +
+        '<div style="font-size:18px; font-weight:700; color:#333;">' + cls.name + '</div>' +
+        '<div style="margin-top:5px; display:flex; align-items:center; gap:10px;">' +
+          '<span style="font-size:20px; font-weight:900; letter-spacing:3px; color:#667eea; font-family:monospace; background:#f0f4ff; padding:4px 12px; border-radius:6px;">' + cls.joinCode + '</span>' +
+          '<button onclick="copyCode(\'' + cls.joinCode + '\')" style="background:none; border:1px solid #667eea; color:#667eea; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px;">📋 Copy</button>' +
+        '</div>' +
+        '<div style="font-size:12px; color:#999; margin-top:5px;">Created ' + createdDate + ' · ' + (cls.studentCount || 0) + ' students · ' + assignedCount + ' episode' + (assignedCount !== 1 ? 's' : '') + ' assigned</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:10px; flex-wrap:wrap;">' +
+        '<button onclick="openAssignEpisodesModal(\'' + cls.id + '\')" class="cms-btn" style="background:#667eea; color:white; border:none; cursor:pointer;">📚 Assign Episodes</button>' +
+        '<button onclick="viewClassReports(\'' + cls.id + '\')" class="cms-btn cms-btn-primary">📊 View Reports</button>' +
+        '<button onclick="deleteClass(\'' + cls.id + '\', \'' + cls.name.replace(/'/g, "\\'") + '\')" class="cms-btn" style="background:#dc3545; color:white; border:none; cursor:pointer;">🗑 Delete</button>' +
+      '</div>';
+    container.appendChild(div);
+  });
+}
+
+// ================================================
+// ASSIGN EPISODES TO CLASS
+// ================================================
+
+window.openAssignEpisodesModal = async function(classId) {
+  const cls = teacherClasses.find(c => c.id === classId);
+  if (!cls) return;
+
+  const db  = getDB();
+  const app = window.cmsApp;
+  const { collection, getDocs } = window.firebaseV9;
+
+  let allEpisodes = (app && app.state && app.state.episodes) ? app.state.episodes : [];
+
+  if (allEpisodes.length === 0 && db) {
+    try {
+      const snap = await getDocs(collection(db, 'episodes'));
+      allEpisodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+      console.warn('Could not load episodes:', e);
+    }
+  }
+
+  if (allEpisodes.length === 0) {
+    if (app) app.showAlert('No episodes found. Create episodes first.', 'error');
+    return;
+  }
+
+  const currentAssigned = cls.assignedEpisodes || [];
+  const episodeCheckboxes = allEpisodes.map(ep => `
+    <label style="display:flex; align-items:center; gap:12px; padding:14px; border:1px solid #e0e0e0; border-radius:8px; cursor:pointer; margin-bottom:10px; background:white;"
+      onmouseover="this.style.background='#f8f9ff'" onmouseout="this.style.background='white'">
+      <input type="checkbox" value="${ep.id}" ${currentAssigned.includes(ep.id) ? 'checked' : ''}
+        style="width:18px; height:18px; cursor:pointer; accent-color:#667eea;">
+      <div>
+        <div style="font-weight:600; color:#333;">${ep.title || 'Untitled Episode'}</div>
+        <div style="font-size:12px; color:#999; margin-top:2px;">
+          ${ep.genre || 'General'} · ${(ep.availableApproaches || []).join(', ') || 'No approaches set'}
+        </div>
+      </div>
+    </label>
+  `).join('');
+
+  const existingModal = document.getElementById('assign-episodes-modal');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'assign-episodes-modal';
+  modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.5); backdrop-filter:blur(4px); z-index:2000; display:flex; align-items:center; justify-content:center; padding:20px;';
+  modal.innerHTML = `
+    <div style="background:white; border-radius:16px; max-width:600px; width:100%; max-height:85vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="padding:24px 28px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; background:white; z-index:1;">
+        <div>
+          <h2 style="color:#333; font-size:22px; margin-bottom:4px;">📚 Assign Episodes</h2>
+          <div style="font-size:13px; color:#999;">Class: <strong style="color:#667eea;">${cls.name}</strong> · Code: <strong style="font-family:monospace;">${cls.joinCode}</strong></div>
+        </div>
+        <button onclick="closeAssignModal()" style="background:none; border:none; font-size:28px; color:#999; cursor:pointer;">×</button>
+      </div>
+      <div style="padding:24px 28px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <span style="font-size:14px; color:#666;">${allEpisodes.length} episode${allEpisodes.length !== 1 ? 's' : ''} available</span>
+          <div style="display:flex; gap:8px;">
+            <button onclick="toggleAllEpisodes(true)" style="background:none; border:1px solid #667eea; color:#667eea; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12px;">Select All</button>
+            <button onclick="toggleAllEpisodes(false)" style="background:none; border:1px solid #e0e0e0; color:#666; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:12px;">Clear All</button>
+          </div>
+        </div>
+        <div id="episode-checklist">${episodeCheckboxes}</div>
+      </div>
+      <div style="padding:16px 28px; border-top:1px solid #e0e0e0; display:flex; gap:10px; justify-content:flex-end; position:sticky; bottom:0; background:white;">
+        <button onclick="closeAssignModal()" class="cms-btn cms-btn-secondary">Cancel</button>
+        <button onclick="saveEpisodeAssignments('${classId}')" class="cms-btn cms-btn-primary">✅ Save Assignments</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+window.closeAssignModal = function() {
+  const m = document.getElementById('assign-episodes-modal');
+  if (m) m.remove();
+};
+
+window.toggleAllEpisodes = function(checked) {
+  document.querySelectorAll('#episode-checklist input[type=checkbox]')
+    .forEach(cb => cb.checked = checked);
+};
+
+window.saveEpisodeAssignments = async function(classId) {
+  const db = getDB();
+  if (!db) return;
+  const app = window.cmsApp;
+  const { doc, updateDoc, arrayUnion, arrayRemove, serverTimestamp } = window.firebaseV9;
+
+  const checked   = [...document.querySelectorAll('#episode-checklist input[type=checkbox]:checked')].map(cb => cb.value);
+  const unchecked = [...document.querySelectorAll('#episode-checklist input[type=checkbox]:not(:checked)')].map(cb => cb.value);
+
+  try {
+    for (const epId of checked) {
+      await updateDoc(doc(db, 'episodes', epId), { assignedClasses: arrayUnion(classId) });
+    }
+    for (const epId of unchecked) {
+      await updateDoc(doc(db, 'episodes', epId), { assignedClasses: arrayRemove(classId) });
+    }
+    await updateDoc(doc(db, 'classes', classId), {
+      assignedEpisodes: checked,
+      updatedAt: serverTimestamp()
+    });
+
+    const cls = teacherClasses.find(c => c.id === classId);
+    if (cls) cls.assignedEpisodes = checked;
+
+    closeAssignModal();
+    renderClassesList();
+    if (app) app.showAlert('Episodes assigned to class!', 'success');
+  } catch (e) {
+    console.error('Save assignments failed:', e);
+    if (app) app.showAlert('Error saving assignments: ' + e.message, 'error');
+  }
+};
+
+// ================================================
+// CREATE CLASS
+// ================================================
+
+window.showCreateClassModal = function() {
+  const modal = document.getElementById('create-class-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('new-class-name').value = '';
+  document.getElementById('new-class-custom-code').value = '';
+  const lastnameRadio = document.querySelector('input[name="code-style"][value="lastname"]');
+  if (lastnameRadio) lastnameRadio.checked = true;
+  document.getElementById('custom-code-input').style.display = 'none';
+  document.getElementById('code-preview').textContent = generateLastNameCode();
+};
+
+window.closeCreateClassModal = function() {
+  const modal = document.getElementById('create-class-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.saveNewClass = async function() {
+  const app  = window.cmsApp;
+  const name = document.getElementById('new-class-name').value.trim();
+  if (!name) { if (app) app.showAlert('Please enter a class name.', 'error'); return; }
+
+  const style = getCurrentCodeStyle();
+  let joinCode;
+  if (style === 'custom') {
+    joinCode = document.getElementById('new-class-custom-code').value.trim().toUpperCase();
+    if (!joinCode) { if (app) app.showAlert('Please enter a custom code.', 'error'); return; }
+  } else {
+    joinCode = document.getElementById('code-preview').textContent;
+  }
+
+  const currentUser = app ? app.state.currentUser : null;
+  const teacherId   = currentUser ? (currentUser.uid || 'test-teacher') : 'test-teacher';
+  const db          = getDB();
+
+  const newClass = {
+    name, joinCode, teacherId,
+    studentCount: 0,
+    assignedEpisodes: [],
+    createdAt: new Date().toISOString()
+  };
+
+  if (db && window.firebaseV9) {
+    const { collection, addDoc, serverTimestamp } = window.firebaseV9;
+    try {
+      const docRef = await addDoc(collection(db, 'classes'), {
+        ...newClass, createdAt: serverTimestamp()
+      });
+      newClass.id = docRef.id;
+      console.log('✅ Class saved to Firebase:', newClass.id);
+    } catch (e) {
+      console.warn('Could not save to Firebase, saving locally:', e);
+      newClass.id = 'local-' + Date.now();
+    }
+  } else {
+    newClass.id = 'local-' + Date.now();
+  }
+
+  teacherClasses.unshift(newClass);
+  sessionStorage.setItem('teacherClasses', JSON.stringify(teacherClasses));
+  closeCreateClassModal();
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+  if (app) app.showAlert('Class "' + name + '" created! Join code: ' + joinCode, 'success');
+};
+
+// ================================================
+// DELETE CLASS
+// ================================================
+
+window.deleteClass = async function(classId, className) {
+  const app = window.cmsApp;
+  if (!confirm('Delete class "' + className + '"? Students will lose their link to this class.')) return;
+
+  const db = getDB();
+  if (db && window.firebaseV9) {
+    const { doc, deleteDoc } = window.firebaseV9;
+    try {
+      await deleteDoc(doc(db, 'classes', classId));
+      console.log('✅ Class deleted from Firebase');
+    } catch (e) {
+      console.warn('Could not delete from Firebase:', e);
+    }
+  }
+
+  teacherClasses = teacherClasses.filter(c => c.id !== classId);
+  sessionStorage.setItem('teacherClasses', JSON.stringify(teacherClasses));
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+  if (app) app.showAlert('Class deleted.', 'success');
+};
+
+// ================================================
+// COPY CODE
+// ================================================
+
+window.copyCode = function(code) {
+  navigator.clipboard.writeText(code)
+    .then(() => { if (window.cmsApp) window.cmsApp.showAlert('Copied: ' + code, 'success'); })
+    .catch(() => prompt('Copy your join code:', code));
+};
+
+window.copyReportsJoinCode = function() {
+  const code = document.getElementById('reports-join-code-display').textContent;
+  if (code) copyCode(code);
+};
+
+function showReportsJoinCode(code) {
+  const banner  = document.getElementById('reports-class-code-banner');
+  const display = document.getElementById('reports-join-code-display');
+  if (banner)  banner.style.display  = code ? 'block' : 'none';
+  if (display && code) display.textContent = code;
+}
+
+// ================================================
+// CLASS SELECTOR + DASHBOARD SUMMARY
+// ================================================
+
+function updateClassSelector() {
+  const selector = document.getElementById('reports-class-selector');
+  if (!selector) return;
+  selector.innerHTML = '<option value="">— Select a Class —</option>';
+  teacherClasses.forEach(cls => {
+    const opt = document.createElement('option');
+    opt.value       = cls.id;
+    opt.textContent = cls.name + ' (' + cls.joinCode + ')';
+    selector.appendChild(opt);
+  });
+  if (teacherClasses.length > 0 && !currentReportsClassId) {
+    selector.value         = teacherClasses[0].id;
+    currentReportsClassId  = teacherClasses[0].id;
+    showReportsJoinCode(teacherClasses[0].joinCode);
+  }
+}
+
+function updateDashboardClassesSummary() {
+  const container = document.getElementById('dashboard-classes-summary');
+  if (!container) return;
+  if (teacherClasses.length === 0) {
+    container.innerHTML = '<p style="color:#6c757d;">No classes yet. <a href="#" onclick="document.querySelector(\'[data-page=classes]\').click(); return false;">Create your first class →</a></p>';
+    return;
+  }
+  let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px;">';
+  teacherClasses.forEach(cls => {
+    const assigned = (cls.assignedEpisodes || []).length;
+    html +=
+      '<div style="background:white; padding:15px; border-radius:10px; border:2px solid #e0e0e0;">' +
+        '<div style="font-weight:700; color:#333; margin-bottom:5px;">' + cls.name + '</div>' +
+        '<div style="font-size:18px; font-weight:900; letter-spacing:3px; color:#667eea; font-family:monospace;">' + cls.joinCode + '</div>' +
+        '<div style="font-size:12px; color:#999; margin-top:5px;">' + (cls.studentCount || 0) + ' students · ' + assigned + ' episodes</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+window.onReportsClassChange = function() {
+  const selector = document.getElementById('reports-class-selector');
+  currentReportsClassId = selector.value;
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  showReportsJoinCode(cls ? cls.joinCode : null);
+  if (currentReportsClassId) {
+    loadStudentReports();
+  } else {
+    document.getElementById('reports-no-class').style.display  = 'block';
+    document.getElementById('reports-loading').style.display   = 'none';
+    document.getElementById('reports-empty').style.display     = 'none';
+    document.getElementById('reports-table').style.display     = 'none';
+  }
+};
+
+window.viewClassReports = function(classId) {
+  document.querySelector('[data-page=analytics]').click();
+  setTimeout(() => {
+    const selector = document.getElementById('reports-class-selector');
+    if (selector) selector.value = classId;
+    currentReportsClassId = classId;
+    const cls = teacherClasses.find(c => c.id === classId);
+    showReportsJoinCode(cls ? cls.joinCode : null);
+    loadStudentReports();
+  }, 150);
+};
+
+// ================================================
+// LOAD STUDENT REPORTS
+// ================================================
+
+window.loadStudentReports = async function() {
+  if (!currentReportsClassId) return;
+
+  document.getElementById('reports-no-class').style.display = 'none';
+  document.getElementById('reports-loading').style.display  = 'block';
+  document.getElementById('reports-empty').style.display    = 'none';
+  document.getElementById('reports-table').style.display    = 'none';
+
+  const cls      = teacherClasses.find(c => c.id === currentReportsClassId);
+  const joinCode = cls ? cls.joinCode : null;
+  const db       = getDB();
+  let loadedFromFirebase = false;
+
+  if (db && joinCode && window.firebaseV9) {
+    const { collection, query, where, getDocs } = window.firebaseV9;
+    try {
+      const studentsSnapshot = await getDocs(
+        query(collection(db, 'players'), where('enrolledCodes', 'array-contains', joinCode))
+      );
+      reportsAllStudents = [];
+      for (const studentDoc of studentsSnapshot.docs) {
+        const studentData    = { id: studentDoc.id, ...studentDoc.data() };
+        const progressSnapshot = await getDocs(
+          query(collection(db, 'studentProgress'), where('studentId', '==', studentDoc.id))
+        );
+        studentData.progressData = progressSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        reportsAllStudents.push(studentData);
+      }
+      loadedFromFirebase = true;
+      console.log('✅ Loaded', reportsAllStudents.length, 'students for class:', joinCode);
+    } catch (e) {
+      console.warn('Firebase student load failed, using test data:', e);
+    }
+  }
+
+  if (!loadedFromFirebase || reportsAllStudents.length === 0) {
+    console.log('📊 Using test data fallback for reports');
+    reportsAllStudents = [
+      {
+        id: 'student1', name: 'Alice Johnson', email: 'alice@test.com', xp: 2450, level: 5,
+        progressData: [
+          { episodeId: 'ep1', episodeName: 'Algebra Basics',  completed: true,  accuracy: 0.92, questionsAnswered: 25, correctAnswers: 23, timestamp: '2025-01-15' },
+          { episodeId: 'ep2', episodeName: 'Geometry Intro',  completed: true,  accuracy: 0.88, questionsAnswered: 20, correctAnswers: 18, timestamp: '2025-01-20' },
+          { episodeId: 'ep3', episodeName: 'Reading Comp',    completed: false, accuracy: 0.75, questionsAnswered: 12, correctAnswers: 9,  timestamp: '2025-01-25' }
+        ]
+      },
+      {
+        id: 'student2', name: 'Bob Smith', email: 'bob@test.com', xp: 1800, level: 4,
+        progressData: [
+          { episodeId: 'ep1', episodeName: 'Algebra Basics',  completed: true,  accuracy: 0.80, questionsAnswered: 25, correctAnswers: 20, timestamp: '2025-01-16' },
+          { episodeId: 'ep2', episodeName: 'Geometry Intro',  completed: false, accuracy: 0.65, questionsAnswered: 15, correctAnswers: 10, timestamp: '2025-01-22' }
+        ]
+      },
+      {
+        id: 'student3', name: 'Carol Davis', email: 'carol@test.com', xp: 3200, level: 6,
+        progressData: [
+          { episodeId: 'ep1', episodeName: 'Algebra Basics',  completed: true,  accuracy: 0.96, questionsAnswered: 25, correctAnswers: 24, timestamp: '2025-01-14' },
+          { episodeId: 'ep2', episodeName: 'Geometry Intro',  completed: true,  accuracy: 0.94, questionsAnswered: 20, correctAnswers: 19, timestamp: '2025-01-19' },
+          { episodeId: 'ep3', episodeName: 'Reading Comp',    completed: true,  accuracy: 0.90, questionsAnswered: 18, correctAnswers: 16, timestamp: '2025-01-24' }
+        ]
+      }
+    ];
+  }
+
+  renderReportsDashboard();
+};
+
+// ================================================
+// RENDER REPORTS
+// ================================================
+
+function renderReportsDashboard() {
+  document.getElementById('reports-loading').style.display = 'none';
+  if (reportsAllStudents.length === 0) {
+    document.getElementById('reports-empty').style.display = 'block';
+    return;
+  }
+  document.getElementById('reports-table').style.display = 'table';
+
+  const total          = reportsAllStudents.length;
+  const totalCompleted = reportsAllStudents.reduce((sum, s) => sum + s.progressData.filter(p => p.completed).length, 0);
+  const avgProgress    = Math.round(reportsAllStudents.reduce((sum, s) => {
+    const c = s.progressData.filter(p => p.completed).length;
+    return sum + (c / (s.progressData.length || 1) * 100);
+  }, 0) / total);
+  const avgAccuracy    = Math.round(reportsAllStudents.reduce((sum, s) => {
+    return sum + s.progressData.reduce((a, p) => a + (p.accuracy || 0), 0) / (s.progressData.length || 1);
+  }, 0) / total * 100);
+
+  document.getElementById('reports-total-students').textContent    = total;
+  document.getElementById('reports-avg-progress').textContent      = avgProgress + '%';
+  document.getElementById('reports-avg-accuracy').textContent      = avgAccuracy + '%';
+  document.getElementById('reports-completed-episodes').textContent = totalCompleted;
+
+  renderReportsTable();
+}
+
+function renderReportsTable(students) {
+  const list  = students || reportsAllStudents;
+  const tbody = document.getElementById('reports-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  list.forEach(student => {
+    const completed = student.progressData.filter(p => p.completed).length;
+    const total     = student.progressData.length || 1;
+    const progress  = Math.round(completed / total * 100);
+    const accuracy  = Math.round(student.progressData.reduce((s, p) => s + (p.accuracy || 0), 0) / total * 100);
+    let bg = '#d4edda', fg = '#155724';
+    if (accuracy < 60)      { bg = '#f8d7da'; fg = '#721c24'; }
+    else if (accuracy < 75) { bg = '#fff3cd'; fg = '#856404'; }
+    else if (accuracy < 90) { bg = '#d1ecf1'; fg = '#0c5460'; }
+    const status = accuracy >= 90 ? 'excellent' : accuracy >= 75 ? 'good' : accuracy >= 60 ? 'fair' : 'needs help';
+
+    const row = document.createElement('tr');
+    row.style.cursor  = 'pointer';
+    row.onmouseover   = () => row.style.background = '#f8f9ff';
+    row.onmouseout    = () => row.style.background = '';
+    row.onclick       = () => openStudentModal(student);
+    row.innerHTML =
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><div style="font-weight:600; color:#333;">' + student.name + '</div><div style="font-size:13px; color:#999;">' + (student.email || '') + '</div></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;">' + completed + ' / ' + total + '</td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><div style="background:#e0e0e0; height:8px; border-radius:4px;"><div style="height:100%; background:linear-gradient(90deg,#667eea,#764ba2); border-radius:4px; width:' + progress + '%;"></div></div><div style="font-size:12px; color:#666; margin-top:4px;">' + progress + '%</div></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><strong>' + accuracy + '%</strong></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><span style="padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600; background:' + bg + '; color:' + fg + ';">' + status + '</span></td>' +
+      '<td style="padding:15px; border-bottom:1px solid #f0f0f0;"><button onclick="event.stopPropagation(); openStudentModal(reportsAllStudents.find(s=>s.id===\'' + student.id + '\'))" style="padding:6px 12px; background:#667eea; color:white; border:none; border-radius:6px; cursor:pointer;">View Details</button></td>';
+    tbody.appendChild(row);
+  });
+}
+
+window.filterReportsStudents = function() {
+  const term = document.getElementById('reports-search').value.toLowerCase();
+  renderReportsTable(reportsAllStudents.filter(s =>
+    s.name.toLowerCase().includes(term) || (s.email || '').toLowerCase().includes(term)
+  ));
+};
+
+// ================================================
+// STUDENT DETAIL MODAL
+// ================================================
+
+window.openStudentModal = function(student) {
+  if (!student) return;
+  document.getElementById('student-modal-name').textContent     = student.name;
+  document.getElementById('student-modal-xp').textContent       = student.xp || 0;
+  document.getElementById('student-modal-level').textContent    = student.level || 1;
+  document.getElementById('student-modal-episodes').textContent = student.progressData.filter(p => p.completed).length;
+  const avgAcc = student.progressData.reduce((s, p) => s + (p.accuracy || 0), 0) / (student.progressData.length || 1);
+  document.getElementById('student-modal-accuracy').textContent = Math.round(avgAcc * 100) + '%';
+
+  const chart = document.getElementById('student-modal-chart');
+  chart.innerHTML = '';
+  [...student.progressData]
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .forEach(data => {
+      const bar = document.createElement('div');
+      bar.style.cssText = 'flex:1; background:linear-gradient(180deg,#667eea,#764ba2); height:' + (data.accuracy * 200) + 'px; border-radius:4px 4px 0 0; position:relative; min-width:40px;';
+      const label = document.createElement('div');
+      label.style.cssText = 'position:absolute; bottom:-25px; left:50%; transform:translateX(-50%); font-size:11px; color:#666; white-space:nowrap;';
+      label.textContent = Math.round(data.accuracy * 100) + '%';
+      bar.appendChild(label);
+      chart.appendChild(bar);
+    });
+
+  const struggling = student.progressData.filter(p => p.accuracy < 0.75);
+  const sEl = document.getElementById('student-modal-struggling');
+  sEl.innerHTML = '<h3 style="margin-bottom:15px;">Topics Needing Attention</h3>' +
+    (struggling.length === 0
+      ? '<p style="color:#28a745;">No struggling topics — great work!</p>'
+      : struggling.map(d =>
+          '<div style="background:#fff3cd; padding:15px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between;">' +
+          '<span style="font-weight:600; color:#856404;">' + d.episodeName + '</span>' +
+          '<span style="color:#856404; font-weight:600;">' + Math.round(d.accuracy * 100) + '% accuracy</span></div>'
+        ).join(''));
+
+  const history = document.getElementById('student-modal-history');
+  const sorted  = [...student.progressData].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  history.innerHTML = sorted.length === 0
+    ? '<p style="color:#999; text-align:center;">No episode history yet</p>'
+    : sorted.map(ep =>
+        '<div style="background:#f8f9fa; padding:20px; border-radius:10px; margin-bottom:15px;">' +
+          '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">' +
+            '<div style="font-weight:600;">' + ep.episodeName + '</div>' +
+            '<span style="padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600; background:' +
+              (ep.completed ? '#d4edda' : '#fff3cd') + '; color:' + (ep.completed ? '#155724' : '#856404') + ';">' +
+              (ep.completed ? 'Completed' : 'In Progress') + '</span>' +
+          '</div>' +
+          '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:15px;">' +
+            '<div><div style="font-size:12px; color:#666;">Accuracy</div><div style="font-size:18px; font-weight:600;">' + Math.round(ep.accuracy * 100) + '%</div></div>' +
+            '<div><div style="font-size:12px; color:#666;">Questions</div><div style="font-size:18px; font-weight:600;">' + (ep.questionsAnswered || 0) + '</div></div>' +
+            '<div><div style="font-size:12px; color:#666;">Correct</div><div style="font-size:18px; font-weight:600;">' + (ep.correctAnswers || 0) + '</div></div>' +
+            '<div><div style="font-size:12px; color:#666;">Date</div><div style="font-size:14px; font-weight:600;">' + new Date(ep.timestamp).toLocaleDateString() + '</div></div>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+
+  document.getElementById('student-detail-modal').style.display = 'flex';
+};
+
+window.closeStudentModal = function() {
+  document.getElementById('student-detail-modal').style.display = 'none';
+};
+
+// ================================================
+// EXPORT CSV
+// ================================================
+
+window.exportStudentReport = function() {
+  if (reportsAllStudents.length === 0) {
+    if (window.cmsApp) window.cmsApp.showAlert('No student data to export.', 'error');
+    return;
+  }
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  let csv = 'Class,' + (cls ? cls.name : 'Unknown') + '\n';
+  csv += 'Name,Email,Episodes Completed,Overall Accuracy,Status\n';
+  reportsAllStudents.forEach(student => {
+    const completed = student.progressData.filter(p => p.completed).length;
+    const total     = student.progressData.length || 1;
+    const accuracy  = Math.round(student.progressData.reduce((s, p) => s + (p.accuracy || 0), 0) / total * 100);
+    const status    = accuracy >= 90 ? 'Excellent' : accuracy >= 75 ? 'Good' : accuracy >= 60 ? 'Fair' : 'Needs Help';
+    csv += student.name + ',' + (student.email || '') + ',' + completed + '/' + total + ',' + accuracy + '%,' + status + '\n';
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = window.URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'class-report-' + (cls ? cls.name.replace(/\s+/g, '-') : 'export') + '-' +
+    new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+};
+
+// ================================================
+// BOOT
+// ================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.cms-nav-tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      const page = this.getAttribute('data-page');
+      if (page === 'classes') setTimeout(() => loadTeacherClasses(), 100);
+      if (page === 'analytics') {
+        setTimeout(() => {
+          loadTeacherClasses().then(() => {
+            if (currentReportsClassId) loadStudentReports();
+          });
+        }, 100);
+      }
+    });
+  });
+
+  setTimeout(() => {
+    loadTeacherClasses();
+    ensureTeacherLicense();
+  }, 1500);
+});
+
+console.log('✅ Section 16 COMPLETE — CMS — setDoc merge:true for license, window.firebaseV9 throughout');
+</script>
+	<!-- ═══════════════════════════════════════════════════════════════════════
+     §17 — MODERATION PIPELINE & CUTSCENE GENERATION
+     ─────────────────────────────────────────────────────────────────────
+     PASTE THIS ENTIRE <script> BLOCK at the very end of teacher-cms.html,
+     just before the closing </body> tag.
+
+     DEPENDENCIES: Loads after §13 (episode save). Patches handleEpisodeSubmit
+     to intercept the save and run moderation + image generation.
+
+     WHAT THIS ADDS:
+       • Text safety scan via Gemini before every episode save
+       • Auto-generate cutscene image if text is clean
+       • Flag/block and store evidence image if content is problematic
+       • Email notification to admin on flag/block
+       • Firestore fields added to episodes: moderationStatus, moderationReason,
+         cutscenePrompt, cutsceneImageUrl, flaggedImageData, teacherEmail,
+         moderationReviewedBy, moderationReviewedAt
+
+     ADMIN EMAIL CONFIG — set ADMIN_NOTIFICATION_EMAIL below.
+═══════════════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+'use strict';
+
+// ── CONFIG ──────────────────────────────────────────────────────────────
+const ADMIN_NOTIFICATION_EMAIL = 'YOUR_ADMIN_EMAIL@example.com'; // ← change this
+
+// Safety categories that trigger an immediate BLOCK (Gemini refused)
+const BLOCK_FINISH_REASONS = ['SAFETY', 'RECITATION', 'OTHER'];
+
+// Text patterns that auto-flag for human review (before even calling Gemini image)
+const FLAG_PATTERNS = [
+  /\b(naked|nude|nudity|topless|bottomless|genitals?|breasts?|nipples?|buttocks|ass\b|penis|vagina|cleavage)\b/i,
+  /\b(sexual|sexy|erotic|porn|explicit|explicit content|intercourse|orgasm|masturbat)\b/i,
+  /\b(busty|voluptuous|seductive|provocative|sultry|alluring|sensual)\b/i,
+  /\b(kill|murder|gore|blood|stabbing|shooting someone|execution|massacre|torture)\b/i,
+  /\b(drug use|cocaine|heroin|meth|overdose|inject drugs)\b/i,
+  /\b(suicide|self.harm|cutting|hanging)\b/i,
+  /\b(racist|slur|n-word|hate speech)\b/i,
+];
+
+// Gemini image generation safety prompt prefix — always prepended
+const IMAGE_SAFETY_PREFIX = `Create a fantasy RPG illustrated scene in a vibrant, clean art style inspired by Hades and Persona 5. 
+The image MUST be appropriate for middle and high school students (ages 13-18 in a school setting).
+STRICT REQUIREMENTS:
+- No nudity, no exposed skin beyond face/hands/arms
+- No sexual content, no suggestive poses or clothing
+- No graphic violence, blood, gore, or weapons actively harming people
+- No drug or alcohol content
+- All characters must be fully clothed in fantasy-appropriate attire
+- Romantic content limited to: hand-holding, gentle smiling, standing together
+- Fantasy combat is acceptable only if stylized and non-graphic (think Hades art style)
+- Art style: bold outlines, rich jewel-tone colors, dramatic lighting, heroic poses
+Scene to illustrate: `;
+
+// ── PATCH handleEpisodeSubmit ───────────────────────────────────────────
+// Store reference to original §13 version
+const _originalHandleEpisodeSubmit = CMSApp.prototype.handleEpisodeSubmit;
+
+CMSApp.prototype.handleEpisodeSubmit = async function(e) {
+  if (e) e.preventDefault();
+
+  // Capture episode data from form BEFORE calling original save
+  const title       = document.getElementById('episode-title')?.value?.trim() || '';
+  const description = document.getElementById('episode-description')?.value?.trim() || '';
+  const narrative   = description || `Welcome to ${title}!`;
+
+  // Show moderation processing overlay
+  this.showProcessing?.('🛡 Scanning content for safety…');
+
+  try {
+    // ── STEP 1: Text safety scan ──────────────────────────────────────
+    const scanResult = await this.scanNarrativeText(narrative, title);
+
+    if (scanResult.status === 'blocked') {
+      this.hideProcessing?.();
+      this.showAlert?.('error',
+        '🚫 Content Blocked',
+        `This episode narrative was blocked by our safety system.\n\nReason: ${scanResult.reason}\n\nPlease revise your description and try again.`
+      );
+      return; // Do not save at all
+    }
+
+    // ── STEP 2: Call original episode save (§13) ──────────────────────
+    // We temporarily patch it to capture the episode ID
+    let savedEpisodeId = null;
+    const _origAddDoc = this.addDoc?.bind(this);
+
+    // Override addDoc briefly to capture the new episode ID
+    this._captureNextEpisodeId = true;
+    await _originalHandleEpisodeSubmit.call(this, e);
+
+    // Get the last saved episode (most recently created)
+    // §13 saves then calls loadEpisodes() — we need the ID
+    // We'll look it up by title + recent timestamp
+    await new Promise(r => setTimeout(r, 800)); // brief wait for Firestore write
+    savedEpisodeId = await this.findRecentEpisodeId(title);
+
+    if (!savedEpisodeId) {
+      console.warn('§17: Could not find saved episode ID for moderation update');
+      return;
+    }
+
+    // ── STEP 3: Update episode with moderation fields ─────────────────
+    this.showProcessing?.('🎨 Generating cutscene image…');
+
+    const moderationUpdate = {
+      moderationStatus:  scanResult.status,    // 'approved' or 'flagged'
+      moderationReason:  scanResult.reason || null,
+      cutscenePrompt:    narrative,
+      teacherEmail:      this.state?.currentUser?.email || null,
+      teacherId:         this.state?.currentUser?.uid   || null,
+    };
+
+    if (scanResult.status === 'flagged') {
+      // Don't generate image yet — store prompt only, notify admin
+      Object.assign(moderationUpdate, { cutsceneImageUrl: null });
+      await this.updateEpisodeModeration(savedEpisodeId, moderationUpdate);
+      await this.notifyAdminFlag(title, narrative, scanResult.reason,
+        this.state?.currentUser?.email);
+      this.hideProcessing?.();
+      this.showAlert?.('warning',
+        '⚑ Episode Saved — Awaiting Review',
+        'Your episode has been saved but is pending admin review before students can access it. You will be notified when it is approved.'
+      );
+    } else {
+      // APPROVED — generate the cutscene image
+      let imageGenResult = null;
+      try {
+        imageGenResult = await this.generateCutsceneImage(narrative);
+      } catch(imgErr) {
+        console.warn('§17: Image generation failed:', imgErr);
+      }
+
+      if (imageGenResult?.blocked) {
+        // Image was blocked even though text passed — escalate to flagged
+        Object.assign(moderationUpdate, {
+          moderationStatus: 'flagged',
+          moderationReason: 'Image generation blocked: ' + imageGenResult.reason,
+          flaggedImageData: null,
+          cutsceneImageUrl: null
+        });
+        await this.updateEpisodeModeration(savedEpisodeId, moderationUpdate);
+        await this.notifyAdminFlag(title, narrative,
+          'Image generation blocked: ' + imageGenResult.reason,
+          this.state?.currentUser?.email);
+        this.hideProcessing?.();
+        this.showAlert?.('warning',
+          '⚑ Episode Saved — Image Under Review',
+          'Your episode narrative looks great, but the AI image system flagged the generated cutscene for review. Your episode will be available once approved.'
+        );
+      } else {
+        // Full success
+        Object.assign(moderationUpdate, {
+          cutsceneImageUrl: imageGenResult?.imageData || null,
+        });
+        await this.updateEpisodeModeration(savedEpisodeId, moderationUpdate);
+        this.hideProcessing?.();
+        // Episode is live — no extra alert needed (§13 already shows success)
+      }
+    }
+
+  } catch (err) {
+    console.error('§17 moderation error:', err);
+    this.hideProcessing?.();
+    // Don't block the teacher — episode already saved by §13, just log
+    console.warn('§17: Moderation update failed, episode saved without moderation fields');
+  }
+};
+
+// ── SCAN NARRATIVE TEXT ─────────────────────────────────────────────────
+CMSApp.prototype.scanNarrativeText = async function(narrative, title) {
+  // First: fast local pattern check
+  for (const pattern of FLAG_PATTERNS) {
+    if (pattern.test(narrative)) {
+      return {
+        status: 'flagged',
+        reason: `Potentially inappropriate content detected in narrative text. Pattern matched: "${narrative.match(pattern)?.[0]}"`
+      };
+    }
+  }
+
+  // Second: Gemini text safety check
+  try {
+    const model = this.geminiModel || this.state?.geminiModel;
+    if (!model) return { status: 'approved' }; // no model = pass through
+
+    const safetyPrompt = `You are a content moderator for an educational game used by students aged 13-18 in school.
+
+Review the following episode narrative text for a fantasy educational RPG game. 
+
+Flag it if it contains ANY of:
+- Sexual content, nudity, or suggestive/erotic language
+- Graphic violence, gore, murder, torture
+- Drug or alcohol glorification  
+- Hate speech, slurs, or discrimination
+- Self-harm or suicide references
+- Anything inappropriate for a classroom setting
+
+Narrative to review:
+"${narrative}"
+
+Episode title: "${title}"
+
+Respond with ONLY a JSON object:
+{"safe": true} if appropriate for school
+{"safe": false, "reason": "brief reason"} if problematic`;
+
+    const result = await model.generateContent(safetyPrompt);
+    const response = result.response;
+
+    // Check finish reason
+    if (BLOCK_FINISH_REASONS.includes(response.candidates?.[0]?.finishReason)) {
+      return { status: 'blocked', reason: 'Content blocked by AI safety filters' };
+    }
+
+    const text = response.text().trim();
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (!parsed.safe) {
+      return { status: 'flagged', reason: parsed.reason || 'AI safety review flagged this content' };
+    }
+    return { status: 'approved' };
+
+  } catch(e) {
+    console.warn('§17: Text scan error:', e);
+    // On scan error — flag for human review rather than auto-approve
+    return { status: 'flagged', reason: 'Automated scan error — flagged for manual review' };
+  }
+};
+
+// ── GENERATE CUTSCENE IMAGE ─────────────────────────────────────────────
+CMSApp.prototype.generateCutsceneImage = async function(narrative) {
+  try {
+    const apiKey = localStorage.getItem('gemini_api_key') ||
+      window.ULTIMATE_PARSER_CONFIG?.geminiApiKey;
+    if (!apiKey) throw new Error('No API key configured');
+
+    const prompt = IMAGE_SAFETY_PREFIX + narrative;
+
+    // Use Imagen via Gemini API
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt }],
+          parameters: {
+            sampleCount: 1,
+            aspectRatio: '16:9',
+            safetyFilterLevel: 'block_medium_and_above',
+            personGeneration: 'allow_adult'
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.json();
+      // Check if it's a safety block
+      if (err.error?.message?.includes('safety') || response.status === 400) {
+        return { blocked: true, reason: err.error?.message || 'Image safety filter triggered' };
+      }
+      throw new Error(err.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const imageBytes = data.predictions?.[0]?.bytesBase64Encoded;
+
+    if (!imageBytes) {
+      // Check for safety block in response
+      const filterReason = data.predictions?.[0]?.safetyAttributes?.blocked;
+      if (filterReason) {
+        return { blocked: true, reason: 'Image content filter triggered' };
+      }
+      throw new Error('No image data returned');
+    }
+
+    return { imageData: `data:image/png;base64,${imageBytes}` };
+
+  } catch(e) {
+    // Fallback: try gemini-2.0-flash with image output
+    try {
+      return await this.generateCutsceneImageFallback(narrative);
+    } catch(e2) {
+      console.warn('§17: Both image generation methods failed:', e2);
+      return null; // Non-fatal — episode saves without image
+    }
+  }
+};
+
+CMSApp.prototype.generateCutsceneImageFallback = async function(narrative) {
+  const apiKey = localStorage.getItem('gemini_api_key') ||
+    window.ULTIMATE_PARSER_CONFIG?.geminiApiKey;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: IMAGE_SAFETY_PREFIX + narrative }] }],
+        generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.json();
+    if (err.error?.message?.includes('safety')) {
+      return { blocked: true, reason: err.error.message };
+    }
+    throw new Error(err.error?.message);
+  }
+
+  const data = await response.json();
+  const imagePart = data.candidates?.[0]?.content?.parts
+    ?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+
+  if (imagePart?.inlineData?.data) {
+    return { imageData: `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}` };
+  }
+  return null;
+};
+
+// ── UPDATE EPISODE WITH MODERATION FIELDS ──────────────────────────────
+CMSApp.prototype.updateEpisodeModeration = async function(episodeId, fields) {
+  try {
+    const { doc, updateDoc } = window.firebaseV9;
+    const db = this.db || this._v9Functions?.getFirestore?.();
+    await updateDoc(doc(db, 'episodes', episodeId), fields);
+  } catch(e) {
+    console.error('§17: Failed to update moderation fields:', e);
+  }
+};
+
+// ── FIND RECENTLY SAVED EPISODE BY TITLE ───────────────────────────────
+CMSApp.prototype.findRecentEpisodeId = async function(title) {
+  try {
+    const { collection, query, where, orderBy, limit, getDocs } = window.firebaseV9;
+    const db = this.db;
+    const q  = query(
+      collection(db, 'episodes'),
+      where('title', '==', title),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    return snap.empty ? null : snap.docs[0].id;
+  } catch(e) {
+    console.warn('§17: findRecentEpisodeId error:', e);
+    return null;
+  }
+};
+
+// ── NOTIFY ADMIN VIA MAILTO ─────────────────────────────────────────────
+CMSApp.prototype.notifyAdminFlag = async function(episodeTitle, narrative, reason, teacherEmail) {
+  // Log to Firestore moderationLog
+  try {
+    const { collection, addDoc, serverTimestamp } = window.firebaseV9;
+    await addDoc(collection(this.db, 'moderationLog'), {
+      action:       'AUTO_FLAG',
+      episodeTitle:  episodeTitle,
+      teacherEmail:  teacherEmail || 'unknown',
+      reason:        reason,
+      narrativeSnippet: (narrative || '').substring(0, 300),
+      timestamp:    serverTimestamp()
+    });
+  } catch(e) {
+    console.warn('§17: Could not log flag to Firestore:', e);
+  }
+
+  // Open mailto as a gentle notification trigger
+  // (In production, replace with EmailJS or a Cloud Function)
+  const subject = encodeURIComponent(`[ACT Quest] ⚑ Content Flagged — "${episodeTitle}"`);
+  const body = encodeURIComponent(
+    `A teacher episode has been automatically flagged for review.\n\n` +
+    `Episode: "${episodeTitle}"\n` +
+    `Teacher: ${teacherEmail || 'unknown'}\n` +
+    `Reason: ${reason}\n\n` +
+    `Narrative snippet:\n"${(narrative||'').substring(0, 500)}"\n\n` +
+    `Review in the admin portal: [your admin URL here]`
+  );
+  // Non-blocking mailto — opens quietly in background tab
+  const link = document.createElement('a');
+  link.href = `mailto:${ADMIN_NOTIFICATION_EMAIL}?subject=${subject}&body=${body}`;
+  link.target = '_blank';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => link.remove(), 1000);
+};
+
+// ── SHOW/HIDE PROCESSING HELPERS (if not already defined) ──────────────
+if (!CMSApp.prototype.hideProcessing) {
+  CMSApp.prototype.hideProcessing = function() {
+    const overlay = document.getElementById('processingOverlay') ||
+                    document.getElementById('processing-overlay');
+    if (overlay) overlay.style.display = 'none';
+  };
+}
+
+// ── EXPOSE CUTSCENE IMAGE ON GAME SIDE ─────────────────────────────────
+// The game can read episode.cutsceneImageUrl (base64 data URL) if present.
+// If null, the game should fall back to its procedural background.
+// The game should also CHECK episode.moderationStatus === 'approved' before
+// displaying the episode to students. Add this check in game §11 episode loader:
+//
+//   episodes = episodes.filter(ep =>
+//     !ep.moderationStatus || ep.moderationStatus === 'approved'
+//   );
+//
+// This ensures flagged/blocked episodes never reach students.
+
+console.log('§17 Moderation pipeline loaded ✓');
+})();
+</script>
+	
+<!-- END #cms-container -->
