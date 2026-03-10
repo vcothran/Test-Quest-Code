@@ -1,0 +1,2709 @@
+<!-- ========================================= -->
+<!-- SECTION 9: DATA MANAGEMENT METHODS      -->
+<!-- CRUD Operations + Question Editing      -->
+<!-- PURE FIREBASE V9 SYNTAX + DYNAMIC IMAGES -->
+<!-- FIXED v2:                               -->
+<!--   #3 Hover tooltip on episode banks     -->
+<!--   #4 Subject filter for question banks  -->
+<!-- ========================================= -->
+<script>
+CMSApp.prototype.loadAllData = function() {
+  console.log('\u{1F504} Loading all data for Ultimate Parser CMS (Pure Firebase v9)...');
+  return Promise.all([
+    this.loadQuestionBanks(),
+    this.loadEpisodes(),
+    this.loadGenres()
+  ]).then(() => {
+    this.updateNavigationCounts();
+    this.loadDashboardData();
+    console.log('\u2705 All data loaded successfully (Pure Firebase v9)');
+  }).catch(error => {
+    console.error('\u274C Error loading data:', error);
+    this.handleError(error, 'data loading');
+  });
+};
+
+CMSApp.prototype.loadQuestionBanks = function() {
+  return new Promise((resolve, reject) => {
+    if (!this.elements.qBankList) { resolve(); return; }
+    console.log('\u{1F504} Loading question banks (Pure Firebase v9)...');
+    this.elements.qBankList.innerHTML = '<li class="loading-state">Loading question banks...</li>';
+    const { collection, getDocs } = window.firebaseV9;
+    try {
+      getDocs(collection(this.db, 'questionBanks')).then(querySnapshot => {
+        this.state.questionBanks = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('\u{1F4DA} Found question bank:', doc.id, data);
+          this.state.questionBanks.push({ id: doc.id, ...data });
+        });
+        console.log('\u{1F4DA} Total question banks loaded:', this.state.questionBanks.length);
+        this.displayQuestionBanks();
+        this.populateAIImportBankSelect();
+        resolve();
+      }).catch(error => {
+        console.error('\u274C Error loading question banks:', error);
+        if (this.elements.qBankList) {
+          this.elements.qBankList.innerHTML = '<li class="error-state">Error loading banks. Please refresh.</li>';
+        }
+        reject(error);
+      });
+    } catch (error) {
+      console.error('\u274C Error creating collection reference:', error);
+      reject(error);
+    }
+  });
+};
+
+CMSApp.prototype.displayQuestionBanks = function() {
+  if (!this.elements.qBankList) return;
+  if (this.state.questionBanks.length === 0) {
+    this.elements.qBankList.innerHTML = '<li class="empty-state">No question banks found. Create one with Ultimate Parser!</li>';
+    return;
+  }
+  this.elements.qBankList.innerHTML = this.state.questionBanks.map(bank => {
+    const name = bank.name || 'Untitled Bank';
+    const approach = bank.approach || 'General';
+    const questions = Array.isArray(bank.questions) ? bank.questions : [];
+    const questionCount = questions.length;
+    const lastExtraction = bank.lastExtraction;
+    return `
+      <li class="cms-item">
+        <div class="cms-item-content">
+          <div class="cms-item-title">${name}</div>
+          <div class="cms-item-meta">
+            <span>\u{1F3AF} ${approach}</span>
+            <span>\u{1F4CA} ${questionCount} questions</span>
+            ${lastExtraction ? `<span>\u26A1 ${lastExtraction.testType || 'General'}</span>` : ''}
+            ${questionCount > 0 ? '<span class="parser-badge" style="font-size:10px;padding:2px 6px;">\u26A1 ULTIMATE</span>' : ''}
+          </div>
+        </div>
+        <div class="cms-item-actions">
+          <button class="view-questions-btn cms-btn cms-btn-primary" data-id="${bank.id}" title="View/Edit Questions">\u{1F4DD} Questions (${questionCount})</button>
+          <button class="edit-q-bank-btn" data-id="${bank.id}" title="Edit Bank">\u270F\uFE0F</button>
+          <button class="delete-q-bank-btn" data-id="${bank.id}" title="Delete">\u{1F5D1}\uFE0F</button>
+        </div>
+      </li>
+    `;
+  }).join('');
+  this.attachQuestionBankEventListeners();
+  console.log('\u2705 Question banks displayed with correct counts');
+};
+
+CMSApp.prototype.attachQuestionBankEventListeners = function() {
+  this.elements.qBankList.querySelectorAll('.view-questions-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bankId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (bankId) this.viewBankQuestions(bankId);
+    });
+  });
+  this.elements.qBankList.querySelectorAll('.edit-q-bank-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bankId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (bankId) this.editQuestionBank(bankId);
+    });
+  });
+  this.elements.qBankList.querySelectorAll('.delete-q-bank-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bankId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (bankId) this.deleteQuestionBank(bankId);
+    });
+  });
+};
+
+CMSApp.prototype.loadEpisodes = function() {
+  return new Promise((resolve, reject) => {
+    if (!this.elements.episodeList && !this.elements.allEpisodesList) { resolve(); return; }
+    console.log('\u{1F504} Loading episodes (Pure Firebase v9)...');
+    const { collection, getDocs } = window.firebaseV9;
+    try {
+      getDocs(collection(this.db, 'episodes')).then(querySnapshot => {
+        this.state.episodes = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('\u{1F3AC} Found episode:', doc.id, data);
+          this.state.episodes.push({ id: doc.id, ...data });
+        });
+        console.log('\u{1F3AC} Total episodes loaded:', this.state.episodes.length);
+        this.displayEpisodes();
+        resolve();
+      }).catch(error => {
+        console.error('\u274C Error loading episodes:', error);
+        reject(error);
+      });
+    } catch (error) {
+      console.error('\u274C Error creating collection reference:', error);
+      reject(error);
+    }
+  });
+};
+
+// FIX #3: Episode display with hover tooltip showing question bank names
+CMSApp.prototype.displayEpisodes = function() {
+  if (!this.elements.episodeList && !this.elements.allEpisodesList) return;
+  const lists = [this.elements.episodeList, this.elements.allEpisodesList].filter(Boolean);
+  if (this.state.episodes.length === 0) {
+    lists.forEach(list => { list.innerHTML = '<li class="empty-state">No episodes found. Create one!</li>'; });
+    return;
+  }
+  lists.forEach(list => {
+    list.innerHTML = this.state.episodes.map(episode => {
+      const active = episode.active ? '\u{1F7E2} Active' : '\u26AA Inactive';
+      const genre = episode.genre || 'No genre';
+      const approaches = episode.availableApproaches || [];
+      const selectedBanks = episode.selectedQuestionBanks || [];
+      const bankCount = selectedBanks.length;
+
+      // FIX #3: Build tooltip with actual bank names
+      const bankNames = selectedBanks.map(bankId => {
+        const bank = this.state.questionBanks.find(b => b.id === bankId);
+        return bank ? bank.name : bankId;
+      });
+      const tooltipText = bankNames.length > 0 ? bankNames.join('\n') : 'No banks assigned';
+
+      return `
+        <li class="cms-item">
+          <div class="cms-item-content">
+            <div class="cms-item-title">${episode.title || 'Untitled Episode'}</div>
+            <div class="cms-item-meta">
+              <span>${active}</span>
+              <span>\u{1F3AD} ${genre}</span>
+              <span>\u{1F3AF} ${approaches.length} approaches</span>
+              <span class="bank-count-badge" 
+                    title="${tooltipText}"
+                    style="cursor:help; border-bottom: 1px dotted #666; position:relative;"
+                    onmouseenter="window.cmsApp.showBankTooltip(this, '${episode.id}')"
+                    onmouseleave="window.cmsApp.hideBankTooltip()">
+                \u{1F4DA} ${bankCount} banks
+              </span>
+            </div>
+          </div>
+          <div class="cms-item-actions">
+            <button class="edit-episode-btn" data-id="${episode.id}" title="Edit">\u270F\uFE0F</button>
+            <button class="delete-episode-btn" data-id="${episode.id}" title="Delete">\u{1F5D1}\uFE0F</button>
+          </div>
+        </li>
+      `;
+    }).join('');
+    this.attachEpisodeEventListeners(list);
+  });
+  console.log('\u2705 Episodes displayed');
+};
+
+// FIX #3: Tooltip show/hide functions
+CMSApp.prototype.showBankTooltip = function(element, episodeId) {
+  const episode = this.state.episodes.find(e => e.id === episodeId);
+  if (!episode) return;
+  const selectedBanks = episode.selectedQuestionBanks || [];
+  const bankNames = selectedBanks.map(bankId => {
+    const bank = this.state.questionBanks.find(b => b.id === bankId);
+    return bank ? `\u{1F4DA} ${bank.name} (${(bank.questions||[]).length} questions)` : bankId;
+  });
+  const tooltipText = bankNames.length > 0 ? bankNames.join('<br>') : 'No banks assigned';
+
+  // Remove any existing tooltip
+  this.hideBankTooltip();
+
+  const tooltip = document.createElement('div');
+  tooltip.id = 'bank-hover-tooltip';
+  tooltip.style.cssText = `
+    position: absolute;
+    background: rgba(0,0,0,0.85);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.8;
+    z-index: 9999;
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  `;
+  tooltip.innerHTML = `<strong>Question Banks:</strong><br>${tooltipText}`;
+
+  document.body.appendChild(tooltip);
+
+  const rect = element.getBoundingClientRect();
+  tooltip.style.left = (rect.left + window.scrollX) + 'px';
+  tooltip.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+};
+
+CMSApp.prototype.hideBankTooltip = function() {
+  const existing = document.getElementById('bank-hover-tooltip');
+  if (existing) existing.remove();
+};
+
+CMSApp.prototype.attachEpisodeEventListeners = function(list) {
+  list.querySelectorAll('.edit-episode-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const episodeId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (episodeId) this.editEpisode(episodeId);
+    });
+  });
+  list.querySelectorAll('.delete-episode-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const episodeId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (episodeId) this.deleteEpisode(episodeId);
+    });
+  });
+};
+
+CMSApp.prototype.editEpisode = function(episodeId) {
+  const episode = this.state.episodes.find(e => e.id === episodeId);
+  if (!episode) { this.showAlert('Episode not found.', 'error'); return; }
+
+  document.getElementById('episode-title').value = episode.title || '';
+  document.getElementById('episode-description').value = episode.description || '';
+  document.getElementById('episode-active').checked = episode.active || false;
+
+  const genreSelect = document.getElementById('episode-genre');
+  if (genreSelect) {
+    genreSelect.innerHTML = '<option value="">Select genre...</option>';
+    if (this.state.genres && this.state.genres.length > 0) {
+      this.state.genres.forEach(genre => {
+        const option = document.createElement('option');
+        option.value = genre.name;
+        option.textContent = genre.name;
+        genreSelect.appendChild(option);
+      });
+    } else {
+      ['Mystery','Adventure','Science Fiction','Fantasy','Educational'].forEach(genreName => {
+        const option = document.createElement('option');
+        option.value = genreName;
+        option.textContent = genreName;
+        genreSelect.appendChild(option);
+      });
+    }
+    genreSelect.value = episode.genre || '';
+  }
+
+  document.querySelectorAll('.approach-checkbox').forEach(checkbox => {
+    checkbox.checked = (episode.availableApproaches || []).includes(checkbox.value);
+  });
+
+  // FIX #4: Load ALL question banks — no subject filtering that blocks banks
+  const togglesContainer = document.getElementById('question-banks-toggles');
+  if (togglesContainer && this.db) {
+    togglesContainer.innerHTML = '<div class="loading-state" style="text-align:center;color:#6c757d;padding:20px;">Loading question banks...</div>';
+    const { collection, getDocs } = window.firebaseV9;
+    getDocs(collection(this.db, 'questionBanks')).then(snapshot => {
+      if (snapshot.empty) {
+        togglesContainer.innerHTML = '<div style="text-align:center;color:#6c757d;padding:20px;">No question banks found.</div>';
+      } else {
+        togglesContainer.innerHTML = '';
+        snapshot.forEach(doc => {
+          const bank = { id: doc.id, ...doc.data() };
+          const questions = Array.isArray(bank.questions) ? bank.questions : [];
+          const isSelected = (episode.selectedQuestionBanks || []).includes(bank.id);
+
+          const bankItem = document.createElement('div');
+          bankItem.className = 'bank-toggle-item' + (isSelected ? ' enabled' : '');
+          bankItem.dataset.bankId = bank.id;
+          bankItem.innerHTML = `
+            <div class="bank-info">
+              <div class="bank-name">${bank.name || 'Untitled Bank'}</div>
+              <div class="bank-details">${bank.approach || 'General'} \u2022 ${questions.length} questions</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" class="bank-toggle" data-bank-id="${bank.id}" ${isSelected ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          `;
+          const toggle = bankItem.querySelector('.bank-toggle');
+          toggle.addEventListener('change', (e) => {
+            bankItem.classList.toggle('enabled', e.target.checked);
+          });
+          togglesContainer.appendChild(bankItem);
+        });
+      }
+    }).catch(error => {
+      console.error('Error loading question banks:', error);
+      togglesContainer.innerHTML = '<div style="text-align:center;color:#dc3545;padding:20px;">Error loading question banks</div>';
+    });
+  }
+
+  document.getElementById('episode-modal-title').textContent = 'Edit Episode';
+  this.state.editingEpisodeId = episodeId;
+  this.openModal('episode-modal');
+  console.log('\u270F\uFE0F Episode edit modal opened for:', episodeId);
+};
+
+CMSApp.prototype.deleteEpisode = function(episodeId) {
+  const episode = this.state.episodes.find(e => e.id === episodeId);
+  const episodeName = episode ? episode.title : 'this episode';
+  if (!confirm(`Are you sure you want to delete "${episodeName}"?\n\nThis action cannot be undone.`)) return;
+  console.log('\u{1F5D1}\uFE0F Deleting episode:', episodeId);
+  this.showProcessing('Deleting episode...');
+  this.deleteDoc(this.doc(this.db, 'episodes', episodeId))
+    .then(() => {
+      console.log('\u2705 Episode deleted');
+      this.showAlert('Episode deleted successfully!', 'success');
+      this.loadEpisodes();
+    })
+    .catch(error => {
+      console.error('\u274C Error deleting episode:', error);
+      this.showAlert('Error deleting episode. Please try again.', 'error');
+    })
+    .finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.loadGenres = function() {
+  return new Promise((resolve, reject) => {
+    if (!this.elements.genreList) { resolve(); return; }
+    console.log('\u{1F504} Loading genres (Pure Firebase v9)...');
+    const { collection, getDocs } = window.firebaseV9;
+    try {
+      getDocs(collection(this.db, 'genres')).then(querySnapshot => {
+        this.state.genres = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('\u{1F3AD} Found genre:', doc.id, data);
+          this.state.genres.push({ id: doc.id, ...data });
+        });
+        console.log('\u{1F3AD} Total genres loaded:', this.state.genres.length);
+        this.displayGenres();
+        resolve();
+      }).catch(error => {
+        console.error('\u274C Error loading genres:', error);
+        reject(error);
+      });
+    } catch (error) {
+      console.error('\u274C Error creating collection reference:', error);
+      reject(error);
+    }
+  });
+};
+
+CMSApp.prototype.displayGenres = function() {
+  if (!this.elements.genreList) return;
+  if (this.state.genres.length === 0) {
+    this.elements.genreList.innerHTML = '<li class="empty-state">No genres found. Create one!</li>';
+    return;
+  }
+  this.elements.genreList.innerHTML = this.state.genres.map(genre => {
+    const subject = genre.primarySubject || 'Mixed';
+    const subjectEmoji = {'reading':'\u{1F4D6}','math':'\u{1F522}','english':'\u{1F4DD}','science':'\u{1F52C}','mixed':'\u{1F3AF}'}[genre.primarySubject] || '\u{1F3AD}';
+    return `
+      <li class="cms-item">
+        <div class="cms-item-content">
+          <div class="cms-item-title">${genre.name || 'Untitled Genre'}</div>
+          <div class="cms-item-meta">
+            <span>${subjectEmoji} ${subject}</span>
+            ${genre.description ? `<span>${genre.description.substring(0,50)}...</span>` : ''}
+          </div>
+        </div>
+        <div class="cms-item-actions">
+          <button class="edit-genre-btn" data-id="${genre.id}" title="Edit">\u270F\uFE0F</button>
+          <button class="delete-genre-btn" data-id="${genre.id}" title="Delete">\u{1F5D1}\uFE0F</button>
+        </div>
+      </li>
+    `;
+  }).join('');
+  this.attachGenreEventListeners();
+  console.log('\u2705 Genres displayed');
+};
+
+CMSApp.prototype.attachGenreEventListeners = function() {
+  this.elements.genreList.querySelectorAll('.edit-genre-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const genreId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (genreId) this.editGenre(genreId);
+    });
+  });
+  this.elements.genreList.querySelectorAll('.delete-genre-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const genreId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (genreId) this.deleteGenre(genreId);
+    });
+  });
+};
+
+CMSApp.prototype.editGenre = function(genreId) {
+  const genre = this.state.genres.find(g => g.id === genreId);
+  if (!genre) { this.showAlert('Genre not found.', 'error'); return; }
+  document.getElementById('genre-name').value = genre.name || '';
+  document.getElementById('genre-description').value = genre.description || '';
+  document.getElementById('genre-subject').value = genre.primarySubject || '';
+  document.getElementById('genre-modal-title').textContent = 'Edit Genre';
+  this.state.editingGenreId = genreId;
+  this.openModal('genre-modal');
+  console.log('\u270F\uFE0F Genre edit modal opened for:', genreId);
+};
+
+CMSApp.prototype.deleteGenre = function(genreId) {
+  const genre = this.state.genres.find(g => g.id === genreId);
+  const genreName = genre ? genre.name : 'this genre';
+  if (!confirm(`Are you sure you want to delete "${genreName}"?\n\nThis action cannot be undone.`)) return;
+  console.log('\u{1F5D1}\uFE0F Deleting genre:', genreId);
+  this.showProcessing('Deleting genre...');
+  this.deleteDoc(this.doc(this.db, 'genres', genreId))
+    .then(() => {
+      console.log('\u2705 Genre deleted');
+      this.showAlert('Genre deleted successfully!', 'success');
+      this.loadGenres();
+    })
+    .catch(error => {
+      console.error('\u274C Error deleting genre:', error);
+      this.showAlert('Error deleting genre. Please try again.', 'error');
+    })
+    .finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.populateAIImportBankSelect = function() {
+  const select = document.getElementById('ai-save-bank-select');
+  if (!select) { console.warn('\u26A0\uFE0F AI import bank select element not found'); return; }
+  select.innerHTML = '<option value="">Select a question bank...</option>';
+  const createNewOption = document.createElement('option');
+  createNewOption.value = 'CREATE_NEW';
+  createNewOption.textContent = '--- Create New Question Bank ---';
+  select.appendChild(createNewOption);
+  this.state.questionBanks.forEach(bank => {
+    const option = document.createElement('option');
+    option.value = bank.id;
+    const questionCount = (bank.questions || []).length;
+    const lastExtraction = bank.lastExtraction;
+    option.textContent = `${bank.name || 'Untitled Bank'} (${bank.approach || 'General'}) - ${questionCount} questions${lastExtraction ? ` - Last: ${lastExtraction.testType}` : ''}`;
+    select.appendChild(option);
+  });
+  console.log('\u{1F4CB} Populated AI import bank select with', this.state.questionBanks.length, 'banks');
+};
+
+// ─────────────────────────────────────────────────────────────
+// OVERRIDE: editQuestion defined here LAST so it always wins
+// over any older version defined in other sections.
+// Handles both parser format (array) and manual format (object)
+// ─────────────────────────────────────────────────────────────
+CMSApp.prototype.editQuestion = function(bankId, questionIndex) {
+  console.log('✏️ editQuestion v3 - bankId:', bankId, 'index:', questionIndex);
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+
+  const isObjectOptions = question.options && !Array.isArray(question.options);
+  const questionText = (question.text || question.question || '').replace(/</g,'&lt;');
+
+  // Normalize to [{letter, text}] regardless of storage format
+  let optionPairs = [];
+  if (isObjectOptions) {
+    optionPairs = Object.entries(question.options).map(([letter, text]) => ({ letter, text }));
+  } else if (Array.isArray(question.options)) {
+    optionPairs = question.options.map((text, i) => ({ letter: String.fromCharCode(65 + i), text }));
+  }
+
+  // Current correct letter
+  let currentCorrectLetter = '';
+  if (isObjectOptions) {
+    currentCorrectLetter = question.correct || (optionPairs[0] && optionPairs[0].letter) || 'A';
+  } else {
+    const idx = typeof question.correct === 'number' ? question.correct
+              : typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
+    currentCorrectLetter = optionPairs[idx] ? optionPairs[idx].letter : 'A';
+  }
+
+  const passageVal = (question.passageContext || question.passage || '').replace(/</g,'&lt;');
+
+  const existing = document.getElementById('edit-question-modal');
+  if (existing) existing.remove();
+
+  // Build toolbar helper inline
+  const tb = (id) => {
+    const b = (label, title, action) =>
+      `<button type="button" title="${title}" onclick="${action}"
+        style="padding:3px 7px;border:1px solid #ced4da;border-radius:4px;background:#fff;
+               cursor:pointer;font-size:12px;margin:1px;"
+        onmouseover="this.style.background='#e9ecef'"
+        onmouseout="this.style.background='#fff'">${label}</button>`;
+    return `<div style="background:#f8f9fa;border:1px solid #ced4da;border-bottom:none;
+                        border-radius:6px 6px 0 0;padding:5px 7px;display:flex;flex-wrap:wrap;gap:1px;">
+      ${b('<b>B</b>','Bold',`window.cmsApp.wrapSelection('${id}','**','**')`)}
+      ${b('<i>I</i>','Italic',`window.cmsApp.wrapSelection('${id}','_','_')`)}
+      ${b('<u>U</u>','Underline',`window.cmsApp.wrapSelection('${id}','[u]','[/u]')`)}
+      <span style="border-left:1px solid #ced4da;margin:1px 3px;"></span>
+      ${b('√','Square root',`window.cmsApp.insertAtCursor('${id}','√')`)}
+      ${b('x²','Superscript 2',`window.cmsApp.wrapSelection('${id}','','\u00B2')`)}
+      ${b('x³','Superscript 3',`window.cmsApp.wrapSelection('${id}','','\u00B3')`)}
+      ${b('xⁿ','Superscript',`window.cmsApp.wrapSelection('${id}','^{','}')`)}
+      ${b('x₁','Subscript',`window.cmsApp.wrapSelection('${id}','_{','}')`)}
+      <span style="border-left:1px solid #ced4da;margin:1px 3px;"></span>
+      ${b('π','Pi',`window.cmsApp.insertAtCursor('${id}','π')`)}
+      ${b('°','Degree',`window.cmsApp.insertAtCursor('${id}','°')`)}
+      ${b('≠','Not equal',`window.cmsApp.insertAtCursor('${id}','≠')`)}
+      ${b('≤','Less/equal',`window.cmsApp.insertAtCursor('${id}','≤')`)}
+      ${b('≥','Greater/equal',`window.cmsApp.insertAtCursor('${id}','≥')`)}
+      ${b('×','Multiply',`window.cmsApp.insertAtCursor('${id}','×')`)}
+      ${b('÷','Divide',`window.cmsApp.insertAtCursor('${id}','÷')`)}
+      ${b('±','Plus/minus',`window.cmsApp.insertAtCursor('${id}','±')`)}
+    </div>`;
+  };
+
+  const ta = (id, rows, val) =>
+    `<textarea id="${id}" rows="${rows}"
+       style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:0 0 6px 6px;
+              font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit;"
+     >${val}</textarea>`;
+
+  const optionFields = optionPairs.map(({letter, text}) => `
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">${letter}:</label>
+      ${tb(`eq-option-${letter}`)}
+      ${ta(`eq-option-${letter}`, 2, text.replace(/</g,'&lt;'))}
+    </div>
+  `).join('');
+
+  const correctOptions = optionPairs.map(({letter}) =>
+    `<option value="${letter}" ${letter === currentCorrectLetter ? 'selected' : ''}>${letter}</option>`
+  ).join('');
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'edit-question-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99995;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:28px;width:100%;max-width:680px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.35);margin:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:18px;border-bottom:2px solid #e9ecef;padding-bottom:12px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          ✏️ Edit Question ${question.questionNumber || (questionIndex+1)}
+          ${question.addedManually ? '<span style="font-size:11px;background:#fff3cd;color:#856404;padding:2px 7px;border-radius:10px;margin-left:8px;">MANUAL</span>' : ''}
+        </h2>
+        <button onclick="window.cmsApp.closeEditQuestionModal()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;padding:0 4px;">&times;</button>
+      </div>
+      <form onsubmit="window.cmsApp.saveEditedQuestion(event,'${bankId}',${questionIndex})">
+        ${passageVal ? `<div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">📖 Passage:</label>
+          ${tb('eq-passage')}${ta('eq-passage', 4, passageVal)}
+        </div>` : ''}
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">Question Text *</label>
+          ${tb('eq-text')}${ta('eq-text', 4, questionText)}
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-weight:600;color:#495057;margin-bottom:8px;">Answer Options:</div>
+          ${optionFields}
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Correct Answer *</label>
+          <select id="eq-correct" required
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;background:#fff;">
+            ${correctOptions}
+          </select>
+        </div>
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">
+            Explanation <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          ${tb('eq-explanation')}${ta('eq-explanation', 3, (question.explanation||'').replace(/</g,'&lt;'))}
+        </div>
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            💾 Save Changes
+          </button>
+          <button type="button" onclick="window.cmsApp.closeEditQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeEditQuestionModal(); });
+  modalEl.dataset.isObjectOptions = isObjectOptions ? '1' : '0';
+  modalEl.dataset.optionLetters = optionPairs.map(p => p.letter).join(',');
+};
+
+console.log('\u2705 Section 9: Data Management Methods loaded - with hover tooltips + subject filter fix');
+console.log('\u2705 editQuestion v3 override registered in Section 9 (wins over older versions)');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 10: QUESTION BANK EDITING        -->
+<!-- COMPLETE REWRITE v3                      -->
+<!--   Fixed: options.map error (obj vs arr)  -->
+<!--   Fixed: modals body-appended, z:99999   -->
+<!--   Fixed: Cancel works on all modals      -->
+<!--   Added: Math/formatting toolbar         -->
+<!--     Bold, Italic, Underline              -->
+<!--     √ ² ³ ½ π ≠ ≤ ≥ × ÷ °              -->
+<!--     Subscript/Superscript insert         -->
+<!-- ========================================= -->
+<script>
+console.log('🔧 Loading Section 10: Question Bank Editing v3...');
+
+// ─────────────────────────────────────────────
+// TOOLBAR HELPER
+// Inserts text at cursor position in a textarea
+// ─────────────────────────────────────────────
+CMSApp.prototype.insertAtCursor = function(textareaId, text) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const before = el.value.substring(0, start);
+  const after = el.value.substring(end);
+  el.value = before + text + after;
+  el.selectionStart = el.selectionEnd = start + text.length;
+  el.focus();
+};
+
+CMSApp.prototype.wrapSelection = function(textareaId, prefix, suffix) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = el.value.substring(start, end);
+  const before = el.value.substring(0, start);
+  const after = el.value.substring(end);
+  el.value = before + prefix + selected + suffix + after;
+  el.selectionStart = start + prefix.length;
+  el.selectionEnd = start + prefix.length + selected.length;
+  el.focus();
+};
+
+// Build the toolbar HTML for a given textarea ID
+CMSApp.prototype.buildToolbar = function(targetId) {
+  const btn = (label, title, action) =>
+    `<button type="button" title="${title}"
+      onclick="${action}"
+      style="padding:4px 8px;border:1px solid #ced4da;border-radius:4px;background:#fff;
+             cursor:pointer;font-size:13px;margin:2px;min-width:28px;"
+      onmouseover="this.style.background='#e9ecef'"
+      onmouseout="this.style.background='#fff'">${label}</button>`;
+
+  return `<div style="background:#f8f9fa;border:1px solid #ced4da;border-bottom:none;
+                      border-radius:6px 6px 0 0;padding:6px 8px;display:flex;flex-wrap:wrap;gap:2px;">
+    ${btn('<b>B</b>',    'Bold',            `window.cmsApp.wrapSelection('${targetId}','**','**')`)}
+    ${btn('<i>I</i>',    'Italic',          `window.cmsApp.wrapSelection('${targetId}','_','_')`)}
+    ${btn('<u>U</u>',    'Underline',       `window.cmsApp.wrapSelection('${targetId}','[u]','[/u]')`)}
+    <span style="border-left:1px solid #ced4da;margin:2px 4px;"></span>
+    ${btn('√',  'Square root',     `window.cmsApp.insertAtCursor('${targetId}','√')`)}
+    ${btn('x²', 'Superscript 2',   `window.cmsApp.wrapSelection('${targetId}','','²')`)}
+    ${btn('x³', 'Superscript 3',   `window.cmsApp.wrapSelection('${targetId}','','³')`)}
+    ${btn('xⁿ', 'Superscript',     `window.cmsApp.wrapSelection('${targetId}','^{','}')`)}
+    ${btn('x₁', 'Subscript',       `window.cmsApp.wrapSelection('${targetId}','_{','}')`)}
+    <span style="border-left:1px solid #ced4da;margin:2px 4px;"></span>
+    ${btn('½',  'One half',        `window.cmsApp.insertAtCursor('${targetId}','½')`)}
+    ${btn('π',  'Pi',              `window.cmsApp.insertAtCursor('${targetId}','π')`)}
+    ${btn('°',  'Degree',          `window.cmsApp.insertAtCursor('${targetId}','°')`)}
+    ${btn('≠',  'Not equal',       `window.cmsApp.insertAtCursor('${targetId}','≠')`)}
+    ${btn('≤',  'Less or equal',   `window.cmsApp.insertAtCursor('${targetId}','≤')`)}
+    ${btn('≥',  'Greater or equal',`window.cmsApp.insertAtCursor('${targetId}','≥')`)}
+    ${btn('×',  'Multiply',        `window.cmsApp.insertAtCursor('${targetId}','×')`)}
+    ${btn('÷',  'Divide',          `window.cmsApp.insertAtCursor('${targetId}','÷')`)}
+    ${btn('±',  'Plus/minus',      `window.cmsApp.insertAtCursor('${targetId}','±')`)}
+    ${btn('∞',  'Infinity',        `window.cmsApp.insertAtCursor('${targetId}','∞')`)}
+    ${btn('∠',  'Angle',           `window.cmsApp.insertAtCursor('${targetId}','∠')`)}
+    ${btn('△',  'Triangle',        `window.cmsApp.insertAtCursor('${targetId}','△')`)}
+  </div>`;
+};
+
+// Textarea with toolbar above it
+CMSApp.prototype.buildToolbarTextarea = function(id, rows, placeholder, value) {
+  const inputStyle = `width:100%;padding:10px;border:1px solid #ced4da;
+    border-radius:0 0 6px 6px;font-size:14px;box-sizing:border-box;
+    resize:vertical;font-family:inherit;`;
+  return `
+    ${this.buildToolbar(id)}
+    <textarea id="${id}" rows="${rows}" placeholder="${placeholder}"
+              style="${inputStyle}">${value || ''}</textarea>
+  `;
+};
+
+// ─────────────────────────────────────────────
+// VIEW BANK QUESTIONS
+// ─────────────────────────────────────────────
+CMSApp.prototype.viewBankQuestions = function(bankId) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  this.state.currentViewingBankId = bankId;
+  this.showQuestionsViewModal(bank);
+};
+
+CMSApp.prototype.showQuestionsViewModal = function(bank) {
+  const questions = bank.questions || [];
+  const existing = document.getElementById('questions-view-modal');
+  if (existing) existing.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'questions-view-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99990;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:24px;width:100%;max-width:860px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.3);margin:auto;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:16px;padding-bottom:14px;border-bottom:2px solid #e9ecef;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          📚 ${bank.name} — ${questions.length} Question${questions.length !== 1 ? 's' : ''}
+        </h2>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button onclick="window.cmsApp.showAddQuestionModal('${bank.id}')"
+                  style="padding:8px 18px;background:#28a745;color:white;border:none;
+                         border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+            ➕ Add Question
+          </button>
+          <button onclick="window.cmsApp.closeQuestionsViewModal()"
+                  style="background:none;border:none;font-size:26px;cursor:pointer;
+                         color:#6c757d;line-height:1;padding:0 4px;">&times;</button>
+        </div>
+      </div>
+
+      <div style="max-height:72vh;overflow-y:auto;padding-right:4px;">
+        ${questions.length === 0
+          ? `<div style="text-align:center;padding:48px;color:#6c757d;">
+               No questions yet. Click <strong>➕ Add Question</strong> to get started.
+             </div>`
+          : this.renderQuestions(questions, bank.id)
+        }
+      </div>
+
+      <!-- Footer -->
+      <div style="margin-top:16px;padding-top:14px;border-top:2px solid #e9ecef;
+                  display:flex;justify-content:space-between;">
+        <button onclick="window.cmsApp.showAddQuestionModal('${bank.id}')"
+                style="padding:10px 20px;background:#28a745;color:white;border:none;
+                       border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+          ➕ Add Question
+        </button>
+        <button onclick="window.cmsApp.closeQuestionsViewModal()"
+                style="padding:10px 20px;background:#6c757d;color:white;border:none;
+                       border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeQuestionsViewModal(); });
+};
+
+CMSApp.prototype.renderQuestions = function(questions, bankId) {
+  return questions.map((q, index) => {
+    const qNum = q.questionNumber || (index + 1);
+    const questionText = q.text || q.question || 'No question text';
+    const hasPassage = q.passageContext || q.passage;
+
+    // Support both option formats
+    let optionsHTML = '<p style="color:#6c757d;font-style:italic;">No options</p>';
+    let correctDisplay = '?';
+
+    if (Array.isArray(q.options) && q.options.length > 0) {
+      const correctIdx = typeof q.correct === 'number' ? q.correct
+                       : typeof q.correctAnswer === 'number' ? q.correctAnswer : 0;
+      correctDisplay = String.fromCharCode(65 + correctIdx);
+      optionsHTML = q.options.map((opt, i) => {
+        const isCorrect = i === correctIdx;
+        return `<div style="padding:8px 12px;margin:4px 0;border-radius:5px;font-size:13px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  ${opt}${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                </div>`;
+      }).join('');
+    } else if (q.options && typeof q.options === 'object') {
+      correctDisplay = q.correct || '?';
+      optionsHTML = Object.entries(q.options).map(([letter, text]) => {
+        const isCorrect = letter === q.correct;
+        return `<div style="padding:8px 12px;margin:4px 0;border-radius:5px;font-size:13px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  <strong>${letter}:</strong> ${text}
+                  ${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                </div>`;
+      }).join('');
+    }
+
+    return `
+      <div style="border:1px solid #dee2e6;border-radius:8px;padding:16px;
+                  margin-bottom:16px;background:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e9ecef;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong style="color:#495057;">Q${qNum}</strong>
+            <span style="background:#28a745;color:white;padding:2px 10px;
+                         border-radius:10px;font-size:12px;font-weight:600;">
+              Answer: ${correctDisplay}
+            </span>
+            ${q.testType ? `<span style="background:#6c757d;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">${q.testType}</span>` : ''}
+            ${q.addedManually ? `<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;">✏️ Manual</span>` : ''}
+            ${hasPassage ? `<span style="background:#17a2b8;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">📖 Passage</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="window.cmsApp.editQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#007bff;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">✏️ Edit</button>
+            <button onclick="window.cmsApp.deleteQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#dc3545;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">🗑️ Delete</button>
+          </div>
+        </div>
+
+        ${hasPassage ? `
+          <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer;color:#007bff;font-size:12px;
+                            padding:4px 8px;background:#e7f3ff;border-radius:4px;">
+              📖 Passage (${(q.passageContext || q.passage).length} chars)
+            </summary>
+            <div style="margin-top:6px;padding:10px;background:#f8f9fa;
+                        border-left:3px solid #007bff;border-radius:4px;
+                        max-height:180px;overflow-y:auto;font-size:13px;
+                        line-height:1.6;white-space:pre-wrap;">${q.passageContext || q.passage}</div>
+          </details>
+        ` : ''}
+
+        <p style="margin:8px 0;font-size:15px;line-height:1.5;"><strong>${questionText}</strong></p>
+        ${optionsHTML}
+
+        ${q.explanation ? `
+          <div style="margin-top:10px;padding:10px 14px;background:#e7f3ff;
+                      border-left:4px solid #007bff;border-radius:4px;font-size:13px;">
+            <strong style="color:#004085;">💡 Explanation:</strong>
+            <span style="color:#004085;"> ${q.explanation}</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+};
+
+CMSApp.prototype.closeQuestionsViewModal = function() {
+  const modal = document.getElementById('questions-view-modal');
+  if (modal) modal.remove();
+  this.state.currentViewingBankId = null;
+  this.loadQuestionBanks();
+};
+
+// ─────────────────────────────────────────────
+// EDIT QUESTION — handles both option formats
+// ─────────────────────────────────────────────
+CMSApp.prototype.editQuestion = function(bankId, questionIndex) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+
+  const isObjectOptions = question.options && !Array.isArray(question.options);
+  const questionText = (question.text || question.question || '').replace(/</g,'&lt;');
+
+  // Normalize to [{letter, text}] pairs
+  let optionPairs = [];
+  if (isObjectOptions) {
+    optionPairs = Object.entries(question.options).map(([letter, text]) => ({ letter, text }));
+  } else if (Array.isArray(question.options)) {
+    optionPairs = question.options.map((text, i) => ({ letter: String.fromCharCode(65 + i), text }));
+  }
+
+  // Current correct letter
+  let currentCorrectLetter = '';
+  if (isObjectOptions) {
+    currentCorrectLetter = question.correct || (optionPairs[0] && optionPairs[0].letter) || 'A';
+  } else {
+    const idx = typeof question.correct === 'number' ? question.correct
+              : typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
+    currentCorrectLetter = optionPairs[idx] ? optionPairs[idx].letter : 'A';
+  }
+
+  const passageVal = (question.passageContext || question.passage || '').replace(/</g,'&lt;');
+
+  const existing = document.getElementById('edit-question-modal');
+  if (existing) existing.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'edit-question-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99995;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  // Build option fields with toolbars
+  const optionFields = optionPairs.map(({letter, text}) => {
+    const id = `eq-option-${letter}`;
+    return `<div style="margin-bottom:14px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">${letter}:</label>
+      ${this.buildToolbar(id)}
+      <textarea id="${id}" rows="2"
+                style="width:100%;padding:10px;border:1px solid #ced4da;
+                       border-radius:0 0 6px 6px;font-size:14px;
+                       box-sizing:border-box;resize:vertical;font-family:inherit;"
+      >${text.replace(/</g,'&lt;')}</textarea>
+    </div>`;
+  }).join('');
+
+  const correctOptions = optionPairs.map(({letter}) =>
+    `<option value="${letter}" ${letter === currentCorrectLetter ? 'selected' : ''}>${letter}</option>`
+  ).join('');
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:30px;width:100%;max-width:680px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.35);margin:auto;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:20px;border-bottom:2px solid #e9ecef;padding-bottom:14px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          ✏️ Edit Question ${question.questionNumber || (questionIndex + 1)}
+          ${question.addedManually ? '<span style="font-size:12px;background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;margin-left:8px;">MANUAL</span>' : ''}
+        </h2>
+        <button onclick="window.cmsApp.closeEditQuestionModal()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;padding:0 4px;">&times;</button>
+      </div>
+
+      <form onsubmit="window.cmsApp.saveEditedQuestion(event,'${bankId}',${questionIndex})">
+
+        ${passageVal ? `
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">📖 Passage / Context:</label>
+          ${this.buildToolbar('eq-passage')}
+          <textarea id="eq-passage" rows="4"
+                    style="width:100%;padding:10px;border:1px solid #ced4da;
+                           border-radius:0 0 6px 6px;font-size:14px;
+                           box-sizing:border-box;resize:vertical;font-family:inherit;"
+          >${passageVal}</textarea>
+        </div>
+        ` : ''}
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">Question Text: *</label>
+          ${this.buildToolbar('eq-text')}
+          <textarea id="eq-text" rows="4" required
+                    style="width:100%;padding:10px;border:1px solid #ced4da;
+                           border-radius:0 0 6px 6px;font-size:14px;
+                           box-sizing:border-box;resize:vertical;font-family:inherit;"
+          >${questionText}</textarea>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <div style="font-weight:600;color:#495057;margin-bottom:10px;">Answer Options:</div>
+          ${optionFields}
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Correct Answer: *</label>
+          <select id="eq-correct" required
+                  style="width:100%;padding:10px;border:1px solid #ced4da;
+                         border-radius:6px;font-size:14px;background:#fff;">
+            ${correctOptions}
+          </select>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">
+            Explanation <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          ${this.buildToolbar('eq-explanation')}
+          <textarea id="eq-explanation" rows="3"
+                    style="width:100%;padding:10px;border:1px solid #ced4da;
+                           border-radius:0 0 6px 6px;font-size:14px;
+                           box-sizing:border-box;resize:vertical;font-family:inherit;"
+          >${(question.explanation||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            💾 Save Changes
+          </button>
+          <button type="button" onclick="window.cmsApp.closeEditQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeEditQuestionModal(); });
+
+  // Store metadata for save
+  modalEl.dataset.isObjectOptions = isObjectOptions ? '1' : '0';
+  modalEl.dataset.optionLetters = optionPairs.map(p => p.letter).join(',');
+};
+
+CMSApp.prototype.closeEditQuestionModal = function() {
+  const modal = document.getElementById('edit-question-modal');
+  if (modal) modal.remove();
+};
+
+CMSApp.prototype.saveEditedQuestion = function(event, bankId, questionIndex) {
+  event.preventDefault();
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+
+  const modal = document.getElementById('edit-question-modal');
+  const isObjectOptions = modal && modal.dataset.isObjectOptions === '1';
+  const optionLetters = modal ? modal.dataset.optionLetters.split(',') : [];
+
+  const editedText      = document.getElementById('eq-text').value;
+  const editedCorrect   = document.getElementById('eq-correct').value;
+  const editedExplain   = document.getElementById('eq-explanation').value;
+  const passageField    = document.getElementById('eq-passage');
+  const editedPassage   = passageField ? passageField.value : (question.passageContext || question.passage || '');
+
+  let editedOptions;
+  if (isObjectOptions) {
+    editedOptions = {};
+    optionLetters.forEach(letter => {
+      const input = document.getElementById(`eq-option-${letter}`);
+      if (input) editedOptions[letter] = input.value;
+    });
+  } else {
+    editedOptions = optionLetters.map(letter => {
+      const input = document.getElementById(`eq-option-${letter}`);
+      return input ? input.value : '';
+    });
+  }
+
+  // Correct value: letter for object, index for array
+  let correctValue;
+  if (isObjectOptions) {
+    correctValue = editedCorrect;
+  } else {
+    correctValue = optionLetters.indexOf(editedCorrect);
+    if (correctValue === -1) correctValue = 0;
+  }
+
+  questions[questionIndex] = {
+    ...question,
+    text: editedText,
+    question: editedText,
+    options: editedOptions,
+    correct: correctValue,
+    correctAnswer: correctValue,
+    explanation: editedExplain,
+    passageContext: editedPassage,
+    passage: editedPassage
+  };
+
+  this.showProcessing('Saving changes...');
+  this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions,
+    updatedAt: this.serverTimestamp()
+  }).then(() => {
+    bank.questions = questions;
+    this.closeEditQuestionModal();
+    this.showQuestionsViewModal(bank);
+    this.showAlert('Question updated successfully!', 'success');
+  }).catch(error => {
+    console.error('❌ Error updating question:', error);
+    this.showAlert('Error updating question. Please try again.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ─────────────────────────────────────────────
+// DELETE QUESTION
+// ─────────────────────────────────────────────
+CMSApp.prototype.deleteQuestion = function(bankId, questionIndex) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+  const preview = (question.text || question.question || 'Question ' + (questionIndex+1)).substring(0,60) + '…';
+  if (!confirm(`Delete this question?\n\n"${preview}"\n\nThis cannot be undone.`)) return;
+
+  this.showProcessing('Deleting question...');
+  const updated = questions.filter((_, i) => i !== questionIndex);
+  this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions: updated,
+    updatedAt: this.serverTimestamp()
+  }).then(() => {
+    bank.questions = updated;
+    if (updated.length === 0) {
+      this.closeQuestionsViewModal();
+      this.showAlert('All questions deleted. Question bank is now empty.', 'info');
+    } else {
+      this.showQuestionsViewModal(bank);
+      this.showAlert('Question deleted.', 'success');
+    }
+  }).catch(error => {
+    console.error('❌ Error deleting question:', error);
+    this.showAlert('Error deleting question. Please try again.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ─────────────────────────────────────────────
+// EDIT / DELETE QUESTION BANK (metadata only)
+// ─────────────────────────────────────────────
+CMSApp.prototype.editQuestionBank = function(bankId) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  document.getElementById('q-bank-name').value = bank.name || '';
+  document.getElementById('q-bank-approach').value = bank.approach || '';
+  const descField = document.getElementById('q-bank-description');
+  if (descField) descField.value = bank.description || '';
+  document.getElementById('question-bank-modal-title').textContent = 'Edit Question Bank';
+  this.state.editingBankId = bankId;
+  this.openModal('question-bank-modal');
+};
+
+CMSApp.prototype.deleteQuestionBank = function(bankId) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  const bankName = bank ? bank.name : 'this question bank';
+  const qCount = bank && bank.questions ? bank.questions.length : 0;
+  let msg = `Are you sure you want to delete "${bankName}"?`;
+  if (qCount > 0) msg += `\n\nThis bank contains ${qCount} question${qCount !== 1 ? 's' : ''}.`;
+  msg += '\n\nThis action cannot be undone.';
+  if (!confirm(msg)) return;
+
+  this.showProcessing('Deleting question bank...');
+  this.deleteDoc(this.doc(this.db, 'questionBanks', bankId))
+    .then(() => {
+      this.showAlert('Question bank deleted.', 'success');
+      this.loadQuestionBanks();
+    })
+    .catch(error => {
+      console.error('❌ Error deleting bank:', error);
+      this.showAlert('Error deleting question bank.', 'error');
+    })
+    .finally(() => { this.hideProcessing(); });
+};
+
+console.log('✅ Section 10 v3 loaded — toolbar, both option formats, body-appended modals');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 11 v7: COMPREHENSIVE REWRITE     -->
+<!-- All Critical Bugs Fixed - Part 1         -->
+<!-- ========================================= -->
+
+<script>
+console.log('🚀 Loading Section 11 v7: Critical Bug Fixes...');
+
+// ===========================================
+// ANTI-HALLUCINATION CONFIGURATION
+// ===========================================
+window.ANTI_HALLUCINATION_CONFIG = {
+  STRICT_MODE: true,
+  REQUIRE_EXACT_EXTRACTION: true,
+  VALIDATE_AGAINST_SOURCE: true,
+  SHOW_COMPARISON_VIEW: true,
+  MIN_CONFIDENCE_SCORE: 0.8,
+  REQUIRE_FULL_PASSAGE: true,
+  EXTRACT_ALL_QUESTIONS: true,
+  PREVENT_ACCIDENTAL_CLOSE: true,
+  FIX_HYPHENATION: true,
+  COLUMN_AWARE_READING: true,
+  STRICT_QUESTION_BOUNDARY: true,
+  FORMAT_PASSAGE_LINE_NUMBERS: true,
+  VALIDATE_QUESTION_SEQUENCE: true,
+  DETECT_MISSING_ANSWERS: true,
+  PRESERVE_MATH_NOTATION: true,
+  PRESERVE_CHEMICAL_FORMULAS: true,
+  HANDLE_DATA_TABLES: true,
+  ENGLISH_ZERO_TOLERANCE: true,
+  PRESERVE_UNDERLINES: true,
+  REQUIRE_EXPLANATIONS: true,
+  FRAMEWORK_SHOW_PREVIEW: true,
+  NORMALIZE_PASSAGE_CONSISTENCY: true,  // NEW: Fix passage truncation
+  VERIFY_ANSWER_KEY_APPLICATION: true    // NEW: Verify answer key works
+};
+
+// ===========================================
+// MAIN AI IMPORT SUBMIT HANDLER
+// ===========================================
+CMSApp.prototype.handleAIImportSubmit = async function(e) {
+  console.log('🚀 AI Import submit triggered (v7)');
+  
+  if (this.state.isProcessingImport) {
+    this.showAlert('Import already in progress. Please wait...', 'warning');
+    return;
+  }
+  
+  const selectedBankId = this.elements.aiSaveBankSelect?.value;
+  
+  if (!selectedBankId) {
+    this.showAlert('Please select a question bank or create a new one.', 'error');
+    return;
+  }
+  
+  if (selectedBankId === 'CREATE_NEW') {
+    const importState = {
+      contentFile: this.state.contentFile,
+      answerFile: this.state.answerFile,
+      contentText: this.elements.contentPasteArea?.textContent || '',
+      frameworkMode: document.getElementById('framework-mode-enable')?.checked || false,
+      settings: this.getImportSettings()
+    };
+    
+    this.state.pendingImport = importState;
+    this.showAlert('Please create a question bank first. Your content will be preserved.', 'info');
+    this.closeModal('ai-import-modal');
+    
+    setTimeout(() => {
+      this.showQuestionBankModal();
+    }, 300);
+    
+    return;
+  }
+  
+  if (!this.parserReady) {
+    this.showAlert('Ultimate Parser is not ready. Please add your API key in Settings.', 'error');
+    return;
+  }
+  
+  // NEW: Get test type EARLY before any processing
+  const settings = this.getImportSettings();
+  const testType = settings.extractionMode === 'smart' ? 'Reading' : settings.extractionMode;
+  console.log(`🎯 Test type detected EARLY: ${testType}`);
+  console.log(`📄 Page limit will be: ${testType === 'English' ? 3 : 2}`);
+  
+  const content = await this.getImportContent(testType);
+  
+  if (!content) {
+    this.showAlert('Please provide content to import (file upload or paste text).', 'error');
+    return;
+  }
+  
+  this.state.isProcessingImport = true;
+  this.updateProgress(0, 'Starting Ultimate Parser...');
+  
+  try {
+    await this.processAIImport(selectedBankId, content, testType);
+  } catch (error) {
+    console.error('❌ AI Import failed:', error);
+    this.handleError(error, 'AI import');
+  } finally {
+    this.state.isProcessingImport = false;
+  }
+};
+
+// ===========================================
+// GET IMPORT CONTENT (WITH TEST TYPE)
+// ===========================================
+CMSApp.prototype.getImportContent = async function(testType) {
+  console.log('📄 Getting import content for', testType, 'test...');
+  
+  const contentData = {
+    mainContent: null,
+    contentType: null,
+    answerKey: null,
+    answerKeyType: null,
+    sourceImages: null,
+    testType: testType
+  };
+  
+  if (this.state.contentFile) {
+    console.log('📎 Using uploaded file:', this.state.contentFile.name);
+    this.updateProgress(5, 'Processing uploaded file...');
+    
+    try {
+      const result = await this.getTextFromFile(this.state.contentFile, testType);
+      contentData.mainContent = result.content;
+      contentData.contentType = result.type;
+      
+      if (result.type === 'image') {
+        contentData.sourceImages = JSON.parse(result.content.replace('[PDF_IMAGES:', '').replace(']', ''));
+      }
+    } catch (error) {
+      console.error('❌ File processing error:', error);
+      throw new Error(`Failed to process file: ${error.message}`);
+    }
+  } else {
+    const pasteArea = this.elements.contentPasteArea;
+    if (pasteArea && pasteArea.textContent.trim()) {
+      console.log('📝 Using pasted text');
+      contentData.mainContent = pasteArea.textContent.trim();
+      contentData.contentType = 'text';
+    }
+  }
+  
+  if (!contentData.mainContent) {
+    console.warn('⚠️ No content provided');
+    return null;
+  }
+  
+  const pasteArea = this.elements.contentPasteArea;
+  if (pasteArea && pasteArea.textContent.trim()) {
+    const pastedText = pasteArea.textContent.trim();
+    const extractedAnswers = this.extractAnswerKeyFromText(pastedText);
+    
+    if (extractedAnswers && Object.keys(extractedAnswers).length > 0) {
+      contentData.answerKey = extractedAnswers;
+      contentData.answerKeyType = 'text';
+      console.log('✅ Using TEXT answer key:', Object.keys(extractedAnswers).length, 'answers');
+    }
+  }
+  
+  if (!contentData.answerKey && this.state.answerFile) {
+    console.log('📎 Processing answer key file:', this.state.answerFile.name);
+    this.updateProgress(10, 'Processing answer key file...');
+    
+    try {
+      const answerResult = await this.getTextFromFile(this.state.answerFile, testType);
+      
+      if (answerResult.type === 'image') {
+        const ocrText = await this.extractTextFromAnswerKeyImage(answerResult.content);
+        const extractedAnswers = this.extractAnswerKeyFromText(ocrText);
+        
+        if (extractedAnswers && Object.keys(extractedAnswers).length > 0) {
+          contentData.answerKey = extractedAnswers;
+          contentData.answerKeyType = 'ocr';
+          console.log('✅ Extracted answer key from image using OCR');
+        }
+      } else if (answerResult.type === 'text') {
+        const extractedAnswers = this.extractAnswerKeyFromText(answerResult.content);
+        
+        if (extractedAnswers && Object.keys(extractedAnswers).length > 0) {
+          contentData.answerKey = extractedAnswers;
+          contentData.answerKeyType = 'file';
+          console.log('✅ Using answer key from text file');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Answer key processing error:', error);
+      console.warn('⚠️ Continuing without answer key');
+    }
+  }
+  
+  return contentData;
+};
+
+// ===========================================
+// EXTRACT TEXT FROM ANSWER KEY IMAGE (OCR)
+// ===========================================
+CMSApp.prototype.extractTextFromAnswerKeyImage = async function(imageContent) {
+  console.log('🔍 Extracting text from answer key image using Gemini OCR...');
+  
+  try {
+    const imageDataArray = JSON.parse(imageContent.replace('[PDF_IMAGES:', '').replace(']', ''));
+    
+    let parts = [
+      { text: 'Extract all answer keys from this image. Return them in format: 1.A 2.B 3.C etc.' }
+    ];
+    
+    for (const imageDataUrl of imageDataArray) {
+      const base64Match = imageDataUrl.match(/data:([^;]+);base64,(.+)/);
+      if (base64Match) {
+        parts.push({
+          inlineData: {
+            mimeType: base64Match[1],
+            data: base64Match[2]
+          }
+        });
+      }
+    }
+    
+    const result = await this.geminiModel.generateContent(parts);
+    const response = await result.response;
+    const text = response.text();
+    
+    console.log('✅ OCR extracted text:', text);
+    return text;
+    
+  } catch (error) {
+    console.error('❌ OCR extraction failed:', error);
+    return '';
+  }
+};
+
+// ===========================================
+// EXTRACT ANSWER KEY FROM TEXT
+// ===========================================
+CMSApp.prototype.extractAnswerKeyFromText = function(text) {
+  console.log('📋 Checking for answer key in text...');
+  
+  const patterns = [
+    /(\d+)\.\s*([A-K])/gi,
+    /(\d+)\)\s*([A-K])/gi,
+    /(\d+):\s*([A-K])/gi,
+    /Question\s+(\d+):\s*([A-K])/gi,
+    /(\d+)\s*-\s*([A-K])/gi,
+    /(\d+)\s+([A-K])\b/gi
+  ];
+  
+  const answers = {};
+  
+  for (const pattern of patterns) {
+    const matches = text.matchAll(pattern);
+    for (const match of matches) {
+      const questionNum = parseInt(match[1]);
+      const answer = match[2].toUpperCase();
+      answers[questionNum] = answer;
+    }
+  }
+  
+  if (Object.keys(answers).length > 0) {
+    console.log(`✅ Found ${Object.keys(answers).length} answers:`, answers);
+    return answers;
+  }
+  
+  return null;
+};
+
+// ===========================================
+// PROCESS AI IMPORT (WITH TEST TYPE)
+// ===========================================
+CMSApp.prototype.processAIImport = async function(bankId, content, testType) {
+  console.log('⚡ Starting Ultimate Parser v7 with STRICT validation...');
+  
+  const startTime = Date.now();
+  
+  try {
+    this.updateProgress(10, 'Preparing strict extraction...');
+    const settings = this.getImportSettings();
+    console.log('⚙️ Import settings:', settings);
+    console.log('🎯 Test type for extraction:', testType);
+    
+    const frameworkMode = document.getElementById('framework-mode-enable')?.checked || false;
+    console.log('🔒 Framework Mode:', frameworkMode ? 'ENABLED' : 'DISABLED');
+    
+    if (content.answerKey) {
+      console.log('🔑 Answer key available:', Object.keys(content.answerKey).length, 'answers');
+      console.log('🔑 Answer key details:', content.answerKey);
+    }
+    
+    this.updateProgress(20, frameworkMode ? 'Generating framework questions...' : 'Extracting with strict validation...');
+    
+    let extractedData;
+    if (frameworkMode) {
+      extractedData = await this.extractQuestionsFrameworkModeV7(content, settings);
+    } else {
+      extractedData = await this.extractQuestionsUltraStrictV7(content, settings);
+    }
+    
+    this.updateProgress(70, 'Parsing and validating...');
+    let parsedQuestions = this.parseExtractedQuestionsV7(extractedData, frameworkMode, content.answerKey);
+    
+    // NEW: Normalize passage consistency (fix truncation bug)
+    if (window.ANTI_HALLUCINATION_CONFIG.NORMALIZE_PASSAGE_CONSISTENCY && !frameworkMode) {
+      console.log('📖 Normalizing passage consistency...');
+      parsedQuestions = this.normalizePassageConsistency(parsedQuestions);
+    }
+    
+    // Validate question sequence
+    if (window.ANTI_HALLUCINATION_CONFIG.VALIDATE_QUESTION_SEQUENCE && !frameworkMode) {
+      const validation = this.validateQuestionSequence(parsedQuestions);
+      if (!validation.valid) {
+        console.warn('⚠️ Question sequence issues:', validation.issues);
+        this.showAlert(
+          '⚠️ Extraction Warning:\n\n' + validation.issues.join('\n') + '\n\nPlease review carefully before saving.',
+          'warning'
+        );
+      }
+    }
+    
+    // Detect missing answers
+    if (window.ANTI_HALLUCINATION_CONFIG.DETECT_MISSING_ANSWERS) {
+      const missingAnswers = this.detectMissingAnswers(parsedQuestions);
+      if (missingAnswers.length > 0) {
+        console.warn('⚠️ Questions missing answers:', missingAnswers);
+        this.showAlert(
+          '⚠️ Missing Answers:\n\nQuestions ' + missingAnswers.join(', ') + ' do not have correct answers marked.\n\nPlease review before saving.',
+          'warning'
+        );
+      }
+    }
+    
+    // NEW: Verify answer key application
+    if (window.ANTI_HALLUCINATION_CONFIG.VERIFY_ANSWER_KEY_APPLICATION && content.answerKey) {
+      this.verifyAnswerKeyApplication(parsedQuestions, content.answerKey);
+    }
+    
+    // Clean up hyphenation artifacts
+    if (window.ANTI_HALLUCINATION_CONFIG.FIX_HYPHENATION) {
+      parsedQuestions = this.fixHyphenationImproved(parsedQuestions);
+    }
+    
+    // Format passages with line numbers
+    if (window.ANTI_HALLUCINATION_CONFIG.FORMAT_PASSAGE_LINE_NUMBERS) {
+      parsedQuestions = this.formatPassageLineNumbersImproved(parsedQuestions);
+    }
+    
+    // Preserve math notation (v7 enhanced)
+    if (window.ANTI_HALLUCINATION_CONFIG.PRESERVE_MATH_NOTATION) {
+      parsedQuestions = this.preserveMathNotationV7(parsedQuestions);
+    }
+    
+    // Format English underlines (v7 enhanced)
+    if (window.ANTI_HALLUCINATION_CONFIG.PRESERVE_UNDERLINES) {
+      parsedQuestions = this.formatEnglishUnderlines(parsedQuestions);
+    }
+    
+    if (!parsedQuestions || parsedQuestions.length === 0) {
+      throw new Error('No questions extracted.\n\nPlease ensure:\n• Document has clear questions\n• Questions have multiple choice options\n• Upload 1-3 pages only');
+    }
+    
+    console.log(`✅ Extracted ${parsedQuestions.length} questions`);
+    
+    this.state.lastExtraction = {
+      questions: parsedQuestions,
+      content: content,
+      bankId: bankId,
+      settings: settings,
+      frameworkMode: frameworkMode,
+      testType: testType
+    };
+    
+    // ALWAYS show comparison view (even for framework mode)
+    if (window.ANTI_HALLUCINATION_CONFIG.SHOW_COMPARISON_VIEW) {
+      this.updateProgress(80, 'Preparing comparison view...');
+      await this.showEnhancedComparisonView(parsedQuestions, content, frameworkMode, extractedData);
+      return;
+    }
+    
+    await this.finalizeImport(bankId, parsedQuestions, settings, frameworkMode);
+    
+  } catch (error) {
+    console.error('❌ Processing error:', error);
+    this.updateProgress(0, 'Import failed');
+    this.hideProgress();
+    
+    const duration = Date.now() - startTime;
+    this.logPerformanceMetric('ai_import', duration, false);
+    
+    this.handleImportError(error);
+    throw error;
+  }
+};
+
+// ===========================================
+// NEW v7: NORMALIZE PASSAGE CONSISTENCY
+// ===========================================
+CMSApp.prototype.normalizePassageConsistency = function(questions) {
+  console.log('📖 Normalizing passage consistency to fix truncation bug...');
+  
+  // Group questions by test type
+  const readingQuestions = questions.filter(q => q.testType === 'Reading');
+  
+  if (readingQuestions.length === 0) {
+    console.log('   No Reading questions found');
+    return questions;
+  }
+  
+  // Find the longest passage (most complete)
+  let longestPassage = null;
+  let longestLength = 0;
+  
+  readingQuestions.forEach(q => {
+    if (q.passageContext && q.passageContext.length > longestLength) {
+      longestPassage = q.passageContext;
+      longestLength = q.passageContext.length;
+    }
+  });
+  
+  console.log(`📖 Longest passage found: ${longestLength} chars`);
+  console.log(`📖 Passage lengths before normalization:`, 
+    readingQuestions.map(q => `Q${q.questionNumber}=${q.passageContext?.length || 0}`).join(', ')
+  );
+  
+  // Apply longest passage to ALL reading questions
+  const normalized = questions.map(q => {
+    if (q.testType === 'Reading' && longestPassage) {
+      return { ...q, passageContext: longestPassage };
+    }
+    return q;
+  });
+  
+  console.log(`✅ All Reading questions now have ${longestLength} char passage`);
+  
+  return normalized;
+};
+
+// ===========================================
+// NEW v7: VERIFY ANSWER KEY APPLICATION
+// ===========================================
+CMSApp.prototype.verifyAnswerKeyApplication = function(questions, answerKey) {
+  console.log('🔍 Verifying answer key application...');
+  
+  const mismatches = [];
+  
+  questions.forEach(q => {
+    if (answerKey[q.questionNumber]) {
+      const expectedLetter = answerKey[q.questionNumber].toUpperCase();
+      const expectedIndex = this.letterToIndex(expectedLetter);
+      
+      if (q.correct !== expectedIndex) {
+        mismatches.push({
+          question: q.questionNumber,
+          expected: expectedLetter,
+          expectedIndex: expectedIndex,
+          actual: this.indexToLetter(q.correct, q.testType),
+          actualIndex: q.correct
+        });
+      }
+    }
+  });
+  
+  if (mismatches.length > 0) {
+    console.error('❌ ANSWER KEY VERIFICATION FAILED:', mismatches);
+    this.showAlert(
+      '⚠️ Answer Key Mismatch Detected!\n\n' + 
+      mismatches.map(m => 
+        `Q${m.question}: Expected ${m.expected} (index ${m.expectedIndex}), got ${m.actual || 'undefined'} (index ${m.actualIndex})`
+      ).join('\n') +
+      '\n\nPlease review before saving.',
+      'warning'
+    );
+  } else {
+    console.log('✅ Answer key verification passed - all answers match');
+  }
+};
+
+CMSApp.prototype.letterToIndex = function(letter) {
+  // Handle both A-E (Math/Science) and F-J (Reading) formats
+  if (['F', 'G', 'H', 'J'].includes(letter)) {
+    return ['F', 'G', 'H', 'J'].indexOf(letter);
+  }
+  return letter.charCodeAt(0) - 65; // A=0, B=1, etc.
+};
+
+CMSApp.prototype.indexToLetter = function(index, testType) {
+  if (testType === 'Reading') {
+    return ['F', 'G', 'H', 'J'][index] || `Index${index}`;
+  }
+  return String.fromCharCode(65 + index); // 0=A, 1=B, etc.
+};
+
+console.log('✅ Section 11 v7 Part 1 Complete');
+console.log('📖 Passage consistency: NORMALIZED');
+console.log('🔑 Answer key verification: ENABLED');
+console.log('🎯 Test type early detection: FIXED');
+console.log('📄 English 3-page support: READY');
+</script>
+	
+	<!-- ========================================= -->
+<!-- SECTION 11 v7: PARTS 2 & 3 CONSOLIDATED  -->
+<!-- Enhanced Prompts + Parsing + Utilities   -->
+<!-- ========================================= -->
+
+<script>
+console.log('🚀 Loading Section 11 v7 Parts 2&3: Prompts + Parsing...');
+
+// ===========================================
+// V7: ULTRA-STRICT EXTRACTION
+// ===========================================
+CMSApp.prototype.extractQuestionsUltraStrictV7 = async function(content, settings) {
+  console.log('🛡️ Performing ULTRA-STRICT extraction V7...');
+  
+  const testType = content.testType || (settings.extractionMode === 'smart' ? 'Reading' : settings.extractionMode);
+  console.log('🎯 Test type:', testType);
+  
+  const prompt = this.buildMultiSubjectPromptV7(content, testType, settings);
+  
+  const estimatedChars = prompt.length + (content.contentType === 'image' ? 10000 : 0);
+  const estimatedTokens = Math.ceil(estimatedChars / 4);
+  console.log(`📊 Estimated tokens: ${estimatedTokens.toLocaleString()}`);
+  
+  this.updateProgress(25, `Processing... (~${estimatedTokens.toLocaleString()} tokens)`);
+  
+  if (estimatedTokens > 60000) {
+    throw new Error('Content too large!\n\nEstimated tokens: ' + estimatedTokens.toLocaleString() + '\nLimit: 65,536\n\nPlease upload fewer pages');
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  const result = await this.makeGeminiVisionCall(prompt, content);
+  
+  return result;
+};
+
+// ===========================================
+// V7: BUILD MULTI-SUBJECT PROMPT
+// ===========================================
+CMSApp.prototype.buildMultiSubjectPromptV7 = function(contentData, testType, settings) {
+  let prompt = `⚠️⚠️⚠️ ULTRA-STRICT EXTRACTION V7 - ZERO TOLERANCE ⚠️⚠️⚠️
+
+═══════════════════════════════════════════════════════════════
+CRITICAL: USE EXACT QUESTION NUMBERS FROM SOURCE IMAGE
+═══════════════════════════════════════════════════════════════
+
+LOOK AT THE IMAGE. What question numbers do you actually see?
+
+Examples:
+• If you see "55." → questionNumber: 55
+• If you see "61." → questionNumber: 61  
+• If you see "31." → questionNumber: 31
+
+❌ WRONG: Assuming ranges or renumbering
+✅ RIGHT: Reading ACTUAL numbers from image
+
+═══════════════════════════════════════════════════════════════
+CRITICAL: EXTRACT COMPLETE PASSAGE ONCE, REUSE FOR ALL QUESTIONS
+═══════════════════════════════════════════════════════════════
+
+READING TEST PASSAGE HANDLING:
+
+STEP 1: Extract the COMPLETE passage FIRST
+- Read entire passage start to finish
+- Include ALL text, ALL line numbers (5, 10, 15, 20...)
+- DO NOT truncate or summarize
+- This is your MASTER passage
+
+STEP 2: Extract questions, use SAME passage for each
+- For each question, use COMPLETE master passage
+- Do NOT re-extract or truncate per question
+- passageContext should be IDENTICAL for all questions
+
+REQUIREMENT: All questions must have EXACT same passageContext length.
+
+This is an ACT ${testType} test.
+
+`;
+
+  // Answer key if provided
+  if (contentData.answerKey) {
+    prompt += `═══════════════════════════════════════════════════════════════
+ANSWER KEY PROVIDED - ABSOLUTE PRIORITY
+═══════════════════════════════════════════════════════════════
+
+USE THESE EXACT correctAnswer VALUES.
+OVERRIDE any markings in source images.
+
+`;
+    const sortedKeys = Object.keys(contentData.answerKey).sort((a, b) => parseInt(a) - parseInt(b));
+    for (const num of sortedKeys) {
+      const answer = contentData.answerKey[num];
+      let answerIndex;
+      if (['F', 'G', 'H', 'J'].includes(answer)) {
+        answerIndex = ['F', 'G', 'H', 'J'].indexOf(answer);
+      } else {
+        answerIndex = answer.charCodeAt(0) - 65;
+      }
+      prompt += `Q${num}: correctAnswer=${answerIndex} (${answer})\n`;
+    }
+    prompt += `\n`;
+  }
+
+  // Test-specific instructions
+  if (testType === 'Reading') {
+    prompt += `═══════════════════════════════════════════════════════════════
+READING TEST
+═══════════════════════════════════════════════════════════════
+• Extract COMPLETE passage (all words, all line numbers)
+• Use F, G, H, J format for answers
+• Question text ONLY (no answer options in text field)
+• REQUIRED: Explanation for each question
+• Example: "The passage states in lines 15-20 that..."
+
+`;
+  } else if (testType === 'Math') {
+    prompt += `═══════════════════════════════════════════════════════════════
+MATH TEST - PRESERVE NOTATION
+═══════════════════════════════════════════════════════════════
+• Use ACTUAL question numbers (e.g., 55, 56, 57...)
+• Subscripts: a₁, a₂, b₁, b₂ or "a subscript 1"
+• Superscripts: x² or "x squared" or "x^2"
+• Square roots: √2 (use √ symbol NOT checkmark ✓)
+• Use A, B, C, D, E format (5 options)
+• REQUIRED: Explanation with solution steps
+
+`;
+  } else if (testType === 'Science') {
+    prompt += `═══════════════════════════════════════════════════════════════
+SCIENCE TEST - COMPLETE QUESTIONS
+═══════════════════════════════════════════════════════════════
+• Extract COMPLETE questions (do NOT split at charts)
+• Chemical formulas: CO₂, H₂O (preserve subscripts)
+• Units: °C, mL/g, m/s²
+• Use A, B, C, D format
+• REQUIRED: Explanation referencing data
+
+`;
+  } else if (testType === 'English') {
+    prompt += `═══════════════════════════════════════════════════════════════
+ENGLISH TEST - ZERO TOLERANCE FOR CHANGES
+═══════════════════════════════════════════════════════════════
+• Use ACTUAL question numbers (e.g., 61, 62, 63...)
+• ZERO changes to punctuation/capitalization
+• Mark underlines: whose[61] or whose₆₁
+• Use A, B, C, D format
+• Often includes "A. NO CHANGE"
+• REQUIRED: Explanation of grammar rule
+
+`;
+  }
+
+  prompt += `═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT (VALID JSON ONLY)
+═══════════════════════════════════════════════════════════════
+
+{
+  "testType": "${testType}",
+  "extractedQuestions": [
+    {
+      "questionNumber": <ACTUAL_NUMBER>,
+      "text": "Question text ONLY",
+      "passageContext": "Complete passage",
+      "options": ["..."],
+      "correctAnswer": <index>,
+      "explanation": "Required explanation",
+      "testType": "${testType}"
+    }
+  ]
+}
+
+BEGIN EXTRACTION NOW.`;
+
+  return prompt;
+};
+
+// ===========================================
+// V7: FRAMEWORK MODE
+// ===========================================
+CMSApp.prototype.extractQuestionsFrameworkModeV7 = async function(content, settings) {
+  console.log('🔒 Framework Mode V7...');
+  
+  const testType = content.testType || (settings.extractionMode === 'smart' ? 'Reading' : settings.extractionMode);
+  
+  let frameworkPrompt;
+  switch(testType) {
+    case 'Reading':
+      frameworkPrompt = `🔒 READING FRAMEWORK V7 🔒
+
+Create COMPLETE ORIGINAL passage (500-700 words) FIRST.
+Then create 10 questions using F, G, H, J format.
+All questions must reference YOUR passage.
+
+{
+  "testType": "Reading",
+  "originalPassage": "Your complete passage...",
+  "originalQuestions": [{
+    "questionNumber": 1,
+    "text": "Question about YOUR passage",
+    "passageContext": "Your complete passage (same as originalPassage)",
+    "options": ["F) ...", "G) ...", "H) ...", "J) ..."],
+    "correctAnswer": 1,
+    "explanation": "G is correct because...",
+    "testType": "Reading"
+  }]
+}`;
+      break;
+      
+    case 'English':
+      frameworkPrompt = `🔒 ENGLISH FRAMEWORK V7 - NOT READING! 🔒
+
+YOU ARE CREATING GRAMMAR/PUNCTUATION QUESTIONS.
+THIS IS NOT A READING COMPREHENSION TEST.
+
+DO NOT:
+❌ Create story with "What does passage suggest?"
+❌ Ask about character motivations
+
+DO:
+✅ Create passage with grammar issues
+✅ Mark portions with [Q1], [Q2]
+✅ Test comma usage, verb tense, pronouns
+✅ Include "A. NO CHANGE" options
+
+IF YOU CREATE READING QUESTIONS, YOU HAVE FAILED.
+
+{
+  "testType": "English",
+  "originalPassage": "Passage with [Q1], [Q2] markers...",
+  "originalQuestions": [{
+    "questionNumber": 1,
+    "text": "Grammar question",
+    "options": ["A) NO CHANGE", "B) ...", "C) ...", "D) ..."],
+    "correctAnswer": 2,
+    "explanation": "C is correct because [grammar rule]",
+    "testType": "English"
+  }]
+}`;
+      break;
+      
+    case 'Math':
+      frameworkPrompt = `🔒 MATH FRAMEWORK V7 - NOT READING! 🔒
+
+YOU ARE CREATING MATH PROBLEMS WITH NUMBERS.
+THIS IS NOT A READING TEST.
+
+DO NOT:
+❌ Create story passage
+❌ Ask "What does passage suggest about math?"
+
+DO:
+✅ Create MATH PROBLEMS: "If 2x + 5 = 13, what is x?"
+✅ Include equations, calculations
+✅ Use subscripts: a₁, b₂
+✅ Use A, B, C, D, E format (5 options)
+
+IF YOU CREATE READING QUESTIONS, YOU HAVE FAILED.
+
+{
+  "testType": "Math",
+  "originalQuestions": [{
+    "questionNumber": 1,
+    "text": "If 2x + 5 = 13, what is x?",
+    "options": ["A) 2", "B) 4", "C) 6", "D) 8", "E) 9"],
+    "correctAnswer": 1,
+    "explanation": "Subtract 5: 2x = 8. Divide by 2: x = 4",
+    "testType": "Math"
+  }]
+}`;
+      break;
+      
+    case 'Science':
+      frameworkPrompt = `🔒 SCIENCE FRAMEWORK V7 🔒
+
+Create ORIGINAL experiment with data table.
+Different topic, different values than sample.
+
+{
+  "testType": "Science",
+  "originalPassage": "Experiment description and data...",
+  "originalQuestions": [{
+    "questionNumber": 1,
+    "text": "According to Table 1, as X increased, Y:",
+    "options": ["A) decreased", "B) increased", "C) stayed same", "D) varied"],
+    "correctAnswer": 1,
+    "explanation": "Data shows Y increased from 0.5 to 1.2",
+    "testType": "Science"
+  }]
+}`;
+      break;
+      
+    default:
+      frameworkPrompt = this.buildReadingFrameworkPromptV6();
+  }
+  
+  try {
+    const result = await this.makeGeminiVisionCall(frameworkPrompt, content);
+    return result;
+  } catch (error) {
+    console.error('❌ Framework generation failed:', error);
+    throw error;
+  }
+};
+
+// ===========================================
+// V7: PARSE EXTRACTED QUESTIONS
+// ===========================================
+CMSApp.prototype.parseExtractedQuestionsV7 = function(extractedData, frameworkMode, answerKey) {
+  console.log('🔍 Parsing questions V7...');
+  
+  try {
+    const cleaned = this.cleanJSONResponse(extractedData);
+    const parsed = JSON.parse(cleaned);
+    
+    let questions = frameworkMode 
+      ? (parsed.originalQuestions || parsed.questions || [])
+      : (parsed.extractedQuestions || parsed.questions || []);
+    
+    if (!Array.isArray(questions)) {
+      throw new Error('Invalid format - questions is not an array');
+    }
+    
+    console.log(`✅ Found ${questions.length} questions`);
+    
+    let mappedQuestions = questions.map((q, i) => {
+      let correctAnswer = q.correctAnswer !== undefined ? q.correctAnswer : (q.correct !== undefined ? q.correct : 0);
+      
+      // Extract correct answer from explanation if framework mode
+      if (frameworkMode && q.explanation) {
+        const explainedAnswer = this.extractCorrectAnswerFromExplanation(q.explanation, q.options);
+        if (explainedAnswer !== -1) {
+          console.log(`🔍 Framework Q${i+1}: Explanation indicates ${explainedAnswer}, was ${correctAnswer}`);
+          correctAnswer = explainedAnswer;
+        }
+      }
+      
+      return {
+        text: q.text || q.question || '',
+        options: q.options || [],
+        correct: correctAnswer,
+        explanation: q.explanation || '',
+        testType: q.testType || parsed.testType || 'General',
+        format: 'text',
+        partialCredit: [],
+        questionNumber: q.questionNumber || (i + 1),
+        passageContext: q.passageContext || parsed.originalPassage || '',
+        passageImages: [],
+        questionImages: [],
+        optionImages: {},
+        frameworkGenerated: frameworkMode,
+        confidence: q.confidence || 1.0
+      };
+    });
+    
+    console.log('📋 BEFORE answer key:', mappedQuestions.map(q => `Q${q.questionNumber}:${q.correct}`).join(', '));
+    
+    // Apply answer key override with ABSOLUTE PRIORITY
+    if (answerKey && Object.keys(answerKey).length > 0) {
+      console.log('🔑 ⚠️ APPLYING ANSWER KEY OVERRIDES');
+      
+      mappedQuestions = mappedQuestions.map(q => {
+        const qNum = q.questionNumber;
+        if (answerKey[qNum]) {
+          const answerLetter = answerKey[qNum].toUpperCase();
+          
+          let answerIndex;
+          if (['F', 'G', 'H', 'J'].includes(answerLetter)) {
+            answerIndex = ['F', 'G', 'H', 'J'].indexOf(answerLetter);
+          } else {
+            answerIndex = answerLetter.charCodeAt(0) - 65;
+          }
+          
+          console.log(`🔑 Q${qNum}: ${q.correct} → ${answerIndex} (${answerLetter})`);
+          
+          // FORCE override
+          return { 
+            ...q, 
+            correct: answerIndex,
+            answerKeyApplied: true
+          };
+        }
+        return q;
+      });
+    }
+    
+    console.log('📋 AFTER answer key:', mappedQuestions.map(q => `Q${q.questionNumber}:${q.correct}`).join(', '));
+    
+    return mappedQuestions;
+    
+  } catch (error) {
+    console.error('❌ Parse error:', error);
+    throw new Error(`Failed to parse: ${error.message}`);
+  }
+};
+
+// ===========================================
+// EXTRACT CORRECT ANSWER FROM EXPLANATION
+// ===========================================
+CMSApp.prototype.extractCorrectAnswerFromExplanation = function(explanation, options) {
+  if (!explanation || !options || options.length === 0) return -1;
+  
+  const patterns = [
+    /([A-J])\s+is\s+(the\s+)?(correct|right)/i,
+    /answer\s+is\s+([A-J])/i,
+    /([A-J])\)\s+is\s+(correct|right)/i,
+    /([A-J])\s+because/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = explanation.match(pattern);
+    if (match) {
+      const letter = match[1].toUpperCase();
+      
+      for (let i = 0; i < options.length; i++) {
+        const optionText = options[i].trim();
+        if (optionText.startsWith(letter + ')') || 
+            optionText.startsWith(letter + '.') ||
+            optionText.startsWith(letter + ' ')) {
+          console.log(`✅ Extracted ${letter} (index ${i}) from explanation`);
+          return i;
+        }
+      }
+    }
+  }
+  
+  return -1;
+};
+
+// ===========================================
+// V7: PRESERVE MATH NOTATION
+// ===========================================
+CMSApp.prototype.preserveMathNotationV7 = function(questions) {
+  return questions.map(q => {
+    if (q.testType !== 'Math' && q.testType !== 'Science') return q;
+    
+    return {
+      ...q,
+      text: this.convertMathNotationV7(q.text),
+      options: (q.options || []).map(opt => this.convertMathNotationV7(opt)),
+      passageContext: q.passageContext ? this.convertMathNotationV7(q.passageContext) : q.passageContext
+    };
+  });
+};
+
+CMSApp.prototype.convertMathNotationV7 = function(text) {
+  if (!text) return text;
+  
+  let converted = text;
+  
+  const subscriptMap = {'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉'};
+  const superscriptMap = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+  
+  // Trig functions: cos2x → cos²x
+  converted = converted.replace(/(sin|cos|tan)(\d)x/gi, (m, func, num) => 
+    `${func}${superscriptMap[num] || `^${num}`}x`
+  );
+  
+  // Variables: a1 → a₁
+  converted = converted.replace(/\b([a-z])(\d)\b/gi, (m, letter, num) =>
+    `${letter}${subscriptMap[num] || num}`
+  );
+  
+  // Square root: ✓ → √
+  converted = converted.replace(/✓/g, '√');
+  converted = converted.replace(/sqrt\s*\(/gi, '√(');
+  
+  // Chemical: CO2 → CO₂
+  converted = converted.replace(/CO2\b/g, 'CO₂');
+  converted = converted.replace(/H2O\b/g, 'H₂O');
+  
+  // Log: log24 → log₂4
+  converted = converted.replace(/log(\d)(\d)/g, (m, base, num) =>
+    `log${subscriptMap[base]}${num}`
+  );
+  
+  return converted;
+};
+
+// ===========================================
+// FORMAT ENGLISH UNDERLINES
+// ===========================================
+CMSApp.prototype.formatEnglishUnderlines = function(questions) {
+  return questions.map(q => {
+    if (q.testType !== 'English' || !q.passageContext) return q;
+    
+    let formatted = q.passageContext;
+    
+    // Convert [Q61] → <u>word</u>₍₆₁₎
+    formatted = formatted.replace(/(\w+)\[Q?(\d+)\]/g, '<u>$1</u><sub>[$2]</sub>');
+    
+    return { ...q, passageContext: formatted };
+  });
+};
+
+// ===========================================
+// UTILITIES
+// ===========================================
+CMSApp.prototype.validateQuestionSequence = function(questions) {
+  const issues = [];
+  const questionNumbers = questions.map(q => q.questionNumber).filter(n => n);
+  
+  if (questionNumbers.length === 0) return { valid: true, issues: [] };
+  
+  const duplicates = questionNumbers.filter((n, i) => questionNumbers.indexOf(n) !== i);
+  if (duplicates.length > 0) {
+    issues.push(`❌ Duplicate: ${[...new Set(duplicates)].join(', ')}`);
+  }
+  
+  const sorted = [...questionNumbers].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] - sorted[i-1] > 1) {
+      issues.push(`⚠️ Gap: ${sorted[i-1]} → ${sorted[i]}`);
+    }
+  }
+  
+  return { valid: issues.length === 0, issues };
+};
+
+CMSApp.prototype.detectMissingAnswers = function(questions) {
+  return questions
+    .filter(q => q.options && q.options.length > 0 && (q.correct === undefined || q.correct === null || q.correct < 0))
+    .map(q => q.questionNumber || 'Unknown');
+};
+
+CMSApp.prototype.fixHyphenationImproved = function(questions) {
+  return questions.map(q => ({
+    ...q,
+    text: this.cleanHyphenationImproved(q.text),
+    options: (q.options || []).map(opt => this.cleanHyphenationImproved(opt)),
+    passageContext: q.passageContext ? this.cleanHyphenationImproved(q.passageContext) : q.passageContext
+  }));
+};
+
+CMSApp.prototype.cleanHyphenationImproved = function(text) {
+  if (!text) return text;
+  let cleaned = text.replace(/(\w+)-\s+([a-z])/g, '$1$2');
+  cleaned = cleaned.replace(/(\w+)-\n([a-z])/g, '$1$2');
+  cleaned = cleaned.replace(/(\w+)-\s{2,}([a-z])/g, '$1$2');
+  return cleaned;
+};
+
+CMSApp.prototype.formatPassageLineNumbersImproved = function(questions) {
+  return questions.map(q => {
+    if (!q.passageContext) return q;
+    
+    let formatted = q.passageContext;
+    formatted = formatted.replace(/(\n|^)\s*(\d{1,3})\s+([a-zA-Z])/g, (match, lineStart, num, nextChar) => {
+      const number = parseInt(num);
+      if (number % 5 === 0 && number >= 5 && number <= 100) {
+        return `${lineStart}${num} ${nextChar}`;
+      }
+      return match;
+    });
+    
+    return { ...q, passageContext: formatted };
+  });
+};
+
+CMSApp.prototype.getImportSettings = function() {
+  return {
+    expectedQuestions: document.getElementById('ai-question-count')?.value || 'auto',
+    difficulty: document.getElementById('ai-difficulty-level')?.value || 'auto',
+    extractionMode: document.getElementById('extraction-mode')?.value || 'smart',
+    multiPass: document.getElementById('multi-pass')?.value === 'enabled',
+    frameworkTheme: document.getElementById('framework-theme')?.value || 'auto',
+    originalityLevel: document.getElementById('originality-level')?.value || 'high'
+  };
+};
+
+CMSApp.prototype.saveExtractedQuestions = async function(bankId, questions, settings, frameworkMode) {
+  console.log(`💾 Saving ${questions.length} questions...`);
+  
+  const bankDoc = await this.getDoc(this.doc(this.db, 'questionBanks', bankId));
+  if (!bankDoc.exists()) throw new Error('Question bank not found');
+  
+  const bankData = bankDoc.data();
+  const existingQuestions = bankData.questions || [];
+  const updatedQuestions = [...existingQuestions, ...questions];
+  
+  await this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions: updatedQuestions,
+    lastExtraction: {
+      date: new Date().toISOString(),
+      questionsAdded: questions.length,
+      testType: questions[0]?.testType || 'General',
+      frameworkMode: frameworkMode,
+      validated: true
+    },
+    updatedAt: this.serverTimestamp()
+  });
+  
+  console.log('✅ Saved to database');
+};
+
+CMSApp.prototype.finalizeImport = async function(bankId, questions, settings, frameworkMode) {
+  this.updateProgress(85, 'Saving...');
+  await this.saveExtractedQuestions(bankId, questions, settings, frameworkMode);
+  
+  this.state.parserStats.processedDocuments++;
+  this.state.parserStats.extractedQuestions += questions.length;
+  this.state.parserStats.successCount++;
+  
+  this.updateProgress(100, 'Complete!');
+  this.hideProgress();
+  this.closeModal('ai-import-modal');
+  
+  this.showAlert(`✅ ${questions.length} questions ${frameworkMode ? 'generated' : 'extracted'} and saved.`, 'success');
+  
+  await this.loadQuestionBanks();
+  this.switchPage('question-banks');
+  
+  this.state.lastExtraction = null;
+};
+
+CMSApp.prototype.makeGeminiVisionCall = async function(textPrompt, contentData) {
+  if (!this.geminiModel) throw new Error('Gemini model not initialized');
+  
+  let parts = [{ text: textPrompt }];
+  
+  if (contentData.contentType === 'image') {
+    const imageDataArray = contentData.sourceImages || 
+                          JSON.parse(contentData.mainContent.replace('[PDF_IMAGES:', '').replace(']', ''));
+    
+    for (const imageDataUrl of imageDataArray) {
+      const base64Match = imageDataUrl.match(/data:([^;]+);base64,(.+)/);
+      if (base64Match) {
+        parts.push({ inlineData: { mimeType: base64Match[1], data: base64Match[2] }});
+      }
+    }
+  }
+  
+  const result = await this.geminiModel.generateContent(parts);
+  const response = await result.response;
+  return response.text();
+};
+
+CMSApp.prototype.convertPDFToImages = function(pdfFile, testType) {
+  const self = this;
+  return new Promise((resolve, reject) => {
+    if (typeof pdfjsLib === 'undefined') {
+      reject(new Error('PDF.js not loaded'));
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const typedArray = new Uint8Array(e.target.result);
+      
+      pdfjsLib.getDocument(typedArray).promise.then(pdf => {
+        let maxPages = testType === 'English' ? Math.min(pdf.numPages, 3) : Math.min(pdf.numPages, 2);
+        
+        console.log(`📄 Processing ${maxPages}/${pdf.numPages} pages (${testType})`);
+        
+        if (pdf.numPages > maxPages) {
+          self.showAlert(`PDF has ${pdf.numPages} pages. Processing first ${maxPages} for ${testType}.`, 'info');
+        }
+        
+        const imagePromises = [];
+        
+        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+          const pagePromise = pdf.getPage(pageNum).then(page => {
+            const scale = 1.5;
+            const viewport = page.getViewport({ scale });
+            
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            return page.render({ canvasContext: context, viewport }).promise.then(() => {
+              return canvas.toDataURL('image/jpeg', 0.85);
+            });
+          });
+          
+          imagePromises.push(pagePromise);
+        }
+        
+        Promise.all(imagePromises).then(resolve).catch(reject);
+      }).catch(reject);
+    };
+    
+    reader.onerror = () => reject(new Error('Failed to read PDF'));
+    reader.readAsArrayBuffer(pdfFile);
+  });
+};
+
+CMSApp.prototype.getTextFromFile = function(fileObj, testType) {
+  return new Promise((resolve, reject) => {
+    const fileType = fileObj.type;
+    const fileName = fileObj.name.toLowerCase();
+    
+    if (fileType === 'text/plain' || fileName.endsWith('.txt')) {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve({ content: e.target.result, type: 'text' });
+      reader.onerror = () => reject(new Error('Text read error'));
+      reader.readAsText(fileObj);
+      return;
+    }
+    
+    if (fileType.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        resolve({ content: '[PDF_IMAGES:' + JSON.stringify([e.target.result]) + ']', type: 'image' });
+      };
+      reader.onerror = () => reject(new Error('Image read error'));
+      reader.readAsDataURL(fileObj);
+      return;
+    }
+    
+    if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
+      this.convertPDFToImages(fileObj, testType).then(imageDataArray => {
+        resolve({ content: '[PDF_IMAGES:' + JSON.stringify(imageDataArray) + ']', type: 'image' });
+      }).catch(reject);
+      return;
+    }
+    
+    reject(new Error(`Unsupported file type: ${fileType}`));
+  });
+};
+
+CMSApp.prototype.cleanJSONResponse = function(text) {
+  let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  const jsonStart = cleaned.indexOf('{');
+  const jsonEnd = cleaned.lastIndexOf('}');
+  if (jsonStart !== -1 && jsonEnd !== -1) {
+    cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+  }
+  return cleaned;
+};
+
+CMSApp.prototype.handleImportError = function(error) {
+  let userMessage = 'Import failed: ';
+  
+  if (error.message.includes('quota') || error.message.includes('429')) {
+    userMessage = '⚠️ API Quota/Rate Limit:\n\nWait 2-3 minutes\nUpload 1-3 pages only';
+  } else if (error.message.includes('token count exceeds')) {
+    userMessage = '⚠️ Content Too Large:\n\nUpload fewer pages';
+  } else {
+    userMessage = `❌ ${error.message}`;
+  }
+  
+  this.showAlert(userMessage, 'error');
+};
+
+console.log('✅ Section 11 v7 Parts 2&3 Complete');
+console.log('📋 Enhanced prompts with passage extraction');
+console.log('🔑 Framework test type enforcement');
+console.log('🔍 Explanation extraction enabled');
+console.log('🔣 Math notation v7 comprehensive');
+console.log('📝 English underlines formatted');
+console.log('📄 English 3-page support active');
+console.log('');
+console.log('═══════════════════════════════════════════');
+console.log('✅ SECTION 11 v7 FULLY LOADED');
+console.log('═══════════════════════════════════════════');
+</script>
+	
+	<!-- ========================================= -->
+	<!-- SECTION 11A: COMPARISON VIEW UI          -->
+	<!-- Compact + Zoomable + Multi-Subject Display -->
+	<!-- ========================================= -->
+	<script>
+console.log('🚀 Loading Section 11A: Comparison View UI...');
+
+// ===========================================
+// SHOW ENHANCED COMPARISON VIEW
+// ===========================================
+CMSApp.prototype.showEnhancedComparisonView = async function(questions, content) {
+  console.log('👁️ Showing enhanced comparison view...');
+  
+  const modalHTML = `
+    <div id="comparison-view-modal" class="cms-modal" style="display: block;">
+      <div class="cms-modal-content" style="max-width: 98%; width: 98%; max-height: 98vh; padding: 10px;">
+        
+        <!-- COMPACT Sticky Header -->
+        <div style="position: sticky; top: 0; background: white; z-index: 100; padding: 8px 0; border-bottom: 2px solid #dee2e6; margin-bottom: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <h2 style="margin: 0; font-size: 18px;">🔍 Verify Extraction</h2>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13px;">
+              <span><strong>${questions.length}</strong> questions</span>
+              <span><strong>${content.contentType === 'image' ? content.sourceImages.length : 1}</strong> page(s)</span>
+              <span><strong>${questions[0]?.testType || 'General'}</strong> test</span>
+              ${content.answerKey ? `<span style="color: #28a745;">✅ ${Object.keys(content.answerKey).length} answers</span>` : ''}
+              <button class="cms-btn cms-btn-danger" style="padding: 4px 12px; font-size: 13px;" onclick="window.cmsApp.handleComparisonClose()">Cancel</button>
+              <button class="cms-btn cms-btn-success" style="padding: 4px 12px; font-size: 13px;" onclick="window.cmsApp.confirmAndSaveExtraction()">✅ Save</button>
+              <button class="cms-close" onclick="window.cmsApp.handleComparisonClose()" style="position: static; margin: 0;">×</button>
+            </div>
+          </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+          
+          <!-- Source Content -->
+          <div style="border: 2px solid #007bff; border-radius: 6px; padding: 10px; background: #f8f9fa; display: flex; flex-direction: column; height: calc(98vh - 100px);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3 style="margin: 0; font-size: 15px; color: #007bff;">📄 Source</h3>
+              <div style="display: flex; gap: 4px;">
+                <button class="cms-btn cms-btn-secondary" style="padding: 3px 8px; font-size: 12px;" onclick="window.cmsApp.zoomSource(-0.1)">−</button>
+                <button class="cms-btn cms-btn-secondary" style="padding: 3px 8px; font-size: 12px;" onclick="window.cmsApp.zoomSource(0.1)">+</button>
+                <button class="cms-btn cms-btn-secondary" style="padding: 3px 8px; font-size: 12px;" onclick="window.cmsApp.zoomSource('reset')">Reset</button>
+              </div>
+            </div>
+            <div id="source-content-display" style="flex: 1; overflow: auto; background: white; padding: 10px; border-radius: 4px; transform-origin: top left;">
+              ${this.renderSourceContentZoomable(content)}
+            </div>
+          </div>
+          
+          <!-- Extracted Questions -->
+          <div style="border: 2px solid #28a745; border-radius: 6px; padding: 10px; background: #f8f9fa; display: flex; flex-direction: column; height: calc(98vh - 100px);">
+            <h3 style="margin: 0 0 8px 0; font-size: 15px; color: #28a745;">✅ Extracted (${questions.length})</h3>
+            <div id="extracted-questions-display" style="flex: 1; overflow: auto;">
+              ${this.renderExtractedQuestionsCompact(questions, content)}
+            </div>
+          </div>
+          
+        </div>
+        
+      </div>
+    </div>
+  `;
+  
+  const existingModal = document.getElementById('comparison-view-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+  
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+  
+  const modal = document.getElementById('comparison-view-modal');
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      e.stopPropagation();
+      this.confirmCloseComparison();
+    }
+  });
+  
+  this.sourceZoomLevel = 1.0;
+  
+  console.log('✅ Comparison view displayed');
+};
+
+// ===========================================
+// RENDER EXTRACTED QUESTIONS (COMPACT)
+// ===========================================
+CMSApp.prototype.renderExtractedQuestionsCompact = function(questions, content) {
+  return questions.map((q, index) => {
+    const qNum = q.questionNumber || (index + 1);
+    const confidence = q.confidence || 0;
+    const hasPassage = q.passageContext && q.passageContext.length > 50;
+    const testType = q.testType || 'General';
+    
+    // Determine if answer is missing
+    const hasMissingAnswer = (q.correct === undefined || q.correct === null || q.correct < 0);
+    
+    return `
+      <div style="background: white; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; margin-bottom: 8px; font-size: 13px;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <strong style="color: #495057;">Q${qNum}</strong>
+          <div style="display: flex; gap: 4px; font-size: 11px;">
+            ${testType !== 'General' ? 
+              `<span style="background: #6c757d; color: white; padding: 2px 6px; border-radius: 8px;">${testType}</span>` : ''
+            }
+            ${confidence >= 0.8 ? 
+              `<span style="background: #28a745; color: white; padding: 2px 6px; border-radius: 8px;">${(confidence * 100).toFixed(0)}%</span>` :
+              `<span style="background: #ffc107; color: #000; padding: 2px 6px; border-radius: 8px;">⚠️ ${(confidence * 100).toFixed(0)}%</span>`
+            }
+            ${hasPassage ? 
+              `<span style="background: #17a2b8; color: white; padding: 2px 6px; border-radius: 8px;">📖</span>` : ''
+            }
+            ${hasMissingAnswer ? 
+              `<span style="background: #dc3545; color: white; padding: 2px 6px; border-radius: 8px;">❌ No Answer</span>` : ''
+            }
+          </div>
+        </div>
+        
+        ${hasPassage ? `
+          <details style="margin-bottom: 6px;">
+            <summary style="cursor: pointer; color: #007bff; font-size: 12px; padding: 4px; background: #e7f3ff; border-radius: 3px;">
+              📖 ${testType === 'Reading' ? 'Passage' : 'Context'} (${q.passageContext.length} chars)
+            </summary>
+            <div style="margin-top: 6px; padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff; max-height: 200px; overflow-y: auto;">
+              <pre style="white-space: pre-wrap; font-family: ${testType === 'Reading' ? "'Georgia', serif" : 'monospace'}; font-size: 12px; line-height: 1.6; margin: 0;">${this.escapeHtml(q.passageContext)}</pre>
+            </div>
+          </details>
+        ` : ''}
+        
+        <p style="margin: 6px 0; font-size: 13px; line-height: 1.5;"><strong>${this.escapeHtml(q.text)}</strong></p>
+        
+        ${q.options && q.options.length > 0 ? `
+          <div style="margin: 6px 0;">
+            ${q.options.map((opt, i) => {
+              const isCorrect = i === (q.correct || q.correctAnswer || -1);
+              return `
+                <div style="padding: 4px 8px; margin: 3px 0; background: ${isCorrect ? '#d4edda' : '#f8f9fa'}; border-left: 3px solid ${isCorrect ? '#28a745' : '#dee2e6'}; border-radius: 3px; font-size: 12px; line-height: 1.4;">
+                  ${this.escapeHtml(opt)} ${isCorrect ? '<strong style="color: #28a745;">✓</strong>' : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
+        
+        ${hasMissingAnswer ? `
+          <div style="margin-top: 6px; padding: 6px; background: #f8d7da; border-left: 3px solid #dc3545; border-radius: 3px; font-size: 11px; color: #721c24;">
+            ⚠️ <strong>Warning:</strong> This question does not have a correct answer marked. Please verify the answer key.
+          </div>
+        ` : ''}
+        
+      </div>
+    `;
+  }).join('');
+};
+
+// ===========================================
+// ESCAPE HTML (PREVENT XSS)
+// ===========================================
+CMSApp.prototype.escapeHtml = function(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+};
+
+// ===========================================
+// RENDER SOURCE CONTENT (ZOOMABLE)
+// ===========================================
+CMSApp.prototype.renderSourceContentZoomable = function(content) {
+  if (content.contentType === 'image' && content.sourceImages) {
+    return content.sourceImages.map((img, index) => `
+      <div style="margin-bottom: 15px;">
+        <h4 style="color: #495057; margin: 0 0 8px 0; font-size: 14px;">Page ${index + 1}</h4>
+        <img src="${img}" style="max-width: 100%; border: 2px solid #dee2e6; border-radius: 4px; display: block;" alt="Source page ${index + 1}" />
+      </div>
+    `).join('');
+  } else if (content.contentType === 'text') {
+    return `<pre style="white-space: pre-wrap; font-family: monospace; font-size: 13px; line-height: 1.5; margin: 0;">${this.escapeHtml(content.mainContent)}</pre>`;
+  }
+  
+  return '<p style="color: #6c757d; font-size: 13px;">Source not available</p>';
+};
+
+// ===========================================
+// ZOOM SOURCE CONTENT
+// ===========================================
+CMSApp.prototype.zoomSource = function(change) {
+  const display = document.getElementById('source-content-display');
+  if (!display) return;
+  
+  if (change === 'reset') {
+    this.sourceZoomLevel = 1.0;
+  } else {
+    this.sourceZoomLevel = Math.max(0.5, Math.min(3.0, this.sourceZoomLevel + change));
+  }
+  
+  display.style.transform = `scale(${this.sourceZoomLevel})`;
+  
+  console.log('🔍 Zoom level:', this.sourceZoomLevel);
+};
+
+// ===========================================
+// CONFIRM CLOSE WITH PROTECTION
+// ===========================================
+CMSApp.prototype.confirmCloseComparison = function() {
+  const confirmed = confirm(
+    '⚠️ Cancel Import?\n\n' +
+    'All extracted questions will be lost.\n\n' +
+    'Are you sure?'
+  );
+  
+  if (confirmed) {
+    this.closeComparisonView(false);
+  }
+};
+
+CMSApp.prototype.handleComparisonClose = function() {
+  this.confirmCloseComparison();
+};
+
+// ===========================================
+// CLOSE COMPARISON VIEW
+// ===========================================
+CMSApp.prototype.closeComparisonView = function(confirmed) {
+  const modal = document.getElementById('comparison-view-modal');
+  if (modal) {
+    modal.remove();
+  }
+  
+  if (!confirmed) {
+    this.state.lastExtraction = null;
+    this.hideProgress();
+    this.showAlert('Import cancelled.', 'info');
+  }
+};
+
+// ===========================================
+// CONFIRM AND SAVE EXTRACTION
+// ===========================================
+CMSApp.prototype.confirmAndSaveExtraction = async function() {
+  console.log('✅ User confirmed extraction, saving...');
+  
+  if (!this.state.lastExtraction) {
+    this.showAlert('No extraction data found.', 'error');
+    return;
+  }
+  
+  const { questions, bankId, settings, frameworkMode } = this.state.lastExtraction;
+  
+  this.closeComparisonView(true);
+  this.updateProgress(85, 'Saving confirmed questions...');
+  
+  try {
+    await this.finalizeImport(bankId, questions, settings, frameworkMode);
+  } catch (error) {
+    console.error('❌ Error finalizing import:', error);
+    this.showAlert('Error saving questions: ' + error.message, 'error');
+  }
+};
+
+console.log('✅ Section 11A Complete: Comparison View UI');
+console.log('📐 Compact design: ENABLED');
+console.log('🔍 Zoomable source: ENABLED');
+console.log('⚠️ Missing answer warnings: ENABLED');
+console.log('🎨 Multi-subject display: ENABLED');
+</script>
