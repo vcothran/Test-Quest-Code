@@ -1,0 +1,2738 @@
+/* === SECTION 12: Question Loading & Answer Processing - FIXED === */
+      let lastAbilityUsed = null; // Track last ability used for AI narration
+      let consecutiveFailures = 0; // Track consecutive wrong answers for teaching moments
+      
+      const loadQuestion = () => {
+        feedbackBox.style.display = 'none';
+        submitAnswerBtn.style.display = 'none';
+        submitAnswerBtn.disabled = false;
+        selectedAnswerIndex = null;
+        lastAbilityUsed = null; // Reset for each question
+        
+        // CRITICAL: Clear ability flags between questions
+        player.activeEffects.eliminatedAnswers = [];
+        
+        // Check if we're at the end of questions
+        if (currentQuestionIndex >= currentQuestionSet.length) {
+          if (player.activeEffects.pushingThrough && player.focus === 0) {
+            awardLastStandAchievement();
+          }
+          document.getElementById('challenge-box').style.display = 'none';
+          document.getElementById('next-encounter-box').style.display = 'block';
+          return;
+        }
+        
+        // ======= HALFWAY POINT NARRATIVE =======
+        const totalQuestions = currentQuestionSet.length;
+        const halfway = Math.floor(totalQuestions / 2);
+        
+        if (currentQuestionIndex === halfway && totalQuestions >= 6) {
+          // Generate halfway point narrative
+          if (typeof generateHalfwayPoint === 'function') {
+            setTimeout(async () => {
+              try {
+                const accuracy = sessionStats.calculateAccuracy();
+                const halfwayNarrative = await generateHalfwayPoint({
+                  questionsCompleted: currentQuestionIndex,
+                  questionsRemaining: totalQuestions - currentQuestionIndex,
+                  accuracy: accuracy,
+                  currentStreak: sessionStats.currentStreak
+                });
+                
+                if (halfwayNarrative) {
+                  showHalfwayMoment(halfwayNarrative);
+                }
+              } catch (error) {
+                console.error('Halfway point generation failed:', error);
+              }
+            }, 100);
+          }
+        }
+        // ======================================
+        
+        // Overcharge decay
+        if (player.activeEffects.lastAnswerCorrect && currentQuestionIndex > 0) {
+          applyOverchargeDecay();
+        }
+        
+        // Second Look recharge
+        if (player.className === 'Empath' && player.activeEffects.secondLookWasted) {
+          if (player.abilities.secondLook.uses < player.abilities.secondLook.maxUses) {
+            player.abilities.secondLook.uses++;
+            showNotification('Second Look recharged!', 'ability-used');
+          }
+          player.activeEffects.secondLookWasted = false;
+        }
+
+        const q = currentQuestionSet[currentQuestionIndex];
+        if (!q || !Array.isArray(q.options)) {
+          console.error("Invalid question:", q);
+          currentQuestionIndex++;
+          loadQuestion();
+          return;
+        }
+
+        document.getElementById('question-title').textContent = 
+          `Question ${currentQuestionIndex + 1} of ${currentQuestionSet.length}`;
+        
+        let questionHTML = q.text || '';
+        if (q.questionImage) {
+          questionHTML = `<img src="${q.questionImage}" alt="Question">${questionHTML}`;
+        }
+        document.getElementById('question-text').innerHTML = questionHTML;
+        
+        // Passage display
+        const passageContainer = document.getElementById('passage-container');
+        const passageText = q.passage || q.passageContext || '';
+        
+        if (passageText || q.passageImage || q.figureImage || q.tableImage) {
+          passageContainer.style.display = 'block';
+          let passageHTML = passageText;
+          
+          if (q.passageImage) {
+            passageHTML = `<img src="${q.passageImage}" alt="Passage">${passageHTML}`;
+          }
+          if (q.figureImage) {
+            passageHTML += `<div style="margin: 15px 0; text-align: center;">
+              <img src="${q.figureImage}" alt="Figure" style="max-width: 100%; border: 2px solid #4a6c8b; border-radius: 5px;">
+            </div>`;
+          }
+          if (q.tableImage) {
+            passageHTML += `<div style="margin: 15px 0; text-align: center;">
+              <img src="${q.tableImage}" alt="Table" style="max-width: 100%; border: 2px solid #4a6c8b; border-radius: 5px;">
+            </div>`;
+          }
+          
+          document.getElementById('passage-content').innerHTML = passageHTML;
+        } else {
+          passageContainer.style.display = 'none';
+        }
+
+        // Answer options
+        const answerOptionsDiv = document.getElementById('answer-options');
+        answerOptionsDiv.innerHTML = '';
+
+        q.options.forEach((opt, index) => {
+          const optBtn = document.createElement('button');
+          optBtn.className = 'answer-option';
+          optBtn.innerHTML = opt;
+          optBtn.dataset.index = index;
+          optBtn.onclick = () => {
+            answerOptionsDiv.querySelectorAll('.answer-option').forEach(btn => 
+              btn.classList.remove('selected'));
+            optBtn.classList.add('selected');
+            selectedAnswerIndex = index;
+            submitAnswerBtn.style.display = 'block';
+          };
+          answerOptionsDiv.appendChild(optBtn);
+        });
+
+        addAbilityContainer();
+        
+        if (typeof addAnnotationButtons === 'function') {
+          addAnnotationButtons();
+        }
+      };
+
+      const addAbilityContainer = () => {
+        const existingContainer = document.getElementById('ability-container');
+        if (existingContainer) existingContainer.remove();
+
+        const abilityContainer = document.createElement('div');
+        abilityContainer.id = 'ability-container';
+        abilityContainer.innerHTML = `
+          <h4 style="margin: 0 0 10px 0; color: #e67e22;">Class Abilities</h4>
+          <div id="class-abilities-container" style="display: flex; gap: 10px; flex-wrap: wrap;"></div>
+        `;
+        
+        const questionContainer = document.getElementById('question-container');
+        const answerOptions = document.getElementById('answer-options');
+        questionContainer.insertBefore(abilityContainer, answerOptions);
+        
+        renderClassAbilities();
+      };
+
+      const checkAnswer = async () => {
+        if (submitAnswerBtn.disabled) return;
+        
+        const q = currentQuestionSet[currentQuestionIndex];
+        const isCorrect = selectedAnswerIndex === q.correct;
+        
+        submitAnswerBtn.disabled = true;
+        submitAnswerBtn.style.display = 'none';
+        
+        const abilityButtons = document.querySelectorAll('.ability-btn');
+        abilityButtons.forEach(btn => {
+          btn.disabled = true;
+          btn.classList.add('disabled');
+        });
+        
+        sessionStats.totalQuestions++;
+
+        const answerButtons = document.querySelectorAll('#answer-options .answer-option');
+        
+        // Handle Second Look
+        if (!isCorrect && player.activeEffects.secondLookUsed) {
+          player.activeEffects.secondLookUsed = false;
+          feedbackBox.style.display = 'block';
+          feedbackBox.innerHTML = `
+            <h4>Second Look Activated!</h4>
+            <p style="font-style: italic; color: #9b59b6;">Your empathic nature gives you another chance!</p>
+            <button id="second-chance-btn" class="game-btn">Try Again</button>
+          `;
+          document.getElementById('second-chance-btn').onclick = () => {
+            feedbackBox.style.display = 'none';
+            loadQuestion();
+          };
+          return;
+        }
+        
+        if (isCorrect && player.activeEffects.secondLookUsed) {
+          player.activeEffects.secondLookWasted = true;
+          player.activeEffects.secondLookUsed = false;
+        }
+        
+        player.activeEffects.lastAnswerCorrect = isCorrect;
+
+        // Highlight answers
+        answerButtons.forEach((btn, index) => {
+          btn.disabled = true;
+          if (index === q.correct) {
+            btn.classList.add('correct');
+          } else if (index === selectedAnswerIndex && !isCorrect) {
+            btn.classList.add('incorrect');
+          }
+        });
+
+        // Trophy effects
+        if (!isCorrect && player.activeEffects.forgivenError) {
+          player.activeEffects.forgivenError = false;
+          feedbackBox.style.display = 'block';
+          feedbackBox.innerHTML = `
+            <h4>🦵💡 Leg Lamp Activated!</h4>
+            <p>No Focus lost!</p>
+            <button id="forgiven-next-btn" class="game-btn">Continue</button>
+          `;
+          document.getElementById('forgiven-next-btn').onclick = () => {
+            currentQuestionIndex++;
+            loadQuestion();
+          };
+          return;
+        }
+
+        if (!isCorrect && player.activeEffects.autoCorrectNext) {
+          player.activeEffects.autoCorrectNext = false;
+          sessionStats.correctAnswers++;
+          sessionStats.currentStreak++;
+          if (sessionStats.currentStreak > sessionStats.bestStreak) {
+            sessionStats.bestStreak = sessionStats.currentStreak;
+          }
+          await awardXP(XP_PER_CORRECT);
+          feedbackBox.style.display = 'block';
+          feedbackBox.innerHTML = `
+            <h4>🗡️ Liquid Shadow Activated!</h4>
+            <p>Corrected! Full XP gained!</p>
+            ${q.explanation ? `<p>${q.explanation}</p>` : ''}
+            <button id="shadow-next-btn" class="game-btn">Continue</button>
+          `;
+          document.getElementById('shadow-next-btn').onclick = () => {
+            currentQuestionIndex++;
+            loadQuestion();
+          };
+          return;
+        }
+
+        // Check for comeback moment BEFORE processing (capture state before reset)
+        const hadConsecutiveFailures = consecutiveFailures;
+
+        // Normal processing
+        if (isCorrect) {
+          // FIX: Increment streak FIRST
+          sessionStats.correctAnswers++;
+          sessionStats.currentStreak++;
+          if (sessionStats.currentStreak > sessionStats.bestStreak) {
+            sessionStats.bestStreak = sessionStats.currentStreak;
+          }
+          
+          // Reset consecutive failures on success
+          consecutiveFailures = 0;
+          
+          let xpAmount = XP_PER_CORRECT;
+          
+          if (player.activeEffects.doubleXPNext) {
+            xpAmount *= 2;
+            player.activeEffects.doubleXPNext = false;
+            showNotification('🔥 Double XP!', 'ability-used');
+          }
+          
+          if (player.activeEffects.bonusXPDuration && player.activeEffects.bonusXPDuration > 0) {
+            xpAmount *= player.activeEffects.bonusXP || 1;
+            player.activeEffects.bonusXPDuration--;
+            if (player.activeEffects.bonusXPDuration === 0) {
+              delete player.activeEffects.bonusXP;
+            }
+          }
+          
+          if (player.activeEffects.xpPenalty) {
+            xpAmount = Math.floor(xpAmount * player.activeEffects.xpPenalty);
+          }
+          
+          await awardXP(xpAmount);
+          restoreFocusOnCorrect();
+        } else {
+          // FIX: Reset streak and deduct focus
+          sessionStats.currentStreak = 0;
+          consecutiveFailures++; // Track consecutive wrong answers
+          
+          if (player.activeEffects.pushingThrough && player.focus === 0) {
+            feedbackBox.style.display = 'block';
+            feedbackBox.innerHTML = `
+              <h4>⚠️ Exhaustion Overwhelms You!</h4>
+              <p>You must rest.</p>
+              <button id="forced-rest-btn" class="game-btn">Rest (+50 Focus, -50% XP)</button>
+            `;
+            document.getElementById('forced-rest-btn').onclick = async () => {
+              player.focus = 50;
+              player.activeEffects.pushingThrough = false;
+              player.activeEffects.xpPenalty = 0.5;
+              updatePlayerStats();
+              currentQuestionIndex++;
+              loadQuestion();
+            };
+            return;
+          }
+          
+          // FIX: Direct focus deduction
+          player.focus -= FOCUS_LOSS_PER_INCORRECT;
+          if (player.focus <= 0) {
+            player.focus = 0;
+            updatePlayerStats();
+            await handleFocusExhaustion();
+          } else {
+            updatePlayerStats();
+          }
+        }
+
+        // FIX: ALWAYS show feedback with Next button
+        feedbackBox.style.display = 'block';
+        
+        const dynamicFeedback = getDynamicFeedback(isCorrect, selectedApproach || 'General');
+        const resultText = isCorrect ? 
+          `Correct! Well done, ${player.name}!` : 
+          `Incorrect, ${player.name}. Learn from this.`;
+        
+        // Show immediate feedback with placeholder
+        feedbackBox.innerHTML = `
+          <h4>${resultText}</h4>
+          <p style="font-style: italic; color: #95a5a6; margin: 10px 0;">
+            <em>Generating narrative response...</em>
+          </p>
+          <p style="font-style: italic; color: #e67e22;">${dynamicFeedback}</p>
+          ${q.explanation ? `<p>${q.explanation}</p>` : ''}
+        `;
+        
+        // ======= GENERATE AI RESPONSE TO ANSWER =======
+        let aiResponse = '';
+        if (typeof generateQuestionResponse === 'function') {
+          try {
+            const questionResult = {
+              isCorrect: isCorrect,
+              questionNumber: currentQuestionIndex + 1,
+              totalQuestions: currentQuestionSet.length,
+              abilityUsed: lastAbilityUsed || 'none',
+              focusChange: isCorrect ? 0 : -FOCUS_LOSS_PER_INCORRECT,
+              streak: sessionStats.currentStreak,
+              currentFocus: player.focus
+            };
+            
+            aiResponse = await generateQuestionResponse(questionResult);
+            
+            // Track this action for narrative continuity
+            if (typeof trackPlayerAction === 'function') {
+              const action = isCorrect ? 
+                `Answered Q${questionResult.questionNumber} correctly` :
+                `Failed Q${questionResult.questionNumber}`;
+              trackPlayerAction(action);
+            }
+            
+            // Update tonal shift based on performance
+            if (typeof updateTonalShift === 'function') {
+              updateTonalShift();
+            }
+            
+            // ======= STREAK MILESTONE CELEBRATION =======
+            if (isCorrect && sessionStats.currentStreak >= 3) {
+              if (sessionStats.currentStreak === 3 || sessionStats.currentStreak === 5 || sessionStats.currentStreak % 10 === 0) {
+                // Generate streak milestone narrative
+                if (typeof generateStreakMilestone === 'function') {
+                  setTimeout(async () => {
+                    try {
+                      const streakNarrative = await generateStreakMilestone(sessionStats.currentStreak);
+                      if (streakNarrative) {
+                        showStreakMilestone(sessionStats.currentStreak, streakNarrative);
+                      }
+                    } catch (error) {
+                      console.error('Streak milestone generation failed:', error);
+                    }
+                  }, 500); // Slight delay after feedback shows
+                }
+              }
+            }
+            // ===========================================
+            
+            // ======= TEACHING MOMENTS =======
+            // Comeback coaching (success after 2+ failures)
+            if (isCorrect && hadConsecutiveFailures >= 2) {
+              if (typeof generateComebackCoaching === 'function') {
+                setTimeout(async () => {
+                  try {
+                    const coachingMessage = await generateComebackCoaching(hadConsecutiveFailures);
+                    if (coachingMessage) {
+                      showTeachingMoment(coachingMessage, 'success');
+                    }
+                  } catch (error) {
+                    console.error('Comeback coaching generation failed:', error);
+                  }
+                }, 1000);
+              }
+            }
+            
+            // Struggle hint (2+ consecutive failures)
+            if (!isCorrect && consecutiveFailures >= 2) {
+              if (typeof generateStruggleHint === 'function') {
+                setTimeout(async () => {
+                  try {
+                    const hintMessage = await generateStruggleHint({
+                      consecutiveFailures: consecutiveFailures,
+                      availableAbilities: Object.keys(player.abilities).filter(key => player.abilities[key].uses > 0)
+                    });
+                    if (hintMessage) {
+                      showTeachingMoment(hintMessage, 'struggle');
+                    }
+                  } catch (error) {
+                    console.error('Struggle hint generation failed:', error);
+                  }
+                }, 1000);
+              }
+            }
+            // ================================
+          } catch (error) {
+            console.error('AI response generation failed:', error);
+            // Continue without AI response - game still works
+          }
+        }
+        // ===============================================
+        
+        // Update feedback with AI response (or without if it failed)
+        feedbackBox.innerHTML = `
+          <h4>${resultText}</h4>
+          ${aiResponse ? `<p style="font-style: italic; color: #3498db; margin: 10px 0; padding: 10px; background: rgba(52, 152, 219, 0.1); border-left: 3px solid #3498db;">${aiResponse}</p>` : ''}
+          <p style="font-style: italic; color: #e67e22;">${dynamicFeedback}</p>
+          ${q.explanation ? `<p>${q.explanation}</p>` : ''}
+          <button id="next-q-btn" class="game-btn">Next Challenge</button>
+        `;
+        
+        document.getElementById('next-q-btn').onclick = () => {
+          currentQuestionIndex++;
+          loadQuestion();
+        };
+      };
+
+      const showCompletionScreen = () => {
+        const totalXP = (player.xp || 0) - sessionStats.startXP;
+        const accuracy = sessionStats.calculateAccuracy();
+
+        document.getElementById('completion-message').textContent = 
+          `Congratulations, ${player.name}! Adventure complete!`;
+        
+        document.getElementById('total-xp').textContent = totalXP;
+        document.getElementById('total-questions').textContent = sessionStats.totalQuestions;
+        document.getElementById('correct-answers').textContent = sessionStats.correctAnswers;
+        document.getElementById('accuracy').textContent = `${accuracy}%`;
+        
+        const progressFill = document.getElementById('episode-progress');
+        setTimeout(() => progressFill.style.width = '100%', 100);
+
+        showScreen('completion');
+      };
+
+      googleLoginBtn.addEventListener('click', () => {
+  isTestMode = false;
+  signInWithPopup(auth, new GoogleAuthProvider())
+    .then((result) => {
+      handleAuthState(result.user);
+    })
+    .catch((error) => {
+      console.warn('Google sign-in error:', error.code);
+    });
+});
+      
+      bypassLoginBtn.addEventListener('click', () => {
+        isTestMode = true;
+        handleAuthState({ uid: 'testUser123' });
+      });
+      
+      classCards.forEach(card => card.addEventListener('click', () => { 
+        classCards.forEach(c => c.classList.remove('active')); 
+        card.classList.add('active'); 
+      }));
+      
+      startGameBtn.addEventListener('click', async () => {
+        const name = document.getElementById('player-name-input').value.trim();
+        const className = document.querySelector('.class-card.active').dataset.class;
+
+        if(!name) return alert('Please enter a name for your hero.');
+        
+        if(!player || !player.uid) {
+          console.error("Player UID is missing. Cannot save character.");
+          alert("An error occurred. Please try logging in again.");
+          return handleAuthState(null);
+        }
+
+        startGameBtn.disabled = true;
+        startGameBtn.textContent = 'Creating Hero...';
+
+        const playerData = { 
+          name, 
+          className, 
+          xp: player.xp || 0, 
+          focus: player.focus || 100 
+        };
+        
+        try {
+          if (isTestMode) {
+            player = { ...player, ...playerData };
+            initializePlayerAbilities();
+            await loadGameContent();
+            showScreen('episodeSelection');
+          } else {
+            await setDoc(doc(db, "players", player.uid), playerData);
+            player = { ...player, ...playerData };
+            initializePlayerAbilities();
+            await loadGameContent();
+            showScreen('episodeSelection');
+          }
+        } catch (error) {
+          console.error("Error saving player:", error);
+          alert("Could not save character. Please try again.");
+        } finally {
+          startGameBtn.disabled = false;
+          startGameBtn.textContent = 'Begin Adventure';
+        }
+      });
+      
+      nextEncounterBtn.addEventListener('click', () => {
+        currentEncounterIndex++;
+        loadEncounter();
+      });
+      
+      submitAnswerBtn.addEventListener('click', checkAnswer);
+
+      chooseAnotherAdventureBtn.addEventListener('click', () => {
+        showScreen('episodeSelection');
+      });
+
+      exitToMenuBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to exit? Your progress has been saved.')) {
+          showScreen('episodeSelection');
+        }
+      });
+      
+      // Authentication state management
+      onAuthStateChanged(auth, (user) => {
+        if (!isTestMode) {
+          handleAuthState(user);
+        }
+      });
+      
+         }
+
+    // Initialize the game when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initializeGame);
+    } else {
+      initializeGame();
+    }
+
+/* === SECTION 13: Direct Passage Annotation + Scratch Pad === */
+      
+      // Annotation state
+      let annotationState = {
+        isDrawing: false,
+        currentTool: 'highlighter',
+        currentColor: '#ffeb3b',
+        lineWidth: 2,
+        passageCanvas: null,
+        passageCtx: null,
+        scratchOverlay: null,
+        scratchCanvas: null,
+        scratchCtx: null,
+        polygonPoints: []  // For freeform polygon tool
+      };
+
+      // Add annotation buttons
+      const addAnnotationButtons = () => {
+        const questionContainer = document.getElementById('question-container');
+        if (!questionContainer) return;
+        
+        // Remove existing buttons
+        document.getElementById('annotate-passage-btn')?.remove();
+        document.getElementById('scratch-pad-btn')?.remove();
+        
+        const passageContainer = document.getElementById('passage-container');
+        const answerOptions = document.getElementById('answer-options');
+        
+        // Annotate Passage button (if passage exists)
+        if (passageContainer && passageContainer.style.display !== 'none') {
+          const passageBtn = document.createElement('button');
+          passageBtn.id = 'annotate-passage-btn';
+          passageBtn.className = 'game-btn';
+          passageBtn.style.cssText = `
+            margin: 15px 0 5px 0;
+            width: 100%;
+            background: linear-gradient(145deg, #e67e22, #d35400);
+            font-size: 14px;
+            padding: 12px;
+          `;
+          passageBtn.innerHTML = '✏️ Annotate Passage';
+          passageBtn.onclick = togglePassageAnnotation;
+          
+          if (answerOptions) {
+            questionContainer.insertBefore(passageBtn, answerOptions);
+          }
+        }
+        
+        // Scratch Pad button
+        const scratchBtn = document.createElement('button');
+        scratchBtn.id = 'scratch-pad-btn';
+        scratchBtn.className = 'game-btn';
+        scratchBtn.style.cssText = `
+          margin: 5px 0 15px 0;
+          width: 100%;
+          background: linear-gradient(145deg, #9b59b6, #8e44ad);
+          font-size: 14px;
+          padding: 12px;
+        `;
+        scratchBtn.innerHTML = '📐 Scratch Pad';
+        scratchBtn.onclick = toggleScratchPad;
+        
+        if (answerOptions) {
+          questionContainer.insertBefore(scratchBtn, answerOptions);
+        }
+      };
+
+      // Toggle passage annotation overlay
+      const togglePassageAnnotation = () => {
+        const passageContainer = document.getElementById('passage-container');
+        if (!passageContainer) return;
+        
+        const existing = document.getElementById('passage-annotation-canvas');
+        
+        if (existing) {
+          // Remove annotation mode
+          existing.remove();
+          document.getElementById('passage-toolbar')?.remove();
+          document.getElementById('annotate-passage-btn').innerHTML = '✏️ Annotate Passage';
+        } else {
+          // Create annotation canvas overlay
+          const canvas = document.createElement('canvas');
+          canvas.id = 'passage-annotation-canvas';
+          canvas.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+            cursor: crosshair;
+            z-index: 100;
+          `;
+          
+          // Make passage container relative
+          passageContainer.style.position = 'relative';
+          passageContainer.appendChild(canvas);
+          
+          // Set canvas size
+          canvas.width = passageContainer.offsetWidth;
+          canvas.height = passageContainer.offsetHeight;
+          
+          annotationState.passageCanvas = canvas;
+          annotationState.passageCtx = canvas.getContext('2d');
+          
+          // Add compact toolbar
+          addPassageToolbar();
+          
+          // Setup drawing
+          setupPassageDrawing();
+          
+          // Update button
+          document.getElementById('annotate-passage-btn').innerHTML = '✅ Done Annotating';
+        }
+      };
+
+      // Add compact toolbar for passage annotation
+      const addPassageToolbar = () => {
+        document.getElementById('passage-toolbar')?.remove();
+        
+        const toolbar = document.createElement('div');
+        toolbar.id = 'passage-toolbar';
+        toolbar.style.cssText = `
+          position: fixed;
+          top: 80px;
+          right: 20px;
+          background: rgba(44, 62, 80, 0.95);
+          border: 2px solid #e67e22;
+          border-radius: 10px;
+          padding: 10px;
+          z-index: 10000;
+          display: flex;
+          gap: 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        `;
+        
+        toolbar.innerHTML = `
+          <button data-tool="highlighter" style="background: #f39c12; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;" title="Highlighter">🖍️</button>
+          <button data-tool="pen" style="background: #3498db; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;" title="Pen">✏️</button>
+          <button data-tool="eraser" style="background: #95a5a6; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;" title="Eraser">🧹</button>
+          <div style="width: 1px; background: #34495e; margin: 0 4px;"></div>
+          <button id="clear-passage" style="background: #e74c3c; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; color: white; font-size: 12px;">Clear</button>
+        `;
+        
+        document.body.appendChild(toolbar);
+        
+        // Tool selection
+        toolbar.querySelectorAll('[data-tool]').forEach(btn => {
+          btn.onclick = () => {
+            selectPassageTool(btn.dataset.tool);
+            toolbar.querySelectorAll('[data-tool]').forEach(b => b.style.transform = 'none');
+            btn.style.transform = 'scale(1.15)';
+          };
+        });
+        
+        // Clear button
+        document.getElementById('clear-passage').onclick = () => {
+          if (confirm('Clear all annotations?')) {
+            annotationState.passageCtx.clearRect(
+              0, 0,
+              annotationState.passageCanvas.width,
+              annotationState.passageCanvas.height
+            );
+          }
+        };
+        
+        // Auto-select highlighter
+        selectPassageTool('highlighter');
+        toolbar.querySelector('[data-tool="highlighter"]').style.transform = 'scale(1.15)';
+      };
+
+      // Select passage annotation tool
+      const selectPassageTool = (tool) => {
+        annotationState.currentTool = tool;
+        
+        if (tool === 'highlighter') {
+          annotationState.lineWidth = 12;
+          annotationState.currentColor = '#ffeb3b';
+        } else if (tool === 'pen') {
+          annotationState.lineWidth = 2;
+          annotationState.currentColor = '#e74c3c';
+        } else if (tool === 'eraser') {
+          annotationState.lineWidth = 20;
+        }
+      };
+
+      // Setup passage drawing
+      const setupPassageDrawing = () => {
+        const canvas = annotationState.passageCanvas;
+        const ctx = annotationState.passageCtx;
+        let path = [];
+        
+        canvas.onmousedown = (e) => {
+          annotationState.isDrawing = true;
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          path = [{x, y}];
+          
+          if (annotationState.currentTool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.globalAlpha = 1.0;
+            ctx.lineWidth = annotationState.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+          }
+        };
+        
+        canvas.onmousemove = (e) => {
+          if (!annotationState.isDrawing) return;
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          path.push({x, y});
+          
+          if (annotationState.currentTool === 'eraser') {
+            // Eraser works immediately
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          }
+        };
+        
+        canvas.onmouseup = () => {
+          if (!annotationState.isDrawing) return;
+          annotationState.isDrawing = false;
+          
+          if (annotationState.currentTool !== 'eraser' && path.length > 1) {
+            // Draw the complete path as a single stroke (prevents spray effect!)
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.currentColor;
+            ctx.globalAlpha = annotationState.currentTool === 'highlighter' ? 0.20 : 1.0;
+            ctx.lineWidth = annotationState.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            ctx.beginPath();
+            ctx.moveTo(path[0].x, path[0].y);
+            for (let i = 1; i < path.length; i++) {
+              ctx.lineTo(path[i].x, path[i].y);
+            }
+            ctx.stroke();
+          }
+          
+          ctx.closePath();
+          ctx.globalAlpha = 1.0;
+          ctx.globalCompositeOperation = 'source-over';
+          path = [];
+        };
+        
+        canvas.onmouseleave = () => {
+          annotationState.isDrawing = false;
+        };
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          canvas.dispatchEvent(new MouseEvent('mouseup'));
+        }, { passive: false });
+      };
+
+      // Toggle scratch pad
+      const toggleScratchPad = () => {
+        const existing = document.getElementById('scratch-overlay');
+        
+        if (existing) {
+          existing.remove();
+          document.getElementById('scratch-pad-btn').innerHTML = '📐 Scratch Pad';
+          
+          // Show passage toolbar if it was hidden
+          const passageToolbar = document.getElementById('passage-toolbar');
+          if (passageToolbar) {
+            passageToolbar.style.display = 'flex';
+          }
+        } else {
+          createScratchPad();
+          document.getElementById('scratch-pad-btn').innerHTML = '✅ Close Scratch Pad';
+          
+          // Hide passage toolbar while scratch pad is open (z-index conflict)
+          const passageToolbar = document.getElementById('passage-toolbar');
+          if (passageToolbar) {
+            passageToolbar.style.display = 'none';
+          }
+        }
+      };
+
+      // Create scratch pad overlay
+      const createScratchPad = () => {
+        const overlay = document.createElement('div');
+        overlay.id = 'scratch-overlay';
+        overlay.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          width: 450px;
+          height: 350px;
+          background: rgba(30, 42, 56, 0.98);
+          border: 3px solid #9b59b6;
+          border-radius: 15px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+          z-index: 9999;
+          display: flex;
+          flex-direction: column;
+          resize: both;
+          overflow: hidden;
+          min-width: 300px;
+          min-height: 250px;
+        `;
+        
+        overlay.innerHTML = `
+          <div id="scratch-handle" style="
+            background: linear-gradient(145deg, #9b59b6, #8e44ad);
+            padding: 8px;
+            cursor: move;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 12px 12px 0 0;
+          ">
+            <span style="color: white; font-weight: bold; font-size: 14px;">📐 Scratch Pad</span>
+            <button id="close-scratch" style="background: #e74c3c; border: none; color: white; width: 24px; height: 24px; border-radius: 50%; cursor: pointer;">×</button>
+          </div>
+          
+          <div style="background: #2c3e50; padding: 8px; display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+            <button class="scratch-tool" data-tool="pen" style="background: #3498db; border: 2px solid #2980b9; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">✏️</button>
+            <button class="scratch-tool" data-tool="highlighter" style="background: #f39c12; border: 2px solid #e67e22; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">🖍️</button>
+            <button class="scratch-tool" data-tool="line" style="background: #16a085; border: 2px solid #138d75; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">📏</button>
+            <button class="scratch-tool" data-tool="circle" style="background: #8e44ad; border: 2px solid #7d3c98; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">⭕</button>
+            <button class="scratch-tool" data-tool="rectangle" style="background: #c0392b; border: 2px solid #a93226; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">▢</button>
+            <button class="scratch-tool" data-tool="triangle" style="background: #27ae60; border: 2px solid #229954; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">△</button>
+            <button class="scratch-tool" data-tool="polygon" style="background: #d35400; border: 2px solid #ba4a00; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;" title="Freeform Polygon">⬡</button>
+            <button class="scratch-tool" data-tool="eraser" style="background: #95a5a6; border: 2px solid #7f8c8d; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">🧹</button>
+            
+            <div style="width: 1px; height: 24px; background: #34495e; margin: 0 5px;"></div>
+            
+            <button class="scratch-color" data-color="#ffeb3b" style="background: #ffeb3b; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#ff5722" style="background: #ff5722; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#4caf50" style="background: #4caf50; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#2196f3" style="background: #2196f3; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#9c27b0" style="background: #9c27b0; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#000000" style="background: #000000; width: 20px; height: 20px; border: 2px solid #ecf0f1; border-radius: 50%; cursor: pointer;"></button>
+            
+            <div style="width: 1px; height: 24px; background: #34495e; margin: 0 5px;"></div>
+            
+            <button id="clear-scratch" style="background: #e74c3c; border: none; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 11px;">Clear</button>
+          </div>
+          
+          <div style="flex: 1; position: relative; background: white;">
+            <canvas id="scratch-canvas" style="position: absolute; width: 100%; height: 100%; cursor: crosshair;"></canvas>
+          </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        
+        const canvas = document.getElementById('scratch-canvas');
+        const container = canvas.parentElement;
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        
+        annotationState.scratchCanvas = canvas;
+        annotationState.scratchCtx = canvas.getContext('2d');
+        annotationState.scratchTool = 'pen';
+        annotationState.scratchColor = '#000000';
+        
+        // Draw grid
+        drawScratchGrid();
+        
+        // Add ResizeObserver to handle scratch pad resizing
+        const resizeObserver = new ResizeObserver(entries => {
+          for (let entry of entries) {
+            const newWidth = Math.max(entry.contentRect.width, canvas.width);
+            const newHeight = Math.max(entry.contentRect.height, canvas.height);
+            
+            // Only resize if we're GROWING (prevent content loss when shrinking)
+            if (newWidth <= canvas.width && newHeight <= canvas.height) {
+              // Shrinking - don't resize canvas, just let CSS handle display
+              return;
+            }
+            
+            // Growing - need to expand canvas
+            if (Math.abs(canvas.width - newWidth) < 2 && Math.abs(canvas.height - newHeight) < 2) {
+              return;
+            }
+            
+            // Save current drawing at FULL resolution
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, 0, 0);
+            
+            // Expand canvas to new size
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            
+            // Redraw grid
+            drawScratchGrid();
+            
+            // Restore drawing at original position (top-left, no scaling)
+            annotationState.scratchCtx.drawImage(tempCanvas, 0, 0);
+            
+            // Reset polygon points on significant resize
+            annotationState.polygonPoints = [];
+          }
+        });
+        
+        resizeObserver.observe(container);
+        
+        // Setup drawing
+        setupScratchDrawing();
+        
+        // Close button
+        document.getElementById('close-scratch').onclick = toggleScratchPad;
+        
+        // Tool buttons
+        document.querySelectorAll('.scratch-tool').forEach(btn => {
+          btn.onclick = () => {
+            const previousTool = annotationState.scratchTool;
+            const newTool = btn.dataset.tool;
+            
+            // If switching TO polygon tool from another tool, start fresh
+            if (newTool === 'polygon' && previousTool !== 'polygon') {
+              annotationState.polygonPoints = [];
+            }
+            
+            annotationState.scratchTool = newTool;
+            document.querySelectorAll('.scratch-tool').forEach(b => b.style.transform = 'none');
+            btn.style.transform = 'scale(1.1)';
+          };
+        });
+        
+        // Color buttons
+        document.querySelectorAll('.scratch-color').forEach(btn => {
+          btn.onclick = () => {
+            annotationState.scratchColor = btn.dataset.color;
+            document.querySelectorAll('.scratch-color').forEach(b => b.style.transform = 'none');
+            btn.style.transform = 'scale(1.2)';
+          };
+        });
+        
+        // Clear button
+        document.getElementById('clear-scratch').onclick = () => {
+          if (confirm('Clear scratch pad?')) {
+            // Reset polygon state
+            annotationState.polygonPoints = [];
+            
+            // Redraw grid
+            drawScratchGrid();
+          }
+        };
+        
+        // Select pen by default
+        document.querySelector('[data-tool="pen"]').style.transform = 'scale(1.1)';
+        document.querySelector('[data-color="#000000"]').style.transform = 'scale(1.2)';
+        
+        // Dragging
+        makeDraggable(overlay, document.getElementById('scratch-handle'));
+      };
+
+      // Draw grid on scratch pad
+      const drawScratchGrid = () => {
+        const canvas = annotationState.scratchCanvas;
+        const ctx = annotationState.scratchCtx;
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 0.5;
+        
+        for (let x = 0; x <= canvas.width; x += 20) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        
+        for (let y = 0; y <= canvas.height; y += 20) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      };
+
+      // Setup scratch pad drawing
+      const setupScratchDrawing = () => {
+        const canvas = annotationState.scratchCanvas;
+        const ctx = annotationState.scratchCtx;
+        
+        let drawing = false;
+        let startX, startY;
+        let lastImageData = null;
+        
+        canvas.onmousedown = (e) => {
+          const rect = canvas.getBoundingClientRect();
+          
+          // Calculate scale factor between canvas actual size and display size
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          
+          // Get mouse position relative to canvas display, then scale to canvas coordinates
+          const x = (e.clientX - rect.left) * scaleX;
+          const y = (e.clientY - rect.top) * scaleY;
+          
+          const tool = annotationState.scratchTool;
+          
+          // Polygon tool uses clicks, not drag
+          if (tool === 'polygon') {
+            if (annotationState.polygonPoints.length === 0) {
+              lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            }
+            
+            annotationState.polygonPoints.push({x, y});
+            
+            // Draw preview
+            ctx.putImageData(lastImageData, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.scratchColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            
+            if (annotationState.polygonPoints.length > 1) {
+              ctx.beginPath();
+              ctx.moveTo(annotationState.polygonPoints[0].x, annotationState.polygonPoints[0].y);
+              for (let i = 1; i < annotationState.polygonPoints.length; i++) {
+                ctx.lineTo(annotationState.polygonPoints[i].x, annotationState.polygonPoints[i].y);
+              }
+              ctx.stroke();
+              
+              // Draw dots at points
+              annotationState.polygonPoints.forEach(pt => {
+                ctx.fillStyle = annotationState.scratchColor;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+              });
+            }
+            return;
+          }
+          
+          drawing = true;
+          startX = x;
+          startY = y;
+          
+          // Save state for shapes
+          lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          
+          if (tool === 'pen' || tool === 'highlighter' || tool === 'eraser') {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            if (tool === 'eraser') {
+              ctx.lineWidth = 20;
+              ctx.globalCompositeOperation = 'destination-out';
+              ctx.globalAlpha = 1.0;
+            } else {
+              ctx.lineWidth = tool === 'highlighter' ? 12 : 2;
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.strokeStyle = annotationState.scratchColor;
+              ctx.globalAlpha = tool === 'highlighter' ? 0.3 : 1.0;
+            }
+          }
+        };
+        
+        canvas.onmousemove = (e) => {
+          if (!drawing) return;
+          const rect = canvas.getBoundingClientRect();
+          
+          // Calculate scale factor
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          
+          const x = (e.clientX - rect.left) * scaleX;
+          const y = (e.clientY - rect.top) * scaleY;
+          
+          const tool = annotationState.scratchTool;
+          
+          if (tool === 'pen' || tool === 'highlighter' || tool === 'eraser') {
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          } else {
+            // Shapes - preview
+            ctx.putImageData(lastImageData, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.scratchColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            
+            const width = x - startX;
+            const height = y - startY;
+            
+            if (tool === 'line') {
+              ctx.beginPath();
+              ctx.moveTo(startX, startY);
+              ctx.lineTo(x, y);
+              ctx.stroke();
+            } else if (tool === 'circle') {
+              const radius = Math.sqrt(width * width + height * height);
+              ctx.beginPath();
+              ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+              ctx.stroke();
+            } else if (tool === 'rectangle') {
+              ctx.strokeRect(startX, startY, width, height);
+            } else if (tool === 'triangle') {
+              ctx.beginPath();
+              ctx.moveTo(startX, startY);
+              ctx.lineTo(x, y);
+              ctx.lineTo(startX - width, y);
+              ctx.closePath();
+              ctx.stroke();
+            }
+          }
+        };
+        
+        canvas.onmouseup = () => {
+          drawing = false;
+          ctx.closePath();
+          ctx.globalAlpha = 1.0;
+          ctx.globalCompositeOperation = 'source-over';
+          lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        };
+        
+        canvas.onmouseleave = () => {
+          drawing = false;
+        };
+        
+        // Double-click to finish polygon
+        canvas.ondblclick = () => {
+          if (annotationState.scratchTool === 'polygon' && annotationState.polygonPoints.length > 2) {
+            ctx.putImageData(lastImageData, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.scratchColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            
+            // Draw final polygon
+            ctx.beginPath();
+            ctx.moveTo(annotationState.polygonPoints[0].x, annotationState.polygonPoints[0].y);
+            for (let i = 1; i < annotationState.polygonPoints.length; i++) {
+              ctx.lineTo(annotationState.polygonPoints[i].x, annotationState.polygonPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            
+            // Reset
+            annotationState.polygonPoints = [];
+            lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          }
+        };
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          canvas.dispatchEvent(new MouseEvent('mouseup'));
+        }, { passive: false });
+      };
+
+      // Make element draggable
+      const makeDraggable = (element, handle) => {
+        let isDragging = false;
+        let startX, startY;
+        
+        handle.onmousedown = (e) => {
+          if (e.target.id === 'close-scratch') return;
+          isDragging = true;
+          startX = e.clientX - element.offsetLeft;
+          startY = e.clientY - element.offsetTop;
+        };
+        
+        document.onmousemove = (e) => {
+          if (!isDragging) return;
+          element.style.left = (e.clientX - startX) + 'px';
+          element.style.top = (e.clientY - startY) + 'px';
+          element.style.right = 'auto';
+          element.style.bottom = 'auto';
+        };
+        
+        document.onmouseup = () => {
+          isDragging = false;
+        };
+      };
+
+      console.log('✅ Section 13: Direct Passage Annotation + Scratch Pad loaded');
+
+/* === SECTION 14: ADAPTIVE DIFFICULTY SYSTEM (MINIMAL) === */
+
+      // Adaptive difficulty system
+      const adaptiveDifficulty = {
+        currentLevel: 5,        // Scale 1-10 (5 = baseline ACT difficulty)
+        history: [],            // Last 3 episode difficulties
+        performanceHistory: [], // Last 3 episode scores
+        
+        // Calculate next difficulty based on performance
+        adjustDifficulty: function(performance) {
+          let adjustment = 0;
+          
+          if (performance >= 90) {
+            adjustment = 1;  // Mastery: level up!
+          } else if (performance >= 75) {
+            adjustment = 0;  // Proficient: maintain
+          } else if (performance >= 60) {
+            adjustment = -1; // Developing: easier
+          } else {
+            adjustment = -2; // Struggling: much easier
+          }
+          
+          this.currentLevel = Math.max(1, Math.min(10, this.currentLevel + adjustment));
+          this.history.push(this.currentLevel);
+          
+          // Keep only last 3
+          if (this.history.length > 3) {
+            this.history.shift();
+          }
+          
+          return this.currentLevel;
+        },
+        
+        // Get difficulty trend
+        getTrend: function() {
+          if (this.history.length < 2) return 'stable';
+          
+          const recent = this.history.slice(-2);
+          if (recent[1] > recent[0]) return 'rising';
+          if (recent[1] < recent[0]) return 'declining';
+          return 'stable';
+        },
+        
+        // Get difficulty descriptor for display
+        getDifficultyDescriptor: function() {
+          const descriptors = {
+            1: 'Basic fundamentals, Grade 8-9, ACT 16-19',
+            2: 'Foundational, Grade 9-10, ACT 20-23',
+            3: 'Intermediate, Grade 10, ACT 24-26',
+            4: 'Solid, Grade 10-11, ACT 27-29',
+            5: 'Standard ACT, Grade 11, ACT 28-30',
+            6: 'Challenging, Grade 11-12, ACT 31-33',
+            7: 'Advanced, Grade 12, ACT 34-35',
+            8: 'Highly Advanced, College-level, ACT 35-36',
+            9: 'Expert, Advanced College, Perfect Score',
+            10: 'Master, Graduate-level reasoning'
+          };
+          return descriptors[this.currentLevel] || descriptors[5];
+        }
+      };
+
+      // Reputation system
+      const reputationSystem = {
+        score: 0,               // -100 to +100
+        title: 'Apprentice',
+        relationshipScores: {},
+        
+        // Update reputation based on performance tier
+        updateReputation: function(tier) {
+          const changes = {
+            mastery: 15,
+            proficient: 5,
+            developing: 0,
+            struggling: -5
+          };
+          
+          this.score += changes[tier];
+          this.score = Math.max(-100, Math.min(100, this.score));
+          this.updateTitle();
+          
+          return this.score;
+        },
+        
+        // Update title based on score
+        updateTitle: function() {
+          if (this.score >= 80) {
+            this.title = 'Master Scholar';
+          } else if (this.score >= 60) {
+            this.title = 'Renowned Expert';
+          } else if (this.score >= 40) {
+            this.title = 'Skilled Practitioner';
+          } else if (this.score >= 20) {
+            this.title = 'Rising Scholar';
+          } else if (this.score >= 0) {
+            this.title = 'Dedicated Student';
+          } else if (this.score >= -20) {
+            this.title = 'Struggling Apprentice';
+          } else {
+            this.title = 'Novice Learner';
+          }
+        },
+        
+        // Update relationship with NPC
+        updateRelationship: function(npcId, change) {
+          if (!this.relationshipScores[npcId]) {
+            this.relationshipScores[npcId] = 50;
+          }
+          this.relationshipScores[npcId] += change;
+          this.relationshipScores[npcId] = Math.max(0, Math.min(100, this.relationshipScores[npcId]));
+        }
+      };
+
+      // Calculate performance tier (used by Character Stats panel)
+      const calculatePerformanceTier = (percentage) => {
+        if (percentage >= 90) return 'mastery';
+        if (percentage >= 75) return 'proficient';
+        if (percentage >= 60) return 'developing';
+        return 'struggling';
+      };
+
+      console.log('✅ Section 14: Adaptive Difficulty System (Minimal) loaded');
+
+/* === SECTION 15: ENDING SYSTEM (STREAMLINED) === */
+
+      // Display episode ending and apply consequences
+      const completeEpisode = async () => {
+        const percentage = sessionStats.calculateAccuracy();
+        const tier = calculatePerformanceTier(percentage);
+        
+        console.log(`Episode complete! Accuracy: ${percentage}%, Tier: ${tier}`);
+        
+        // ======= GENERATE AI ENDING =======
+        let aiEnding = '';
+        if (typeof generateEpisodeEnding === 'function') {
+          try {
+            const endingContext = {
+              tier: tier,
+              percentage: percentage,
+              totalQuestions: sessionStats.totalQuestions,
+              correctAnswers: sessionStats.correctAnswers,
+              bestStreak: sessionStats.bestStreak,
+              playerActions: episodeNarrative.playerActions || [],
+              tonalShift: episodeNarrative.tonalShift || 'neutral'
+            };
+            
+            aiEnding = await generateEpisodeEnding(endingContext);
+          } catch (error) {
+            console.error('AI ending generation failed:', error);
+            // Continue without AI ending - game still works
+          }
+        }
+        // ===================================
+        
+        // Apply consequences based on tier
+        const consequences = applyEndingConsequences(tier, percentage);
+        
+        // Display results screen
+        displayEndingScreen(tier, percentage, consequences, aiEnding);
+        
+        // Save progress (use the global function from Section 9)
+        if (typeof savePlayerProgress === 'function') {
+          await savePlayerProgress();
+        }
+      };
+
+      // Apply ending consequences (XP, gold, reputation, difficulty)
+      const applyEndingConsequences = (tier, percentage) => {
+        const consequences = {
+          mastery: {
+            xpBonus: 150,
+            gold: 100,
+            reputationChange: 15,
+            difficultyAdjustment: 1,
+            message: '🌟 Exceptional Performance!'
+          },
+          proficient: {
+            xpBonus: 100,
+            gold: 60,
+            reputationChange: 5,
+            difficultyAdjustment: 0,
+            message: '✅ Solid Achievement!'
+          },
+          developing: {
+            xpBonus: 60,
+            gold: 40,
+            reputationChange: 0,
+            difficultyAdjustment: -1,
+            message: '📚 Making Progress'
+          },
+          struggling: {
+            xpBonus: 30,
+            gold: 20,
+            reputationChange: -5,
+            difficultyAdjustment: -2,
+            message: '🆘 Building Foundations'
+          }
+        };
+        
+        const consequence = consequences[tier];
+        
+        // Award XP bonus
+        player.xp += consequence.xpBonus;
+        
+        // Update reputation
+        reputationSystem.updateReputation(tier);
+        
+        // Adjust difficulty for next episode
+        adaptiveDifficulty.adjustDifficulty(percentage);
+        adaptiveDifficulty.performanceHistory.push(percentage);
+        
+        // Keep only last 3 performances
+        if (adaptiveDifficulty.performanceHistory.length > 3) {
+          adaptiveDifficulty.performanceHistory.shift();
+        }
+        
+        return consequence;
+      };
+
+      // Display ending screen with results
+      const displayEndingScreen = (tier, percentage, consequences, aiEnding = '') => {
+        let resultsContainer = document.getElementById('results-container');
+        
+        // Create results container if it doesn't exist
+        if (!resultsContainer) {
+          console.log('Results container not found, creating one');
+          
+          // Check if results-screen exists
+          let resultsScreen = document.getElementById('results-screen');
+          if (!resultsScreen) {
+            // Create entire results screen
+            resultsScreen = document.createElement('div');
+            resultsScreen.id = 'results-screen';
+            resultsScreen.className = 'screen';
+            resultsScreen.innerHTML = '<div class="screen-content"><div id="results-container"></div></div>';
+            document.body.appendChild(resultsScreen);
+          }
+          
+          resultsContainer = document.getElementById('results-container');
+        }
+        
+        if (!resultsContainer) {
+          console.error('Could not create results container');
+          // Fallback: show completion screen
+          showScreen('episodeSelection');
+          alert(`Episode Complete! ${percentage}% accuracy. +${consequences.xpBonus} XP!`);
+          return;
+        }
+        
+        // Get tier colors
+        const tierColors = {
+          mastery: '#2ecc71',
+          proficient: '#3498db',
+          developing: '#f39c12',
+          struggling: '#e74c3c'
+        };
+        
+        const tierColor = tierColors[tier];
+        
+        // Build narrative based on tier
+        const narratives = {
+          mastery: `Outstanding work! You've demonstrated mastery of the material with ${percentage}% accuracy. Your advanced understanding sets you apart. The challenge level will increase for your next adventure.`,
+          proficient: `Well done! You've shown solid understanding with ${percentage}% accuracy. You're consistently performing well. The difficulty will remain at your current level.`,
+          developing: `You're making progress with ${percentage}% accuracy. Some concepts need reinforcement, but you're on the right track. The next episode will be slightly easier to help build confidence.`,
+          struggling: `This was challenging, with ${percentage}% accuracy. Let's build stronger foundations with structured support. The next episode will be more accessible to help you succeed.`
+        };
+        
+        resultsContainer.innerHTML = `
+          <div style="padding: 30px; max-width: 800px; margin: 0 auto;">
+            <h2 style="
+              font-family: 'Cinzel', serif;
+              color: ${tierColor};
+              font-size: 32px;
+              text-align: center;
+              margin-bottom: 20px;
+            ">${consequences.message}</h2>
+            
+            <!-- Performance Summary -->
+            <div style="
+              background: linear-gradient(145deg, #2c3e50, #34495e);
+              border: 2px solid #e67e22;
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #f39c12; margin-bottom: 15px;">Your Performance</h3>
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Accuracy</div>
+                  <div style="color: ${tierColor}; font-size: 28px; font-weight: bold;">${percentage}%</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Questions</div>
+                  <div style="color: white; font-size: 28px; font-weight: bold;">${sessionStats.correctAnswers}/${sessionStats.totalQuestions}</div>
+                </div>
+              </div>
+            </div>
+            
+            ${aiEnding ? `
+            <!-- AI Generated Ending Narrative -->
+            <div style="
+              background: linear-gradient(145deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.3));
+              border: 2px solid #3498db;
+              border-radius: 10px;
+              padding: 25px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #3498db; margin-bottom: 15px; font-family: 'Cinzel', serif;">
+                📖 Your Journey's End
+              </h3>
+              <p style="
+                color: #ecf0f1; 
+                font-size: 16px; 
+                line-height: 1.8; 
+                margin: 0;
+                font-style: italic;
+              ">
+                ${aiEnding}
+              </p>
+            </div>
+            ` : ''}
+            
+            <!-- Narrative -->
+            <div style="
+              background: rgba(52, 73, 94, 0.6);
+              border-left: 4px solid ${tierColor};
+              padding: 20px;
+              margin-bottom: 30px;
+              border-radius: 5px;
+            ">
+              <p style="color: #ecf0f1; font-size: 16px; line-height: 1.6; margin: 0;">
+                ${narratives[tier]}
+              </p>
+            </div>
+            
+            <!-- Rewards -->
+            <div style="
+              background: linear-gradient(145deg, #2c3e50, #34495e);
+              border: 2px solid #f39c12;
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #f39c12; margin-bottom: 15px;">Rewards Earned</h3>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Bonus XP</div>
+                  <div style="color: #3498db; font-size: 24px; font-weight: bold;">+${consequences.xpBonus}</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Gold</div>
+                  <div style="color: #f39c12; font-size: 24px; font-weight: bold;">+${consequences.gold}</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Reputation</div>
+                  <div style="color: ${consequences.reputationChange >= 0 ? '#2ecc71' : '#e74c3c'}; font-size: 24px; font-weight: bold;">
+                    ${consequences.reputationChange >= 0 ? '+' : ''}${consequences.reputationChange}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Adaptive Difficulty Update -->
+            <div style="
+              background: rgba(52, 73, 94, 0.6);
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #9b59b6; margin-bottom: 15px;">Next Challenge</h3>
+              <div style="color: #ecf0f1; font-size: 14px; margin-bottom: 10px;">
+                Difficulty Level: <span style="color: white; font-weight: bold;">${adaptiveDifficulty.currentLevel}/10</span>
+                ${consequences.difficultyAdjustment > 0 ? '<span style="color: #2ecc71;"> (+' + consequences.difficultyAdjustment + ' ⬆️)</span>' : ''}
+                ${consequences.difficultyAdjustment < 0 ? '<span style="color: #e74c3c;"> (' + consequences.difficultyAdjustment + ' ⬇️)</span>' : ''}
+                ${consequences.difficultyAdjustment === 0 ? '<span style="color: #95a5a6;"> (maintained)</span>' : ''}
+              </div>
+              <div style="color: #95a5a6; font-size: 13px; font-style: italic;">
+                ${adaptiveDifficulty.getDifficultyDescriptor()}
+              </div>
+            </div>
+            
+            <!-- Continue Button -->
+            <div style="text-align: center;">
+              <button id="return-to-episodes" class="game-btn" style="font-size: 18px; padding: 15px 40px;">
+                Choose Another Adventure
+              </button>
+            </div>
+          </div>
+        `;
+        
+        // Add click handler for return button
+        document.getElementById('return-to-episodes').onclick = () => {
+          // Use showScreen if available, otherwise manually switch screens
+          if (typeof showScreen === 'function') {
+            showScreen('episodeSelection');
+          } else {
+            // Fallback: manually switch screens
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            const epScreen = document.getElementById('episode-selection-screen');
+            if (epScreen) epScreen.classList.add('active');
+          }
+        };
+        
+        // Show results screen
+        if (typeof showScreen === 'function') {
+          showScreen('results');
+        } else {
+          // Fallback: manually show results screen
+          document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+          const resScreen = document.getElementById('results-screen');
+          if (resScreen) {
+            resScreen.classList.add('active');
+          } else {
+            // If no results screen, just show the container
+            resultsContainer.style.display = 'block';
+          }
+        }
+      };
+
+      console.log('✅ Section 15: Ending System (Streamlined) loaded');
+	
+/* === SECTION 16: PLAYER PROFILE & CHARACTER STATS WITH TROPHIES === */
+
+      // Create character stats toggle button
+      const createCharacterStatsToggle = () => {
+        if (document.getElementById('char-stats-toggle')) return;
+        
+        const toggleBtn = document.createElement('button');
+        toggleBtn.id = 'char-stats-toggle';
+        toggleBtn.style.cssText = `
+          position: fixed; top: 20px; left: 20px;
+          background: linear-gradient(145deg, #e67e22, #d35400);
+          border: 2px solid #f39c12; color: white;
+          padding: 10px 15px; border-radius: 8px; cursor: pointer;
+          font-family: 'Roboto', sans-serif; font-weight: bold; font-size: 14px;
+          z-index: 10000; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          transition: all 0.3s ease;
+        `;
+        toggleBtn.innerHTML = '📊 Character Stats';
+        toggleBtn.onclick = () => toggleCharacterStatsPanel();
+        document.body.appendChild(toggleBtn);
+      };
+
+      // Toggle character stats panel
+      const toggleCharacterStatsPanel = () => {
+        const panel = document.getElementById('char-stats-panel');
+        if (panel) {
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        } else {
+          createCharacterStatsPanel();
+        }
+      };
+
+      // Create character stats panel with tabs
+      const createCharacterStatsPanel = () => {
+        let currentPlayer = player || window.player;
+        
+        if (!currentPlayer || !currentPlayer.name) {
+          alert('Player data not loaded yet.');
+          return;
+        }
+        
+        const panel = document.createElement('div');
+        panel.id = 'char-stats-panel';
+        panel.style.cssText = `
+          position: fixed; top: 80px; left: 20px;
+          background: rgba(30, 42, 56, 0.98); border: 3px solid #e67e22;
+          border-radius: 15px; padding: 20px; width: 280px;
+          max-height: 80vh; overflow-y: auto; z-index: 9999;
+          font-family: 'Roboto', sans-serif;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.6); cursor: move;
+        `;
+        
+        panel.innerHTML = `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: #e67e22;">📊 Character</h3>
+            <button id="close-stats" style="background: #e74c3c; color: white; border: none; border-radius: 5px; padding: 5px 10px; cursor: pointer;">✕</button>
+          </div>
+          
+          <div style="display: flex; gap: 5px; margin-bottom: 15px; border-bottom: 2px solid #34495e;">
+            <button id="tab-stats" class="tab-btn" style="flex: 1; background: transparent; color: #e67e22; border: none; padding: 10px; cursor: pointer; border-bottom: 3px solid #e67e22; font-weight: bold;">Stats</button>
+            <button id="tab-trophies" class="tab-btn" style="flex: 1; background: transparent; color: #95a5a6; border: none; padding: 10px; cursor: pointer; border-bottom: 3px solid transparent;">Trophies</button>
+          </div>
+          
+          <div id="content-stats"></div>
+          <div id="content-trophies" style="display: none;"></div>
+        `;
+        
+        document.body.appendChild(panel);
+        
+        // Close button
+        document.getElementById('close-stats').onclick = (e) => {
+          e.stopPropagation();
+          panel.style.display = 'none';
+        };
+        
+        // Tab switching
+        document.getElementById('tab-stats').onclick = () => switchTab('stats');
+        document.getElementById('tab-trophies').onclick = () => switchTab('trophies');
+        
+        // Draggable
+        let dragging = false, startX, startY;
+        panel.onmousedown = (e) => {
+          if (e.target.tagName === 'BUTTON') return;
+          dragging = true;
+          startX = e.clientX - panel.offsetLeft;
+          startY = e.clientY - panel.offsetTop;
+        };
+        document.onmousemove = (e) => {
+          if (dragging) {
+            panel.style.left = (e.clientX - startX) + 'px';
+            panel.style.top = (e.clientY - startY) + 'px';
+          }
+        };
+        document.onmouseup = () => dragging = false;
+        
+        updateStatsTab();
+      };
+
+      // Switch tabs
+      const switchTab = (tab) => {
+        const statsBtn = document.getElementById('tab-stats');
+        const trophiesBtn = document.getElementById('tab-trophies');
+        const statsContent = document.getElementById('content-stats');
+        const trophiesContent = document.getElementById('content-trophies');
+        
+        if (tab === 'stats') {
+          statsBtn.style.borderBottom = '3px solid #e67e22';
+          statsBtn.style.color = '#e67e22';
+          statsBtn.style.fontWeight = 'bold';
+          trophiesBtn.style.borderBottom = '3px solid transparent';
+          trophiesBtn.style.color = '#95a5a6';
+          trophiesBtn.style.fontWeight = 'normal';
+          statsContent.style.display = 'block';
+          trophiesContent.style.display = 'none';
+          updateStatsTab();
+        } else {
+          trophiesBtn.style.borderBottom = '3px solid #e67e22';
+          trophiesBtn.style.color = '#e67e22';
+          trophiesBtn.style.fontWeight = 'bold';
+          statsBtn.style.borderBottom = '3px solid transparent';
+          statsBtn.style.color = '#95a5a6';
+          statsBtn.style.fontWeight = 'normal';
+          trophiesContent.style.display = 'block';
+          statsContent.style.display = 'none';
+          updateTrophiesTab();
+        }
+      };
+
+      // Update stats tab
+      const updateStatsTab = () => {
+        const content = document.getElementById('content-stats');
+        if (!content) return;
+        
+        const level = Math.floor((player.xp || 0) / 100) + 1;
+        
+        // Safely get difficulty level
+        let diffLevel = 5;
+        let diffDesc = 'Standard';
+        if (typeof adaptiveDifficulty !== 'undefined' && adaptiveDifficulty) {
+          diffLevel = adaptiveDifficulty.currentLevel || 5;
+          if (typeof adaptiveDifficulty.getDifficultyDescriptor === 'function') {
+            diffDesc = adaptiveDifficulty.getDifficultyDescriptor();
+          }
+        }
+        
+        // Safely get reputation
+        let repValue = 0;
+        let repTitle = 'Apprentice';
+        if (typeof reputationSystem !== 'undefined' && reputationSystem) {
+          if (typeof reputationSystem.getReputation === 'function') {
+            repValue = reputationSystem.getReputation();
+          }
+          if (typeof reputationSystem.getTitle === 'function') {
+            repTitle = reputationSystem.getTitle();
+          }
+        }
+        
+        // Get class avatar
+        let avatar = '⚔️';
+        if (typeof getClassAvatar === 'function') {
+          avatar = getClassAvatar(player.className);
+        }
+        
+        // Calculate percentages for bars
+        const diffPercent = (diffLevel / 10) * 100;
+        const repPercent = ((repValue + 100) / 200) * 100; // -100 to +100 mapped to 0-100%
+        
+        // Performance trend
+        let trendIcon = '📊';
+        let trendText = 'Stable';
+        if (typeof adaptiveDifficulty !== 'undefined' && adaptiveDifficulty && typeof adaptiveDifficulty.getTrend === 'function') {
+          const trend = adaptiveDifficulty.getTrend();
+          trendIcon = trend === 'rising' ? '📈' : trend === 'declining' ? '📉' : '📊';
+          trendText = trend === 'rising' ? 'Rising' : trend === 'declining' ? 'Declining' : 'Stable';
+        }
+        
+        content.innerHTML = `
+          <!-- Player Info -->
+          <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: rgba(52, 73, 94, 0.6); border-radius: 10px;">
+            <div style="font-size: 40px; margin-bottom: 10px;">${avatar}</div>
+            <div style="font-size: 18px; font-weight: bold; color: #ecf0f1;">${player.name}</div>
+            <div style="font-size: 14px; color: #95a5a6;">${player.className}</div>
+            <div style="font-size: 14px; color: #3498db; margin-top: 5px;">Level ${level}</div>
+          </div>
+          
+          <!-- Adaptive Difficulty -->
+          <div style="background: rgba(52, 73, 94, 0.6); border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h3 style="color: #f39c12; margin: 0 0 12px 0; font-size: 16px;">⚙️ Adaptive Difficulty</h3>
+            
+            <div style="margin-bottom: 10px;">
+              <div style="color: #95a5a6; font-size: 11px; margin-bottom: 5px;">Current Level</div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="flex: 1; height: 8px; background: rgba(149, 165, 166, 0.3); border-radius: 4px; overflow: hidden;">
+                  <div style="height: 100%; background: linear-gradient(90deg, #2ecc71, #f39c12, #e74c3c); width: ${diffPercent}%; transition: width 0.3s;"></div>
+                </div>
+                <div style="font-size: 18px; font-weight: bold; color: #f39c12; min-width: 45px;">${diffLevel}/10</div>
+              </div>
+            </div>
+            
+            <div style="color: #95a5a6; font-size: 12px; margin-bottom: 8px;">${diffDesc}</div>
+            
+            <div style="margin-top: 12px;">
+              <div style="color: #95a5a6; font-size: 11px; margin-bottom: 5px;">Performance Trend</div>
+              <div style="font-size: 14px; font-weight: bold;">${trendIcon} ${trendText}</div>
+            </div>
+          </div>
+          
+          <!-- Reputation -->
+          <div style="background: rgba(52, 73, 94, 0.6); border-radius: 10px; padding: 15px;">
+            <h3 style="color: #9b59b6; margin: 0 0 12px 0; font-size: 16px;">👑 Reputation</h3>
+            
+            <div style="text-align: center; margin-bottom: 10px;">
+              <div style="font-size: 20px; font-weight: bold; color: #ecf0f1;">${repTitle}</div>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="flex: 1; height: 8px; background: rgba(149, 165, 166, 0.3); border-radius: 4px; overflow: hidden;">
+                <div style="height: 100%; background: linear-gradient(90deg, #e74c3c, #95a5a6, #2ecc71); width: ${repPercent}%; transition: width 0.3s;"></div>
+              </div>
+              <div style="font-size: 14px; font-weight: bold; color: #9b59b6; min-width: 35px;">${repValue}</div>
+            </div>
+          </div>
+        `;
+      };
+
+      // Update trophies tab
+      const updateTrophiesTab = () => {
+        const content = document.getElementById('content-trophies');
+        if (!content) return;
+        
+        if (!player.inventory || Object.keys(player.inventory).length === 0) {
+          content.innerHTML = `
+            <div style="text-align: center; padding: 40px 20px; color: #95a5a6;">
+              <div style="font-size: 48px; margin-bottom: 15px;">🏆</div>
+              <h3 style="margin: 0 0 10px 0; color: #ecf0f1;">No Trophies Yet</h3>
+              <p style="margin: 0; font-size: 14px;">Earn trophies by completing challenging achievements!</p>
+            </div>
+          `;
+          return;
+        }
+        
+        const trophies = {
+          legLamp: { icon: '🦵💡', name: 'Leg Lamp', desc: 'Forgives next error', color: '#f39c12' },
+          eternalTorch: { icon: '🔥', name: 'Eternal Torch', desc: '+25 Focus, 2x XP next', color: '#e74c3c' },
+          liquidShadow: { icon: '🗡️', name: 'Liquid Shadow', desc: '+25 Focus, auto-correct next', color: '#9b59b6' },
+          playbook: { icon: '📖', name: 'Playbook', desc: '+25 Focus, eliminate 2, +50% XP', color: '#3498db' },
+          phoenixTear: { icon: '🔮', name: 'Phoenix Tear', desc: 'Overcharge Focus to 125', color: '#2ecc71' }
+        };
+        
+        let html = '<h3 style="color: #f39c12; margin: 0 0 15px 0;">🏆 Trophy Collection</h3>';
+        
+        Object.entries(player.inventory).forEach(([key, trophyId]) => {
+          const trophy = trophies[trophyId];
+          if (!trophy) return;
+          
+          html += `
+            <div style="background: rgba(52, 73, 94, 0.6); border: 2px solid ${trophy.color}; border-radius: 10px; padding: 15px; margin-bottom: 12px;">
+              <div style="display: flex; gap: 12px; margin-bottom: 10px;">
+                <div style="font-size: 36px;">${trophy.icon}</div>
+                <div>
+                  <div style="font-size: 16px; font-weight: bold; color: ${trophy.color};">${trophy.name}</div>
+                  <div style="font-size: 12px; color: #bdc3c7;">${trophy.desc}</div>
+                </div>
+              </div>
+              <button onclick="useTrophy('${trophyId}', '${key}')" style="width: 100%; padding: 8px; background: ${trophy.color}; border: none; color: white; border-radius: 5px; cursor: pointer; font-weight: bold;">⚡ Use Trophy</button>
+            </div>
+          `;
+        });
+        
+        content.innerHTML = html;
+      };
+
+      // Use trophy
+      const useTrophy = (trophyId, key) => {
+        const challengeBox = document.getElementById('challenge-box');
+        if (!challengeBox || challengeBox.style.display === 'none') {
+          alert('Trophies can only be used during challenges!');
+          return;
+        }
+        
+        switch (trophyId) {
+          case 'legLamp':
+            player.focus += 25;
+            player.activeEffects.forgivenError = true;
+            showNotification('🦵💡 Leg Lamp: Next error forgiven!', 'ability-used');
+            break;
+          case 'eternalTorch':
+            player.focus += 25;
+            player.activeEffects.doubleXPNext = true;
+            showNotification('🔥 Eternal Torch: 2x XP next!', 'ability-used');
+            break;
+          case 'liquidShadow':
+            player.focus += 25;
+            player.activeEffects.autoCorrectNext = true;
+            showNotification('🗡️ Liquid Shadow: Auto-correct next!', 'ability-used');
+            break;
+          case 'playbook':
+            player.focus += 25;
+            player.activeEffects.bonusXP = 1.5;
+            player.activeEffects.bonusXPDuration = 3;
+            const q = currentQuestionSet[currentQuestionIndex];
+            if (q) {
+              const wrong = [];
+              q.options.forEach((opt, i) => {
+                if (i !== q.correct && !player.activeEffects.eliminatedAnswers.includes(i)) wrong.push(i);
+              });
+              wrong.slice(0, 2).forEach(i => player.activeEffects.eliminatedAnswers.push(i));
+              if (typeof applyEliminatedAnswers === 'function') applyEliminatedAnswers();
+            }
+            showNotification('📖 Playbook: +50% XP, 2 eliminated!', 'ability-used');
+            break;
+          case 'phoenixTear':
+            player.focus = 125;
+            player.activeEffects.phoenixTearActive = true;
+            showNotification('🔮 Phoenix Tear: Overcharged!', 'ability-used');
+            break;
+        }
+        
+        delete player.inventory[key];
+        updatePlayerStats();
+        updateTrophiesTab();
+        document.getElementById('char-stats-panel').style.display = 'none';
+        
+        if (typeof savePlayerProgress === 'function') savePlayerProgress();
+      };
+
+      console.log('✅ Section 16: Character Stats & Trophies loaded');
+
+      // Auto-create button when page loads
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createCharacterStatsToggle);
+      } else {
+        // DOM already loaded, create immediately
+        setTimeout(createCharacterStatsToggle, 100);
+      }
+	
+/* === SECTION 17: AI NARRATIVE GENERATION (via Cloud Function) === */
+/* v3: Diamond loader uses dedicated #narrative-loader div          */
+/*     narrative-text is NEVER touched with innerHTML               */
+/* ================================================================ */
+
+      // CSS animations
+      const streakAnimStyle = document.createElement('style');
+      streakAnimStyle.textContent = `
+        @keyframes slideDown {
+          from { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+          to   { transform: translateX(-50%) translateY(0);      opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateX(-50%) translateY(0);      opacity: 1; }
+          to   { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+        }
+        @keyframes diamondPulse {
+          0%   { transform: rotate(45deg) scale(1);   opacity: 1; }
+          50%  { transform: rotate(45deg) scale(1.3); opacity: 0.6; }
+          100% { transform: rotate(45deg) scale(1);   opacity: 1; }
+        }
+        @keyframes diamondOrbit {
+          0%   { transform: rotate(0deg)   translateX(28px) rotate(0deg); }
+          100% { transform: rotate(360deg) translateX(28px) rotate(-360deg); }
+        }
+        @keyframes narrativeFadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .diamond-loader-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 16px 0 8px 0;
+          gap: 14px;
+        }
+        .diamond-loader-rig {
+          position: relative;
+          width: 64px;
+          height: 64px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .diamond-center {
+          width: 20px;
+          height: 20px;
+          background: linear-gradient(135deg, #f39c12, #e74c3c);
+          transform: rotate(45deg);
+          animation: diamondPulse 1.2s ease-in-out infinite;
+          box-shadow: 0 0 12px rgba(243,156,18,0.7);
+          border-radius: 2px;
+        }
+        .diamond-orbit {
+          position: absolute;
+          top: 50%; left: 50%;
+          width: 8px; height: 8px;
+          margin: -4px 0 0 -4px;
+          background: #f39c12;
+          transform: rotate(45deg);
+          border-radius: 1px;
+          animation: diamondOrbit 1.4s linear infinite;
+          box-shadow: 0 0 6px rgba(243,156,18,0.8);
+        }
+        .diamond-orbit:nth-child(2) { animation-delay: -0.35s; background: #e74c3c; }
+        .diamond-orbit:nth-child(3) { animation-delay: -0.70s; background: #9b59b6; }
+        .diamond-orbit:nth-child(4) { animation-delay: -1.05s; background: #3498db; }
+        .diamond-loader-label {
+          color: #bdc3c7;
+          font-size: 13px;
+          font-style: normal;
+          letter-spacing: 0.05em;
+          opacity: 0.85;
+        }
+        #narrative-text.narrative-ready {
+          animation: narrativeFadeIn 0.6s ease-out;
+        }
+      `;
+      document.head.appendChild(streakAnimStyle);
+
+      // ─────────────────────────────────────────────────────────────
+      // NARRATIVE STATE
+      // ─────────────────────────────────────────────────────────────
+      let episodeNarrative = {
+        genre:               '',
+        episodeTitle:        '',
+        episodeDescription:  '',
+        openingNarrative:    '',
+        questionNarratives:  [],
+        playerActions:       [],
+        storyBeats:          [],
+        tonalShift:          'neutral',
+        sessionPerspective:  '',
+        sessionAtmosphere:   '',
+        sessionHook:         '',
+        sessionStyle:        ''
+      };
+
+      const narrativeSeeds = {
+        perspectives: [
+          'from the perspective of a reluctant hero thrust into destiny',
+          'through the eyes of a seasoned veteran who has seen it all',
+          'as a young prodigy proving themselves for the first time',
+          'as an outsider who has earned their place through sheer determination',
+          'as someone returning after a long absence to face old challenges',
+          'as an unlikely champion chosen by fate rather than birth'
+        ],
+        atmospheres: [
+          'The air crackles with electric anticipation.',
+          'An eerie stillness hangs over everything.',
+          'A distant storm brews on the horizon.',
+          'Ancient energy pulses through the ground itself.',
+          'The world holds its breath in this pivotal moment.',
+          'Something has shifted — the stakes have never felt higher.',
+          'A rare convergence of forces has made this moment possible.',
+          'The threads of fate have drawn everything to this point.'
+        ],
+        openingHooks: [
+          'Begin with an unexpected complication that sets the tone',
+          'Open with a sensory detail that grounds the player in the world',
+          'Start with a revelation that reframes everything that follows',
+          'Begin mid-action, dropping the player into the heart of things',
+          'Open with a question that the episode will answer',
+          'Start with a character moment that establishes personal stakes'
+        ],
+        styleVariants: [
+          'Write in a lyrical, poetic style with vivid imagery',
+          'Write in a terse, urgent style that builds immediate tension',
+          'Write in a warm, storyteller style as if around a campfire',
+          'Write in a cinematic style with sharp scene-setting',
+          'Write in an epic, mythic style befitting legends',
+          'Write in an intimate style that focuses on personal emotion'
+        ]
+      };
+
+      const randomSeed = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+      // ─────────────────────────────────────────────────────────────
+      // HELPERS
+      // ─────────────────────────────────────────────────────────────
+      const getEpisodeDescription = (episode) => {
+        if (episode.encounters && episode.encounters.length > 0 && episode.encounters[0].narrative) {
+          return episode.encounters[0].narrative
+            .replace(/^Episode Description:\s*/i, '')
+            .trim();
+        }
+        return '';
+      };
+
+      const resetEpisodeNarrative = (episode) => {
+        episodeNarrative = {
+          genre:               episode.genre || episode.theme || 'Fantasy',
+          episodeTitle:        episode.title || 'Unknown Quest',
+          episodeDescription:  getEpisodeDescription(episode),
+          openingNarrative:    '',
+          questionNarratives:  [],
+          playerActions:       [],
+          storyBeats:          [],
+          tonalShift:          'neutral',
+          sessionPerspective:  randomSeed(narrativeSeeds.perspectives),
+          sessionAtmosphere:   randomSeed(narrativeSeeds.atmospheres),
+          sessionHook:         randomSeed(narrativeSeeds.openingHooks),
+          sessionStyle:        randomSeed(narrativeSeeds.styleVariants)
+        };
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // DIAMOND LOADER — writes to #narrative-loader ONLY
+      // narrative-text is never touched here
+      // ─────────────────────────────────────────────────────────────
+      const showNarrativeLoading = (message = 'Conjuring your story…') => {
+        const loader = document.getElementById('narrative-loader');
+        if (!loader) return;
+        loader.innerHTML = `
+          <div class="diamond-loader-wrap">
+            <div class="diamond-loader-rig">
+              <div class="diamond-center"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+            </div>
+            <div class="diamond-loader-label">♦ ${message} ♦</div>
+          </div>`;
+        loader.style.display = 'block';
+
+        // Clear narrative-text while loading so raw encounter text isn't visible
+        const narrativeEl = document.getElementById('narrative-text');
+        if (narrativeEl) narrativeEl.textContent = '';
+      };
+
+      const hideNarrativeLoading = () => {
+        const loader = document.getElementById('narrative-loader');
+        if (loader) {
+          loader.innerHTML = '';
+          loader.style.display = 'none';
+        }
+      };
+
+      // Write final narrative — only ever uses textContent, never innerHTML
+      const displayNarrative = (narrative, type = 'opening') => {
+        const el = document.getElementById('narrative-text');
+        if (!el) { console.warn('narrative-text element not found'); return; }
+
+        // Hide loader first
+        hideNarrativeLoading();
+
+        el.style.fontStyle  = 'normal';
+        el.style.fontSize   = type === 'opening' ? '15px' : '14px';
+        el.style.color      = type === 'opening' ? '#ecf0f1' : '#dfe6e9';
+        el.style.lineHeight = '1.7';
+
+        // Use textContent — safe, never breaks JS
+        el.textContent = narrative;
+
+        // Fade in via class toggle
+        el.classList.remove('narrative-ready');
+        void el.offsetWidth; // force reflow so animation re-triggers
+        el.classList.add('narrative-ready');
+      };
+
+      const trackPlayerAction = (action) => {
+        episodeNarrative.playerActions.push(action);
+        if (episodeNarrative.playerActions.length > 10) episodeNarrative.playerActions.shift();
+      };
+
+      const updateTonalShift = () => {
+        const accuracy     = sessionStats.calculateAccuracy();
+        const focusPercent = player.focus || 0;
+        if      (accuracy >= 80 && focusPercent >= 70) episodeNarrative.tonalShift = 'triumphant';
+        else if (accuracy >= 60 && focusPercent >= 50) episodeNarrative.tonalShift = 'hopeful';
+        else if (accuracy <  40 || focusPercent <  30) episodeNarrative.tonalShift = 'desperate';
+        else                                            episodeNarrative.tonalShift = 'tense';
+      };
+
+      const callNarrativeFunction = async (promptText, maxTokens = 300) => {
+        const generateNarrative = httpsCallable(functions, 'generateNarrative');
+        const result = await generateNarrative({
+          requestData: { model: 'claude-sonnet-4-20250514', maxTokens, promptText }
+        });
+        if (result.data && result.data.success && result.data.data && result.data.data.content) {
+          return result.data.data.content
+            .filter(item => item.type === 'text')
+            .map(item => item.text)
+            .join('\n\n')
+            .replace(/\*\*/g, '')
+            .trim();
+        }
+        throw new Error('Invalid response from Cloud Function');
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // EPISODE OPENING
+      // ─────────────────────────────────────────────────────────────
+      const generateEpisodeOpening = async (episode) => {
+        console.log('Generating episode opening via Cloud Function...');
+
+        // Diamond loader fires immediately — before any async work
+        showNarrativeLoading('Conjuring your story…');
+
+        try {
+          const desc  = getEpisodeDescription(episode);
+          const level = Math.floor((player.xp || 0) / 100) + 1;
+
+          let reputation = 'Apprentice';
+          if (typeof reputationSystem !== 'undefined' && reputationSystem.reputation != null) {
+            const r = reputationSystem.reputation;
+            if      (r >= 75) reputation = 'Legend';
+            else if (r >= 50) reputation = 'Master';
+            else if (r >= 25) reputation = 'Expert';
+            else if (r >=  0) reputation = 'Journeyman';
+          }
+
+          const totalQ = episode.encounters
+            ? episode.encounters.reduce((sum, enc) => sum + (enc.qCount || enc.questionsPerApproach || 0), 0)
+            : 5;
+
+          const prompt = `You are the Dungeon Master for Test Quest, an educational adventure game. Generate a unique, engaging opening narrative for this episode. Every playthrough must feel fresh and different.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode Title: "${episodeNarrative.episodeTitle}"
+- Episode Description: "${desc}"
+- Player: ${player.name}, a Level ${level} ${player.className}
+- Reputation: ${reputation}
+- Difficulty: ${adaptiveDifficulty ? adaptiveDifficulty.currentLevel : 5}/10
+- Challenges Ahead: ${totalQ} trials
+
+NARRATIVE DIRECTION (follow these to make this playthrough unique):
+- Character Framing: Tell this ${episodeNarrative.sessionPerspective}
+- Atmosphere: ${episodeNarrative.sessionAtmosphere}
+- Opening Approach: ${episodeNarrative.sessionHook}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+CONTENT REQUIREMENTS:
+- Write 2-3 paragraphs in ${episodeNarrative.genre} style
+- Draw directly from the Episode Description — use its specific details, characters, and setting
+- Address the player as ${player.name} and acknowledge their ${player.className} class
+- Reference specific elements from the description (locations, characters, events mentioned)
+- Set up the stakes described in the episode
+- Hint at the ${totalQ} challenges ahead without calling them "questions"
+- Match tone to their reputation level (${reputation})
+- Keep it immersive and exciting
+- NO meta-references to "questions", "answers", or "game mechanics"
+- Make this feel completely different from a standard opening
+
+Generate the opening narrative now:`;
+
+          console.log('=== Calling Cloud Function ===');
+          console.log('Sending prompt (length):', prompt.length);
+          console.log('Episode description:', desc.substring(0, 100) + '...');
+          console.log('Narrative seeds:', episodeNarrative.sessionPerspective, '|', episodeNarrative.sessionAtmosphere);
+
+          const narrative = await callNarrativeFunction(prompt, 600);
+
+          episodeNarrative.openingNarrative = narrative;
+          displayNarrative(narrative, 'opening'); // also calls hideNarrativeLoading
+          console.log('AI opening displayed successfully');
+          return narrative;
+
+        } catch (error) {
+          console.error('AI opening generation failed:', error);
+          hideNarrativeLoading();
+          const fallback = generateTemplateOpening(episode);
+          episodeNarrative.openingNarrative = fallback;
+          displayNarrative(fallback, 'opening');
+          return fallback;
+        }
+      };
+
+      const generateTemplateOpening = (episode) => {
+        const genre   = episode.genre || episode.theme || 'Fantasy';
+        const level   = Math.floor((player.xp || 0) / 100) + 1;
+        const desc    = getEpisodeDescription(episode);
+        const preview = desc ? desc.split('.').slice(0, 2).join('.') + '.' : '';
+        const templates = {
+          'Fantasy':          `${player.name}, your ${player.className} training has led you to this moment. ${preview} As a Level ${level} adventurer, ancient magic pulses through the air as you prepare to face the trials ahead.`,
+          'Sci-Fi':           `Captain ${player.name}, your ${player.className} expertise is required for this critical mission. ${preview} Your Level ${level} clearance grants access, but solving this demands sharp analytical thinking.`,
+          'Space/Sci-Fi':     `Captain ${player.name}, your ${player.className} expertise is required for this critical mission. ${preview} Your Level ${level} clearance grants access, but solving this demands sharp analytical thinking.`,
+          'Mystery':          `Detective ${player.name}, your reputation as a Level ${level} ${player.className} precedes you. ${preview} Time to put your analytical mind to work.`,
+          'Historical':       `${player.name}, history remembers those who rise to meet great challenges. ${preview} As a Level ${level} ${player.className}, the echoes of history call to you.`,
+          'Medieval Fantasy': `${player.name}, your ${player.className} training has led you to this moment. ${preview} As a Level ${level} adventurer, the fate of the realm rests in your hands.`
+        };
+        return templates[genre] || templates['Fantasy'];
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // QUESTION RESPONSE
+      // ─────────────────────────────────────────────────────────────
+      const generateQuestionResponse = async (questionResult) => {
+        try {
+          const { isCorrect, questionNumber, totalQuestions, abilityUsed, streak, currentFocus } = questionResult;
+          const prompt = `You are the Dungeon Master narrating an ongoing ${episodeNarrative.genre} adventure. React to the player's action in 1-2 sentences.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Question ${questionNumber} of ${totalQuestions}
+- Result: ${isCorrect ? 'SUCCESS' : 'FAILURE'}
+${abilityUsed && abilityUsed !== 'none' ? `- Ability Used: ${abilityUsed}` : ''}
+- Focus: ${currentFocus}
+${streak >= 3 ? `- Current Streak: ${streak} (impressive!)` : ''}
+- Tone: ${episodeNarrative.tonalShift}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+GUIDELINES:
+- Write 1-2 sentences ONLY
+- React to their ${isCorrect ? 'success' : 'setback'} in context of this specific episode
+- Reference elements from the episode description when possible
+${streak >= 3 ? '- Note their impressive streak!' : ''}
+- NO meta-references to "questions"
+
+Generate response:`;
+
+          const narrative = await callNarrativeFunction(prompt, 150);
+          episodeNarrative.questionNarratives.push(narrative);
+          return narrative;
+        } catch (error) {
+          console.error('Question response generation failed:', error);
+          return null;
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // EPISODE ENDING
+      // ─────────────────────────────────────────────────────────────
+      const generateEpisodeEnding = async (endingContext) => {
+        try {
+          const { tier, percentage, totalQuestions, correctAnswers, bestStreak, tonalShift } = endingContext;
+          const prompt = `You are the Dungeon Master concluding a ${episodeNarrative.genre} adventure. Write a 2-3 paragraph ending.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name}, Level ${Math.floor((player.xp || 0) / 100) + 1} ${player.className}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+PERFORMANCE:
+- Result: ${tier.toUpperCase()} (${percentage}% accuracy)
+- Completed: ${correctAnswers}/${totalQuestions} challenges
+- Best Streak: ${bestStreak}
+- Overall Tone: ${tonalShift}
+
+GUIDELINES:
+- Write 2-3 paragraphs concluding the story
+- Draw from the episode description — resolve its specific plot elements
+- Reference their ${tier} performance naturally
+- ${percentage >= 90 ? 'Celebrate their excellence' : percentage >= 75 ? 'Acknowledge solid performance' : percentage >= 60 ? 'Note progress while encouraging improvement' : 'Acknowledge difficulty while highlighting lessons learned'}
+- NO meta-references to "questions" or "tests"
+
+Generate the ending:`;
+
+          return await callNarrativeFunction(prompt, 600);
+        } catch (error) {
+          console.error('Episode ending generation failed:', error);
+          return '';
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // FOCUS EXHAUSTION
+      // ─────────────────────────────────────────────────────────────
+      const generateFocusExhaustionMoment = async (context) => {
+        try {
+          const { questionsCompleted, questionsRemaining, recentFailures } = context;
+          const prompt = `You are the Dungeon Master narrating a critical moment in a ${episodeNarrative.genre} adventure. The player has exhausted their focus.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Completed: ${questionsCompleted} challenges, ${questionsRemaining} remaining
+- Recent failures: ${recentFailures}
+- Tone: ${episodeNarrative.tonalShift}
+
+GUIDELINES:
+- Write 2-3 sentences capturing this CRITICAL moment
+- Tie exhaustion to something specific in the episode's setting or plot
+- Show the physical/mental toll on the player
+- Create dramatic tension
+- NO meta-references to "focus" or "game mechanics"
+
+Generate the exhaustion moment:`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Focus exhaustion narrative failed:', error);
+          return '';
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // STREAK MILESTONE
+      // ─────────────────────────────────────────────────────────────
+      const generateStreakMilestone = async (streak) => {
+        try {
+          const prompt = `You are the Dungeon Master celebrating a ${streak}-challenge streak in a ${episodeNarrative.genre} adventure!
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+
+Write 1-2 sentences celebrating their momentum, tied to the episode's world.
+${streak === 3  ? 'Acknowledge they found their rhythm.' : ''}
+${streak === 5  ? 'Show impressive sustained excellence.' : ''}
+${streak >= 10  ? 'Treat this as legendary performance.' : ''}
+NO meta-references to "streak" or "score".`;
+
+          return await callNarrativeFunction(prompt, 150);
+        } catch (error) {
+          console.error('Streak milestone generation failed:', error);
+          return '';
+        }
+      };
+
+      const showStreakMilestone = (streak, narrative) => {
+        const el = document.createElement('div');
+        el.style.cssText = `
+          position:fixed; top:20%; left:50%; transform:translateX(-50%);
+          background:linear-gradient(145deg,rgba(46,204,113,0.95),rgba(39,174,96,0.95));
+          border:3px solid #f39c12; border-radius:15px; padding:25px;
+          max-width:500px; z-index:9999;
+          box-shadow:0 10px 40px rgba(0,0,0,0.5);
+          animation:slideDown 0.3s ease-out;
+        `;
+        el.innerHTML = `
+          <div style="position:relative;">
+            <button onclick="this.closest('div').parentElement.parentElement.remove()"
+                    style="position:absolute;top:-10px;right:-10px;
+                           background:rgba(255,255,255,0.9);border:none;border-radius:50%;
+                           width:30px;height:30px;font-size:18px;cursor:pointer;
+                           box-shadow:0 2px 8px rgba(0,0,0,0.3);
+                           display:flex;align-items:center;justify-content:center;">×</button>
+            <h3 style="color:#fff;margin:0 0 15px 0;font-family:'Cinzel',serif;font-size:24px;text-align:center;">
+              🔥 ${streak}-Challenge Streak! 🔥
+            </h3>
+            <p style="color:#fff;margin:0 0 15px 0;font-size:16px;line-height:1.7;text-align:center;">
+              ${narrative}
+            </p>
+            <button onclick="this.closest('div').parentElement.parentElement.remove()"
+                    style="display:block;width:100%;padding:10px;
+                           background:rgba(255,255,255,0.2);border:2px solid rgba(255,255,255,0.5);
+                           border-radius:8px;color:white;font-size:14px;font-weight:600;cursor:pointer;">
+              ✦ Continue ✦
+            </button>
+          </div>
+        `;
+        document.body.appendChild(el);
+        setTimeout(() => {
+          if (el.parentNode) {
+            el.style.animation = 'slideUp 0.3s ease-in';
+            setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+          }
+        }, 12000);
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // HALFWAY POINT
+      // ─────────────────────────────────────────────────────────────
+      const generateHalfwayPoint = async (context) => {
+        try {
+          const { questionsCompleted, questionsRemaining, accuracy } = context;
+          const prompt = `You are the Dungeon Master narrating the halfway point in a ${episodeNarrative.genre} adventure.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Completed: ${questionsCompleted}, Remaining: ${questionsRemaining}
+- Performance: ${accuracy}% accuracy
+- Tone: ${episodeNarrative.tonalShift}
+
+Write 2-3 sentences marking this turning point. Reference the episode's specific setting or stakes.
+${accuracy >= 75 ? 'Hint at greater challenges ahead.' : accuracy >= 50 ? 'Encourage continued effort.' : 'Offer hope for the second half.'}
+NO meta-references to "halfway" or "questions".`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Halfway point generation failed:', error);
+          return '';
+        }
+      };
+
+      const showHalfwayMoment = (narrative) => {
+        const el = document.createElement('div');
+        el.style.cssText = `
+          position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+          background:linear-gradient(145deg,rgba(52,73,94,0.98),rgba(44,62,80,0.98));
+          border:3px solid #f39c12; border-radius:15px; padding:30px;
+          max-width:600px; z-index:9999;
+          box-shadow:0 20px 60px rgba(0,0,0,0.8);
+        `;
+        el.innerHTML = `
+          <h3 style="color:#f39c12;margin:0 0 15px 0;font-family:'Cinzel',serif;font-size:24px;text-align:center;">
+            ⚡ Turning Point ⚡
+          </h3>
+          <p style="color:#ecf0f1;margin:0 0 20px 0;font-size:15px;line-height:1.8;">
+            ${narrative}
+          </p>
+          <button id="halfway-continue"
+                  style="width:100%;padding:12px;
+                         background:linear-gradient(145deg,#f39c12,#e67e22);
+                         border:none;border-radius:8px;color:white;
+                         font-size:16px;font-weight:bold;cursor:pointer;">
+            ✦ Continue the Journey ✦
+          </button>
+        `;
+        document.body.appendChild(el);
+        document.getElementById('halfway-continue').onclick = () => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        };
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // TEACHING MOMENTS — full overlay, persistent until clicked
+      // ─────────────────────────────────────────────────────────────
+      const generateStruggleHint = async (context) => {
+        try {
+          const { consecutiveFailures, availableAbilities } = context;
+          const abilityList = availableAbilities && availableAbilities.length > 0
+            ? availableAbilities.join(', ') : 'none';
+          const prompt = `You are the Dungeon Master providing gentle guidance to a struggling player in a ${episodeNarrative.genre} adventure.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Consecutive failures: ${consecutiveFailures}
+- Available abilities: ${abilityList}
+
+Write 2-3 ENCOURAGING sentences framed through the episode's world.
+${abilityList !== 'none' ? `Gently remind them of available abilities: ${abilityList}` : ''}
+End on a hopeful note tied to the episode's stakes.
+NO meta-references to "wrong answers" or "game".`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Struggle hint generation failed:', error);
+          return '';
+        }
+      };
+
+      const generateComebackCoaching = async (previousFailures) => {
+        try {
+          const lastQ       = currentQuestionSet ? currentQuestionSet[currentQuestionIndex] : null;
+          const explanation = lastQ ? (lastQ.explanation || '') : '';
+          const prompt = `You are the Dungeon Master teaching a concept in a ${episodeNarrative.genre} adventure. The player just answered correctly after ${previousFailures} failures.
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+${explanation ? `Explanation: ${explanation}` : ''}
+
+Write 2-3 sentences that TEACH why the answer was correct. Frame the lesson through the episode's world — make it feel like wisdom earned in this adventure.
+NO meta-references to "questions" or "game".`;
+
+          return await callNarrativeFunction(prompt, 250);
+        } catch (error) {
+          console.error('Comeback coaching generation failed:', error);
+          return '';
+        }
+      };
+
+      const showTeachingMoment = (message, type) => {
+        const styles = {
+          struggle: {
+            bg:    'linear-gradient(145deg,rgba(230,126,34,0.97),rgba(211,84,0,0.97))',
+            border: '#e67e22', icon: '💡', title: 'Insight'
+          },
+          success: {
+            bg:    'linear-gradient(145deg,rgba(52,152,219,0.97),rgba(41,128,185,0.97))',
+            border: '#3498db', icon: '📚', title: 'Wisdom Gained'
+          }
+        };
+        const s = styles[type] || styles.struggle;
+
+        const existing = document.getElementById('teaching-moment-overlay');
+        if (existing) existing.remove();
+
+        const el = document.createElement('div');
+        el.id = 'teaching-moment-overlay';
+        el.style.cssText = `
+          position:fixed; top:0; left:0; right:0; bottom:0;
+          background:rgba(0,0,0,0.55);
+          display:flex; align-items:center; justify-content:center;
+          z-index:10000; padding:20px;
+        `;
+        el.innerHTML = `
+          <div style="
+            background:${s.bg};
+            border:3px solid ${s.border};
+            border-radius:16px; padding:30px;
+            max-width:560px; width:100%;
+            box-shadow:0 20px 60px rgba(0,0,0,0.6);
+          ">
+            <h3 style="
+              color:#fff; margin:0 0 16px 0;
+              font-family:'Cinzel',serif; font-size:22px;
+              text-align:center; letter-spacing:0.05em;
+            ">${s.icon} ${s.title} ${s.icon}</h3>
+            <p style="
+              color:#fff; margin:0 0 24px 0;
+              font-size:16px; line-height:1.8; font-style:normal;
+            ">${message}</p>
+            <button onclick="document.getElementById('teaching-moment-overlay').remove()"
+                    style="
+                      display:block; width:100%; padding:14px;
+                      background:rgba(255,255,255,0.2);
+                      border:2px solid rgba(255,255,255,0.6);
+                      border-radius:10px; color:white;
+                      font-size:16px; font-weight:700; cursor:pointer;
+                      letter-spacing:0.05em;
+                    "
+                    onmouseover="this.style.background='rgba(255,255,255,0.35)'"
+                    onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+              ✦ Got it — Continue ✦
+            </button>
+          </div>
+        `;
+        el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
+        document.body.appendChild(el);
+      };
+
+      console.log('✅ Section 17 v3: AI Narrative Generation loaded');
+      console.log('♦ Diamond loader: ENABLED (uses #narrative-loader — narrative-text untouched)');
+      console.log('✦ Teaching moments: persistent until clicked');
+      console.log('🔥 Streak milestone: clickable close + 12s auto-dismiss');
+	
+  </script>
+</body>
+</html>
