@@ -1,0 +1,1939 @@
+<!-- ========================================= -->
+<!-- SECTION 12: IMAGE MANAGEMENT & RICH TEXT -->
+<!-- Upload, Drag-Drop, Paste, Edit, Format   -->
+<!-- FIXED v2:                                -->
+<!--   editQuestion handles array + object    -->
+<!--   saveEditedQuestion handles both        -->
+<!--   renderQuestions handles both           -->
+<!--   Math toolbar added                     -->
+<!-- ========================================= -->
+<style>
+.image-upload-zone {
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  background: #f8f9fa;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin: 10px 0;
+}
+.image-upload-zone:hover { border-color: #007bff; background: #e7f3ff; }
+.image-upload-zone.dragover { border-color: #28a745; background: #d4edda; transform: scale(1.02); }
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 15px 0;
+}
+.image-gallery-item {
+  position: relative;
+  border: 2px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.image-gallery-item:hover { border-color: #007bff; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+.image-gallery-item img { width: 100%; height: 120px; object-fit: cover; display: block; }
+.image-gallery-item .remove-image {
+  position: absolute; top: 5px; right: 5px;
+  background: #dc3545; color: white; border: none; border-radius: 50%;
+  width: 24px; height: 24px; font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s; z-index: 10;
+}
+.image-gallery-item .edit-image {
+  position: absolute; top: 5px; left: 5px;
+  background: #007bff; color: white; border: none; border-radius: 50%;
+  width: 24px; height: 24px; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s; z-index: 10;
+}
+.image-gallery-item:hover .remove-image,
+.image-gallery-item:hover .edit-image { opacity: 1; }
+.image-gallery-item .image-label {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(0,0,0,0.7); color: white;
+  padding: 4px 8px; font-size: 11px; text-align: center;
+}
+.image-upload-instructions { color: #6c757d; font-size: 14px; margin-top: 8px; }
+.paste-indicator {
+  background: #d4edda; border: 2px solid #28a745; color: #155724;
+  padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-top: 8px;
+  display: none;
+}
+.paste-indicator.active { display: block; }
+.image-viewer-modal {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.95); z-index: 100000;
+  display: none; align-items: center; justify-content: center;
+}
+.image-viewer-modal.active { display: flex; }
+.image-viewer-content { max-width: 90%; max-height: 90%; position: relative; }
+.image-viewer-content img { max-width: 100%; max-height: 90vh; border-radius: 8px; }
+.image-viewer-close {
+  position: absolute; top: 20px; right: 20px;
+  background: white; color: #333; border: none; border-radius: 50%;
+  width: 40px; height: 40px; font-size: 24px; cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 100001;
+}
+.image-editor-modal {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.9); z-index: 100002;
+  display: none; align-items: center; justify-content: center;
+}
+.image-editor-modal.active { display: flex; }
+.image-editor-container {
+  background: white; border-radius: 12px; padding: 20px;
+  max-width: 90%; max-height: 90%;
+  display: flex; flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+.image-editor-toolbar {
+  display: flex; gap: 10px; margin-bottom: 15px;
+  padding: 15px; background: #f8f9fa; border-radius: 8px; flex-wrap: wrap;
+}
+.image-editor-canvas-container {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: #f0f0f0; border-radius: 8px; overflow: auto; min-height: 400px;
+}
+.image-editor-canvas { max-width: 100%; max-height: 100%; border: 1px solid #dee2e6; }
+.image-editor-actions { display: flex; gap: 10px; margin-top: 15px; justify-content: flex-end; }
+.rich-text-toolbar {
+  display: flex; gap: 4px; padding: 8px;
+  background: #f8f9fa; border: 1px solid #dee2e6;
+  border-bottom: none; border-radius: 5px 5px 0 0; flex-wrap: wrap;
+}
+.rich-text-button {
+  background: white; border: 1px solid #ced4da;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  font-size: 13px; transition: all 0.2s;
+  display: flex; align-items: center; gap: 4px;
+}
+.rich-text-button:hover { background: #e9ecef; border-color: #007bff; }
+.rich-text-button.active { background: #007bff; color: white; border-color: #0056b3; }
+.rich-text-editor {
+  border: 1px solid #dee2e6; border-radius: 0 0 5px 5px;
+  padding: 12px; min-height: 80px; background: white;
+  outline: none; font-family: 'Georgia', serif; font-size: 15px; line-height: 1.6;
+}
+.rich-text-editor:focus { border-color: #007bff; box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25); }
+.rich-text-editor sup { font-size: 0.75em; vertical-align: super; }
+.rich-text-editor sub { font-size: 0.75em; vertical-align: sub; }
+.rich-text-editor mark { background-color: #ffeb3b; padding: 2px 4px; }
+.compression-indicator {
+  display: flex; align-items: center; gap: 10px; padding: 10px;
+  background: #e7f3ff; border-left: 4px solid #007bff;
+  border-radius: 4px; margin-top: 10px; font-size: 13px;
+}
+.compression-indicator.compressed { background: #d4edda; border-left-color: #28a745; }
+</style>
+
+<script>
+console.log('🖼️ Loading Section 12: Image Management & Rich Text Editor (FIXED v2)...');
+
+// ─────────────────────────────────────────────
+// IMAGE MANAGEMENT INITIALIZATION
+// ─────────────────────────────────────────────
+CMSApp.prototype.initializeImageManagement = function() {
+  console.log('🖼️ Initializing image management system...');
+  this.imageManager = {
+    currentContext: null,
+    currentQuestionIndex: null,
+    currentBankId: null,
+    images: {},
+    compressionEnabled: true,
+    compressionQuality: 0.8
+  };
+  this.setupGlobalPasteListener();
+  console.log('✅ Image management initialized');
+};
+
+// ─────────────────────────────────────────────
+// TOOLBAR HELPERS (also used by Section 10)
+// ─────────────────────────────────────────────
+CMSApp.prototype.insertAtCursor = function(textareaId, text) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart, end = el.selectionEnd;
+  el.value = el.value.substring(0, start) + text + el.value.substring(end);
+  el.selectionStart = el.selectionEnd = start + text.length;
+  el.focus();
+};
+
+CMSApp.prototype.wrapSelection = function(textareaId, prefix, suffix) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart, end = el.selectionEnd;
+  const selected = el.value.substring(start, end);
+  el.value = el.value.substring(0, start) + prefix + selected + suffix + el.value.substring(end);
+  el.selectionStart = start + prefix.length;
+  el.selectionEnd = start + prefix.length + selected.length;
+  el.focus();
+};
+
+// ─────────────────────────────────────────────
+// EDIT QUESTION — FIXED: handles array + object
+// ─────────────────────────────────────────────
+CMSApp.prototype.editQuestion = function(bankId, questionIndex) {
+  console.log('✏️ editQuestion FIXED v2 — bankId:', bankId, 'index:', questionIndex);
+
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+
+  // Store context for image management
+  if (!this.imageManager) this.initializeImageManagement();
+  this.imageManager.currentBankId = bankId;
+  this.imageManager.currentQuestionIndex = questionIndex;
+  this.imageManager.images = {
+    passage: question.passageImages ? [...question.passageImages] : [],
+    question: question.questionImages ? [...question.questionImages] : [],
+    options: question.optionImages ? {...question.optionImages} : {}
+  };
+
+  // Detect format — parser uses array, manual uses object {A:,B:,C:}
+  const isObjectOptions = question.options && !Array.isArray(question.options);
+  const questionText = question.text || question.question || '';
+
+  // Normalize to [{letter, text}] pairs
+  let optionPairs = [];
+  if (isObjectOptions) {
+    optionPairs = Object.entries(question.options).map(([letter, text]) => ({ letter, text }));
+  } else if (Array.isArray(question.options)) {
+    optionPairs = question.options.map((text, i) => ({ letter: String.fromCharCode(65 + i), text }));
+  }
+
+  // Current correct letter
+  let currentCorrectLetter = '';
+  if (isObjectOptions) {
+    currentCorrectLetter = question.correct || (optionPairs[0] && optionPairs[0].letter) || 'A';
+  } else {
+    const idx = typeof question.correct === 'number' ? question.correct
+              : typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
+    currentCorrectLetter = optionPairs[idx] ? optionPairs[idx].letter : 'A';
+  }
+
+  const passageVal = question.passageContext || question.passage || '';
+  const hasPassage = passageVal || question.testType === 'Reading';
+
+  // Build math toolbar for a contenteditable div
+  const richToolbar = (targetId) => `
+    <div class="rich-text-toolbar">
+      <button type="button" class="rich-text-button" onclick="document.execCommand('bold')" title="Bold"><strong>B</strong></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('italic')" title="Italic"><em>I</em></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('underline')" title="Underline"><u>U</u></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('superscript')" title="Superscript">X<sup>2</sup></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('subscript')" title="Subscript">H<sub>2</sub></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('hiliteColor',false,'#ffeb3b')" title="Highlight"><span style="background:#ffeb3b;padding:2px 5px;">H</span></button>
+      <button type="button" class="rich-text-button" onclick="document.execCommand('removeFormat')" title="Clear">✖ Clear</button>
+      <span style="border-left:1px solid #ced4da;margin:0 3px;"></span>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('√')" title="Square root">√</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('²')" title="Squared">x²</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('³')" title="Cubed">x³</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('π')" title="Pi">π</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('°')" title="Degree">°</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('≠')" title="Not equal">≠</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('≤')" title="Less/equal">≤</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('≥')" title="Greater/equal">≥</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('×')" title="Multiply">×</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('÷')" title="Divide">÷</button>
+      <button type="button" class="rich-text-button" onclick="window.cmsApp.insertIntoFocused('±')" title="Plus/minus">±</button>
+    </div>`;
+
+  const optionFields = optionPairs.map(({letter, text}, i) => `
+    <div style="margin-bottom:20px;padding:15px;background:#f8f9fa;border-radius:8px;">
+      <label style="font-size:14px;font-weight:600;color:#495057;margin-bottom:8px;display:block;">
+        Option ${letter}:
+      </label>
+      ${richToolbar(`edit-option-${letter}`)}
+      <div id="edit-option-${letter}" class="rich-text-editor" contenteditable="true"
+           style="margin-top:0;">${text}</div>
+      <div style="margin-top:10px;">
+        <label style="font-size:12px;color:#6c757d;">🖼️ Option ${letter} Images (optional):</label>
+        <div class="image-upload-zone" id="option-${letter}-image-zone"
+             onclick="document.getElementById('option-${letter}-image-input').click()"
+             style="padding:10px;">
+          <div style="font-size:20px;">📤</div>
+          <div style="font-size:12px;">Click, drag, or paste images</div>
+          <input type="file" id="option-${letter}-image-input" accept="image/*" multiple style="display:none;">
+        </div>
+        <div id="option-${letter}-images-gallery" class="image-gallery">
+          ${this.renderImageGallery(this.imageManager.images.options[letter] || [], `option-${letter}`)}
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  const correctOptions = optionPairs.map(({letter}) =>
+    `<option value="${letter}" ${letter === currentCorrectLetter ? 'selected' : ''}>${letter}</option>`
+  ).join('');
+
+  const existing = document.getElementById('edit-question-modal');
+  if (existing) existing.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'edit-question-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99995;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:28px;width:100%;max-width:900px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.35);margin:auto;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:18px;border-bottom:2px solid #e9ecef;padding-bottom:12px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          ✏️ Edit Question ${question.questionNumber || (questionIndex+1)}
+          ${question.addedManually ? '<span style="font-size:11px;background:#fff3cd;color:#856404;padding:2px 7px;border-radius:10px;margin-left:8px;">MANUAL</span>' : ''}
+        </h2>
+        <button onclick="window.cmsApp.closeEditQuestionModal()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;padding:0 4px;">&times;</button>
+      </div>
+
+      <form id="edit-question-form"
+            onsubmit="window.cmsApp.saveEditedQuestion(event,'${bankId}',${questionIndex})">
+
+        ${hasPassage ? `
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">📖 Passage Context:</label>
+          ${richToolbar('edit-passage-context')}
+          <div id="edit-passage-context" class="rich-text-editor" contenteditable="true"
+               style="min-height:120px;">${passageVal}</div>
+          <div style="margin-top:12px;">
+            <label style="font-size:13px;color:#6c757d;">🖼️ Passage Images (optional):</label>
+            <div class="image-upload-zone" id="passage-image-zone"
+                 onclick="document.getElementById('passage-image-input').click()">
+              <div style="font-size:28px;">📤</div>
+              <div><strong>Click to upload</strong> or drag & drop</div>
+              <div class="image-upload-instructions">You can also paste (Ctrl+V)</div>
+              <input type="file" id="passage-image-input" accept="image/*" multiple style="display:none;">
+            </div>
+            <div id="passage-images-gallery" class="image-gallery">
+              ${this.renderImageGallery(this.imageManager.images.passage, 'passage')}
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Question Text: *</label>
+          ${richToolbar('edit-question-text')}
+          <div id="edit-question-text" class="rich-text-editor" contenteditable="true"
+               style="min-height:80px;">${questionText}</div>
+          <div style="margin-top:12px;">
+            <label style="font-size:13px;color:#6c757d;">🖼️ Question Images (optional):</label>
+            <div class="image-upload-zone" id="question-image-zone"
+                 onclick="document.getElementById('question-image-input').click()">
+              <div style="font-size:28px;">📤</div>
+              <div><strong>Click to upload</strong> or drag & drop</div>
+              <div class="image-upload-instructions">You can also paste (Ctrl+V)</div>
+              <input type="file" id="question-image-input" accept="image/*" multiple style="display:none;">
+            </div>
+            <div id="question-images-gallery" class="image-gallery">
+              ${this.renderImageGallery(this.imageManager.images.question, 'question')}
+            </div>
+          </div>
+        </div>
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:8px;color:#495057;">Answer Options:</label>
+          ${optionFields}
+        </div>
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Correct Answer: *</label>
+          <select id="edit-correct-answer" required
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;
+                         font-size:14px;background:#fff;">
+            ${correctOptions}
+          </select>
+        </div>
+
+        <div class="cms-form-group" style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Explanation <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          ${richToolbar('edit-explanation')}
+          <div id="edit-explanation" class="rich-text-editor" contenteditable="true"
+               style="min-height:60px;">${question.explanation || ''}</div>
+        </div>
+
+        <div style="padding:12px 15px;background:#f8f9fa;border-radius:8px;margin-bottom:20px;">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+            <input type="checkbox" id="enable-compression"
+                   ${this.imageManager.compressionEnabled ? 'checked' : ''}
+                   onchange="window.cmsApp.toggleCompression(this.checked)">
+            <strong>🗜️ Smart Image Compression</strong>
+            <small style="color:#6c757d;">(Reduces file size while maintaining quality)</small>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            💾 Save Changes
+          </button>
+          <button type="button" onclick="window.cmsApp.closeEditQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeEditQuestionModal(); });
+
+  // Store metadata for save
+  modalEl.dataset.isObjectOptions = isObjectOptions ? '1' : '0';
+  modalEl.dataset.optionLetters = optionPairs.map(p => p.letter).join(',');
+
+  this.setupImageUploadHandlers(optionPairs.map(p => p.letter));
+  console.log('✅ editQuestion modal opened with', optionPairs.length, 'options');
+};
+
+// Insert character at caret in focused contenteditable
+CMSApp.prototype.insertIntoFocused = function(char) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const textNode = document.createTextNode(char);
+  range.insertNode(textNode);
+  range.setStartAfter(textNode);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+};
+
+// ─────────────────────────────────────────────
+// RICH TEXT SETUP
+// ─────────────────────────────────────────────
+CMSApp.prototype.setupRichTextToolbars = function() {
+  document.querySelectorAll('.rich-text-button[data-command]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.execCommand(btn.getAttribute('data-command'), false, null);
+    });
+  });
+};
+
+CMSApp.prototype.formatText = function(command, value = null) {
+  document.execCommand(command, false, value);
+};
+
+CMSApp.prototype.updateToolbarState = function() {
+  ['bold','italic','underline'].forEach(cmd => {
+    const isActive = document.queryCommandState(cmd);
+    document.querySelectorAll(`.rich-text-button[data-command="${cmd}"]`).forEach(btn => {
+      btn.classList.toggle('active', isActive);
+    });
+  });
+};
+
+// ─────────────────────────────────────────────
+// SAVE EDITED QUESTION — FIXED: handles both
+// ─────────────────────────────────────────────
+CMSApp.prototype.saveEditedQuestion = function(event, bankId, questionIndex) {
+  event.preventDefault();
+  console.log('💾 Saving edited question v2...', questionIndex);
+
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+
+  const modal = document.getElementById('edit-question-modal');
+  const isObjectOptions = modal && modal.dataset.isObjectOptions === '1';
+  const optionLetters = modal ? modal.dataset.optionLetters.split(',') : [];
+
+  const editedText = document.getElementById('edit-question-text').innerHTML;
+  const editedCorrect = document.getElementById('edit-correct-answer').value;
+  const editedExplanation = document.getElementById('edit-explanation').innerHTML;
+  const passageField = document.getElementById('edit-passage-context');
+  const editedPassage = passageField ? passageField.innerHTML : (question.passageContext || question.passage || '');
+
+  // Collect options preserving original format
+  let editedOptions;
+  if (isObjectOptions) {
+    editedOptions = {};
+    optionLetters.forEach(letter => {
+      const el = document.getElementById(`edit-option-${letter}`);
+      if (el) editedOptions[letter] = el.innerHTML;
+    });
+  } else {
+    editedOptions = optionLetters.map(letter => {
+      const el = document.getElementById(`edit-option-${letter}`);
+      return el ? el.innerHTML : '';
+    });
+  }
+
+  // Correct value: letter for object, index for array
+  let correctValue;
+  if (isObjectOptions) {
+    correctValue = editedCorrect;
+  } else {
+    correctValue = optionLetters.indexOf(editedCorrect);
+    if (correctValue === -1) correctValue = 0;
+  }
+
+  questions[questionIndex] = {
+    ...question,
+    text: editedText,
+    question: editedText,
+    options: editedOptions,
+    correct: correctValue,
+    correctAnswer: correctValue,
+    explanation: editedExplanation,
+    passageContext: editedPassage,
+    passage: editedPassage,
+    passageImages: this.imageManager.images.passage || [],
+    questionImages: this.imageManager.images.question || [],
+    optionImages: this.imageManager.images.options || {}
+  };
+
+  this.showProcessing('Saving changes...');
+  this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions,
+    updatedAt: this.serverTimestamp()
+  }).then(() => {
+    console.log('✅ Question updated');
+    bank.questions = questions;
+    this.closeEditQuestionModal();
+    this.showQuestionsViewModal(bank);
+    this.showAlert('Question updated successfully!', 'success');
+  }).catch(error => {
+    console.error('❌ Error updating question:', error);
+    this.showAlert('Error updating question. Please try again.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ─────────────────────────────────────────────
+// CLOSE EDIT MODAL
+// ─────────────────────────────────────────────
+CMSApp.prototype.closeEditQuestionModal = function() {
+  const modal = document.getElementById('edit-question-modal');
+  if (modal) modal.remove();
+  if (this.imageManager) {
+    this.imageManager.currentContext = null;
+    this.imageManager.currentQuestionIndex = null;
+    this.imageManager.currentBankId = null;
+    this.imageManager.images = {};
+  }
+};
+
+// ─────────────────────────────────────────────
+// RENDER QUESTIONS — FIXED: handles both formats
+// ─────────────────────────────────────────────
+CMSApp.prototype.renderQuestions = function(questions, bankId) {
+  if (!questions || questions.length === 0) return '<div class="empty-state">No questions found</div>';
+
+  return questions.map((q, index) => {
+    const questionNum = q.questionNumber || (index + 1);
+    const hasPassage = q.passageContext || q.passage || (q.passageImages && q.passageImages.length > 0);
+    const hasQuestionImages = q.questionImages && q.questionImages.length > 0;
+
+    // Normalize display of correct answer and options
+    let correctDisplay = '?';
+    let optionsHTML = '<p style="color:#6c757d;font-style:italic;">No options</p>';
+
+    if (Array.isArray(q.options) && q.options.length > 0) {
+      const correctIdx = typeof q.correct === 'number' ? q.correct
+                       : typeof q.correctAnswer === 'number' ? q.correctAnswer : 0;
+      correctDisplay = String.fromCharCode(65 + correctIdx);
+      optionsHTML = q.options.map((opt, i) => {
+        const isCorrect = i === correctIdx;
+        const optImages = q.optionImages && q.optionImages[i] ? q.optionImages[i] : [];
+        return `<div style="padding:10px 15px;margin:6px 0;border-radius:6px;font-size:14px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  ${opt}${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                  ${optImages.length > 0 ? `<div style="display:flex;gap:6px;margin-top:6px;">
+                    ${optImages.map(img => `<img src="${img}" style="height:60px;border-radius:4px;cursor:pointer;"
+                      onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+                  </div>` : ''}
+                </div>`;
+      }).join('');
+    } else if (q.options && typeof q.options === 'object') {
+      correctDisplay = q.correct || '?';
+      optionsHTML = Object.entries(q.options).map(([letter, text]) => {
+        const isCorrect = letter === q.correct;
+        const optImages = q.optionImages && q.optionImages[letter] ? q.optionImages[letter] : [];
+        return `<div style="padding:10px 15px;margin:6px 0;border-radius:6px;font-size:14px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  <strong>${letter}:</strong> ${text}${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                  ${optImages.length > 0 ? `<div style="display:flex;gap:6px;margin-top:6px;">
+                    ${optImages.map(img => `<img src="${img}" style="height:60px;border-radius:4px;cursor:pointer;"
+                      onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+                  </div>` : ''}
+                </div>`;
+      }).join('');
+    }
+
+    return `
+      <div style="border:1px solid #dee2e6;border-radius:8px;padding:18px;
+                  margin-bottom:18px;background:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #e9ecef;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong style="color:#495057;">Q${questionNum}</strong>
+            <span style="background:#28a745;color:white;padding:2px 10px;border-radius:10px;
+                         font-size:12px;font-weight:600;">Answer: ${correctDisplay}</span>
+            ${q.testType ? `<span style="background:#6c757d;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">${q.testType}</span>` : ''}
+            ${q.addedManually ? `<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;">✏️ Manual</span>` : ''}
+            ${hasPassage ? `<span style="background:#17a2b8;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">📖 Passage</span>` : ''}
+            ${hasQuestionImages ? `<span style="background:#6f42c1;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">🖼️ Images</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="window.cmsApp.editQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#007bff;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">✏️ Edit</button>
+            <button onclick="window.cmsApp.deleteQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#dc3545;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">🗑️ Delete</button>
+          </div>
+        </div>
+
+        ${hasPassage ? `
+          <details style="margin-bottom:12px;">
+            <summary style="cursor:pointer;color:#007bff;font-size:12px;
+                            padding:5px 10px;background:#e7f3ff;border-radius:4px;">
+              📖 Passage (${(q.passageContext || q.passage || '').length} chars)
+            </summary>
+            <div style="margin-top:6px;padding:12px;background:#f8f9fa;
+                        border-left:3px solid #007bff;border-radius:4px;
+                        max-height:200px;overflow-y:auto;font-size:13px;line-height:1.6;">
+              ${q.passageContext || q.passage || ''}
+            </div>
+            ${q.passageImages && q.passageImages.length > 0 ? `
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                ${q.passageImages.map(img => `<img src="${img}" style="height:80px;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
+                  onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+              </div>` : ''}
+          </details>
+        ` : ''}
+
+        <p style="margin:8px 0;font-size:15px;line-height:1.5;">${q.text || q.question || 'No question text'}</p>
+
+        ${hasQuestionImages ? `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;">
+            ${q.questionImages.map(img => `<img src="${img}" style="height:100px;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;"
+              onclick="window.cmsApp.viewImage('${img}')">`).join('')}
+          </div>` : ''}
+
+        ${optionsHTML}
+
+        ${q.explanation ? `
+          <div style="margin-top:12px;padding:12px 15px;background:#e7f3ff;
+                      border-left:4px solid #007bff;border-radius:4px;font-size:13px;">
+            <strong style="color:#004085;">💡 Explanation:</strong>
+            <span style="color:#004085;"> ${q.explanation}</span>
+          </div>` : ''}
+      </div>
+    `;
+  }).join('');
+};
+
+// ─────────────────────────────────────────────
+// IMAGE GALLERY RENDERING
+// ─────────────────────────────────────────────
+CMSApp.prototype.renderImageGallery = function(images, context) {
+  if (!images || images.length === 0) {
+    return '<div style="text-align:center;color:#6c757d;padding:15px;font-size:13px;">No images yet</div>';
+  }
+  return images.map((img, index) => `
+    <div class="image-gallery-item">
+      <img src="${img}" alt="Image ${index+1}" onclick="window.cmsApp.viewImage('${img}')">
+      <button class="edit-image" onclick="event.stopPropagation();window.cmsApp.editImage('${context}',${index})" title="Edit">✏️</button>
+      <button class="remove-image" onclick="event.stopPropagation();window.cmsApp.removeImage('${context}',${index})" title="Remove">×</button>
+      <div class="image-label">Image ${index+1}</div>
+    </div>
+  `).join('');
+};
+
+// ─────────────────────────────────────────────
+// IMAGE UPLOAD HANDLERS
+// ─────────────────────────────────────────────
+CMSApp.prototype.setupImageUploadHandlers = function(optionLetters) {
+  this.setupImageHandler('passage');
+  this.setupImageHandler('question');
+  if (optionLetters) {
+    optionLetters.forEach(letter => this.setupImageHandler(`option-${letter}`));
+  }
+};
+
+CMSApp.prototype.setupImageHandler = function(context) {
+  const zone = document.getElementById(`${context}-image-zone`);
+  const input = document.getElementById(`${context}-image-input`);
+  if (!zone || !input) return;
+
+  input.addEventListener('change', (e) => this.handleImageFiles(e.target.files, context));
+
+  ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+    zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); });
+  });
+  zone.addEventListener('dragover', () => zone.classList.add('dragover'));
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    zone.classList.remove('dragover');
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) this.handleImageFiles(files, context);
+  });
+  zone.addEventListener('mouseenter', () => { this.imageManager.currentContext = context; });
+};
+
+CMSApp.prototype.setupGlobalPasteListener = function() {
+  document.addEventListener('paste', (e) => {
+    if (!document.getElementById('edit-question-modal') || !this.imageManager || !this.imageManager.currentContext) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault();
+        this.handleImageFiles([items[i].getAsFile()], this.imageManager.currentContext);
+        break;
+      }
+    }
+  });
+};
+
+CMSApp.prototype.handleImageFiles = function(files, context) {
+  Array.from(files).forEach(file => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (this.imageManager.compressionEnabled) {
+        this.compressImage(e.target.result, (compressed) => this.addImageToGallery(compressed, context));
+      } else {
+        this.addImageToGallery(e.target.result, context);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+CMSApp.prototype.compressImage = function(imageData, callback) {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    let w = img.width, h = img.height;
+    const max = 1200;
+    if (w > max || h > max) {
+      if (w > h) { h = (h/w)*max; w = max; } else { w = (w/h)*max; h = max; }
+    }
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', this.imageManager.compressionQuality));
+  };
+  img.src = imageData;
+};
+
+CMSApp.prototype.toggleCompression = function(enabled) {
+  this.imageManager.compressionEnabled = enabled;
+};
+
+CMSApp.prototype.addImageToGallery = function(imageData, context) {
+  if (context === 'passage') {
+    this.imageManager.images.passage.push(imageData);
+  } else if (context === 'question') {
+    this.imageManager.images.question.push(imageData);
+  } else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    if (!this.imageManager.images.options[key]) this.imageManager.images.options[key] = [];
+    this.imageManager.images.options[key].push(imageData);
+  }
+  this.updateImageGallery(context);
+};
+
+CMSApp.prototype.updateImageGallery = function(context) {
+  const gallery = document.getElementById(`${context}-images-gallery`);
+  if (!gallery) return;
+  let images;
+  if (context === 'passage') images = this.imageManager.images.passage;
+  else if (context === 'question') images = this.imageManager.images.question;
+  else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    images = this.imageManager.images.options[key] || [];
+  }
+  gallery.innerHTML = this.renderImageGallery(images, context);
+};
+
+CMSApp.prototype.removeImage = function(context, index) {
+  if (context === 'passage') {
+    this.imageManager.images.passage.splice(index, 1);
+  } else if (context === 'question') {
+    this.imageManager.images.question.splice(index, 1);
+  } else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    if (this.imageManager.images.options[key]) this.imageManager.images.options[key].splice(index, 1);
+  }
+  this.updateImageGallery(context);
+};
+
+CMSApp.prototype.viewImage = function(imageData) {
+  const viewer = document.createElement('div');
+  viewer.className = 'image-viewer-modal active';
+  viewer.innerHTML = `
+    <div class="image-viewer-content">
+      <button class="image-viewer-close" onclick="this.closest('.image-viewer-modal').remove()">×</button>
+      <img src="${imageData}" alt="Full size image">
+    </div>`;
+  document.body.appendChild(viewer);
+  viewer.addEventListener('click', e => { if (e.target === viewer) viewer.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { viewer.remove(); document.removeEventListener('keydown', esc); }
+  });
+};
+
+CMSApp.prototype.editImage = function(context, index) {
+  let imageData;
+  if (context === 'passage') imageData = this.imageManager.images.passage[index];
+  else if (context === 'question') imageData = this.imageManager.images.question[index];
+  else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    imageData = this.imageManager.images.options[key]?.[index];
+  }
+  if (!imageData) return;
+
+  const existing = document.getElementById('image-editor-modal');
+  if (existing) existing.remove();
+
+  const editorEl = document.createElement('div');
+  editorEl.className = 'image-editor-modal active';
+  editorEl.id = 'image-editor-modal';
+  editorEl.innerHTML = `
+    <div class="image-editor-container">
+      <h3 style="margin:0 0 15px 0;">✏️ Edit Image</h3>
+      <div class="image-editor-toolbar">
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.rotateImage(-90)">↶ Rotate Left</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.rotateImage(90)">↷ Rotate Right</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustBrightness(10)">☀️ Brighter</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustBrightness(-10)">🌙 Darker</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustContrast(10)">◐ More Contrast</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.adjustContrast(-10)">◑ Less Contrast</button>
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.resetImageEdits()">🔄 Reset</button>
+      </div>
+      <div class="image-editor-canvas-container">
+        <canvas id="image-editor-canvas" class="image-editor-canvas"></canvas>
+      </div>
+      <div class="image-editor-actions">
+        <button class="cms-btn cms-btn-secondary" onclick="window.cmsApp.closeImageEditor()">Cancel</button>
+        <button class="cms-btn cms-btn-primary" onclick="window.cmsApp.saveEditedImage('${context}',${index})">💾 Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(editorEl);
+
+  this.currentEditingImage = { originalData: imageData, context, index, rotation: 0, brightness: 0, contrast: 0 };
+  this.loadImageToCanvas(imageData);
+};
+
+CMSApp.prototype.loadImageToCanvas = function(imageData) {
+  const canvas = document.getElementById('image-editor-canvas');
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width; canvas.height = img.height;
+    this.currentEditingImage.img = img;
+    this.renderEditedImage();
+  };
+  img.src = imageData;
+};
+
+CMSApp.prototype.renderEditedImage = function() {
+  const canvas = document.getElementById('image-editor-canvas');
+  const ctx = canvas.getContext('2d');
+  const { img, rotation, brightness, contrast } = this.currentEditingImage;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(canvas.width/2, canvas.height/2);
+  ctx.rotate(rotation * Math.PI / 180);
+  ctx.translate(-canvas.width/2, -canvas.height/2);
+  ctx.filter = `brightness(${100+brightness}%) contrast(${100+contrast}%)`;
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+};
+
+CMSApp.prototype.rotateImage = function(deg) { this.currentEditingImage.rotation += deg; this.renderEditedImage(); };
+CMSApp.prototype.adjustBrightness = function(v) { this.currentEditingImage.brightness += v; this.renderEditedImage(); };
+CMSApp.prototype.adjustContrast = function(v) { this.currentEditingImage.contrast += v; this.renderEditedImage(); };
+CMSApp.prototype.resetImageEdits = function() {
+  this.currentEditingImage.rotation = 0;
+  this.currentEditingImage.brightness = 0;
+  this.currentEditingImage.contrast = 0;
+  this.renderEditedImage();
+};
+
+CMSApp.prototype.saveEditedImage = function(context, index) {
+  const canvas = document.getElementById('image-editor-canvas');
+  const editedData = canvas.toDataURL('image/jpeg', 0.9);
+  if (context === 'passage') this.imageManager.images.passage[index] = editedData;
+  else if (context === 'question') this.imageManager.images.question[index] = editedData;
+  else if (context.startsWith('option-')) {
+    const key = context.replace('option-', '');
+    this.imageManager.images.options[key][index] = editedData;
+  }
+  this.updateImageGallery(context);
+  this.closeImageEditor();
+  this.showAlert('Image saved!', 'success');
+};
+
+CMSApp.prototype.closeImageEditor = function() {
+  const editor = document.getElementById('image-editor-modal');
+  if (editor) editor.remove();
+  this.currentEditingImage = null;
+};
+
+CMSApp.prototype.getCurrentEditingQuestion = function() {
+  if (!this.imageManager || !this.imageManager.currentBankId) return null;
+  const bank = this.state.questionBanks.find(b => b.id === this.imageManager.currentBankId);
+  if (!bank) return null;
+  return (bank.questions || [])[this.imageManager.currentQuestionIndex];
+};
+
+// Initialize image management on CMS init
+const originalInit = CMSApp.prototype.init;
+CMSApp.prototype.init = function() {
+  originalInit.call(this);
+  this.initializeImageManagement();
+};
+
+console.log('✅ Section 12 FIXED v2: Image Management & Rich Text Editor loaded');
+console.log('✅ editQuestion: handles array + object options');
+console.log('✅ saveEditedQuestion: handles array + object options');
+console.log('✅ renderQuestions: handles array + object options');
+console.log('🎨 Math toolbar: Bold, Italic, Underline, Sub, Sup, √, π, °, ≠, ≤, ≥, ×, ÷, ±');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 13: FINAL INTEGRATION & HELPERS -->
+<!-- Settings Page, Form Handlers, Utilities -->
+<!-- FIXED v2:                               -->
+<!--   #1 showGenreModal added (was missing) -->
+<!--   #1 showQuestionBankModal added        -->
+<!--   Form submit handlers wired to init    -->
+<!--   populateGenreDropdown kept + fixed    -->
+<!-- ========================================= -->
+<script>
+console.log('🔧 Loading Section 13: Final Integration & Utilities...');
+
+// ================================================
+// MODAL OPENERS — these were missing causing
+// "Create Genre" and "Create Question Bank" to fail
+// ================================================
+
+CMSApp.prototype.showGenreModal = function() {
+  document.getElementById('genre-name').value = '';
+  const descField = document.getElementById('genre-description');
+  if (descField) descField.value = '';
+  const subjectField = document.getElementById('genre-subject');
+  if (subjectField) subjectField.value = '';
+  document.getElementById('genre-modal-title').textContent = 'Create Genre';
+  this.state.editingGenreId = null;
+  this.openModal('genre-modal');
+};
+
+CMSApp.prototype.showQuestionBankModal = function() {
+  document.getElementById('q-bank-name').value = '';
+  document.getElementById('q-bank-approach').value = '';
+  const descField = document.getElementById('q-bank-description');
+  if (descField) descField.value = '';
+  document.getElementById('question-bank-modal-title').textContent = 'Create Question Bank';
+  this.state.editingBankId = null;
+  this.openModal('question-bank-modal');
+};
+
+CMSApp.prototype.showQuickImport = function() {
+  // Reset import state
+  this.state.contentFile = null;
+  this.state.answerFile = null;
+  if (this.elements.contentPasteArea) this.elements.contentPasteArea.textContent = '';
+  if (this.elements.contentUploadArea) this.elements.contentUploadArea.classList.remove('has-content');
+  if (this.elements.answerUploadArea) this.elements.answerUploadArea.classList.remove('has-content');
+
+  const contentPreview = document.getElementById('content-preview');
+  const answerPreview = document.getElementById('answer-preview');
+  if (contentPreview) contentPreview.style.display = 'none';
+  if (answerPreview) answerPreview.style.display = 'none';
+
+  // Populate bank select
+  this.populateAIImportBankSelect();
+
+  this.openModal('ai-import-modal');
+};
+
+// ================================================
+// OPEN MODAL HELPER
+// ================================================
+
+CMSApp.prototype.openModal = function(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'flex';
+  } else {
+    console.warn('Modal not found:', modalId);
+  }
+};
+
+// ================================================
+// SETTINGS PAGE MANAGEMENT
+// ================================================
+
+CMSApp.prototype.loadSettingsPage = function() {
+  console.log('⚙️ Loading settings page...');
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  if (apiKeyInput) {
+    const storedKey = this.getStoredApiKey();
+    apiKeyInput.value = storedKey || '';
+  }
+  const settings = this.getParserSettings();
+  const extractionModeSelect = document.getElementById('default-extraction-mode');
+  const maxPagesSelect = document.getElementById('max-pdf-pages');
+  const multiPassCheckbox = document.getElementById('enable-multi-pass');
+  const autoDetectCheckbox = document.getElementById('auto-detect-test-type');
+  if (extractionModeSelect) extractionModeSelect.value = settings.defaultExtractionMode;
+  if (maxPagesSelect) maxPagesSelect.value = settings.maxPdfPages;
+  if (multiPassCheckbox) multiPassCheckbox.checked = settings.enableMultiPass;
+  if (autoDetectCheckbox) autoDetectCheckbox.checked = settings.autoDetectTestType;
+  this.updateApiKeyStatus();
+  this.attachSettingsEventListeners();
+  this.updateStorageUsage();
+  console.log('✅ Settings page loaded');
+};
+
+CMSApp.prototype.attachSettingsEventListeners = function() {
+  console.log('🔧 Attaching settings event listeners...');
+  const toggleBtn = document.getElementById('toggle-api-key-visibility');
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  if (toggleBtn && apiKeyInput) {
+    toggleBtn.addEventListener('click', () => {
+      if (apiKeyInput.type === 'password') {
+        apiKeyInput.type = 'text';
+        toggleBtn.textContent = '🙈';
+      } else {
+        apiKeyInput.type = 'password';
+        toggleBtn.textContent = '👁️';
+      }
+    });
+  }
+  const saveKeyBtn = document.getElementById('save-api-key');
+  if (saveKeyBtn) saveKeyBtn.addEventListener('click', () => this.handleSaveApiKey());
+  const testKeyBtn = document.getElementById('test-api-key');
+  if (testKeyBtn) testKeyBtn.addEventListener('click', () => this.handleTestApiKey());
+  const helpBtn = document.getElementById('get-api-key-help');
+  if (helpBtn) helpBtn.addEventListener('click', () => this.showApiKeyHelp());
+  const saveSettingsBtn = document.getElementById('save-parser-settings');
+  if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', () => this.handleSaveParserSettings());
+  const resetBtn = document.getElementById('reset-parser-settings');
+  if (resetBtn) resetBtn.addEventListener('click', () => this.handleResetSettings());
+  console.log('✅ Settings event listeners attached');
+};
+
+CMSApp.prototype.handleSaveApiKey = function() {
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (!apiKey) { this.showAlert('Please enter an API key.', 'error'); return; }
+  if (!apiKey.startsWith('AIza')) {
+    this.showAlert('Invalid API key format. Gemini API keys start with "AIza".', 'error');
+    return;
+  }
+  if (this.saveApiKey(apiKey)) {
+    this.showAlert('API key saved successfully! Reinitializing parser...', 'success');
+    this.initializeUltimateParser();
+    this.updateApiKeyStatus();
+  } else {
+    this.showAlert('Failed to save API key.', 'error');
+  }
+};
+
+CMSApp.prototype.handleTestApiKey = function() {
+  const apiKey = this.getStoredApiKey();
+  if (!apiKey) { this.showAlert('Please save an API key first.', 'warning'); return; }
+  this.showProcessing('Testing API connection...');
+  if (this.geminiModel) {
+    this.geminiModel.generateContent('Respond with exactly: {"status": "connected"}').then(result => {
+      this.hideProcessing();
+      this.showAlert('✅ API key is working correctly!', 'success');
+      this.updateApiKeyStatus(true);
+    }).catch(error => {
+      this.hideProcessing();
+      let msg = '❌ API key test failed. ';
+      if (error.message.includes('API_KEY_INVALID')) msg += 'The API key is invalid.';
+      else if (error.message.includes('quota') || error.message.includes('429')) msg += 'API quota exceeded.';
+      else msg += 'Please check your key and billing settings.';
+      this.showAlert(msg, 'error');
+      this.updateApiKeyStatus(false);
+    });
+  } else {
+    this.hideProcessing();
+    this.showAlert('Parser not initialized. Please save API key first.', 'warning');
+  }
+};
+
+CMSApp.prototype.updateApiKeyStatus = function(testResult = null) {
+  const statusDiv = document.getElementById('api-key-status');
+  const statusText = document.getElementById('api-key-status-text');
+  if (!statusDiv || !statusText) return;
+  const hasKey = !!this.getStoredApiKey();
+  if (testResult === true) {
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(40,167,69,0.1)';
+    statusDiv.style.border = '1px solid var(--success-color)';
+    statusText.style.color = 'var(--success-color)';
+    statusText.textContent = '✅ API key is working correctly';
+  } else if (testResult === false) {
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(220,53,69,0.1)';
+    statusDiv.style.border = '1px solid var(--danger-color)';
+    statusText.style.color = 'var(--danger-color)';
+    statusText.textContent = '❌ API key test failed';
+  } else if (hasKey) {
+    statusDiv.style.display = 'block';
+    statusDiv.style.background = 'rgba(255,193,7,0.1)';
+    statusDiv.style.border = '1px solid var(--warning-color)';
+    statusText.style.color = 'var(--warning-color)';
+    statusText.textContent = '🔑 API key saved (not tested)';
+  } else {
+    statusDiv.style.display = 'none';
+  }
+};
+
+CMSApp.prototype.showApiKeyHelp = function() {
+  this.showAlert(`🔑 How to get a Gemini API Key:\n\n1. Go to: https://aistudio.google.com/app/apikey\n2. Sign in with your Google account\n3. Click "Create API key"\n4. Copy the key (starts with "AIza...")\n5. Paste it here and click "Save API Key"\n\n💰 Free tier includes daily quota.\nPaid tier is very affordable (~$0.001 per request).`, 'info');
+};
+
+CMSApp.prototype.handleSaveParserSettings = function() {
+  const settings = {
+    defaultExtractionMode: document.getElementById('default-extraction-mode')?.value || 'smart',
+    maxPdfPages: parseInt(document.getElementById('max-pdf-pages')?.value) || 10,
+    enableMultiPass: document.getElementById('enable-multi-pass')?.checked || true,
+    autoDetectTestType: document.getElementById('auto-detect-test-type')?.checked || true
+  };
+  if (this.saveParserSettings(settings)) {
+    this.showAlert('Parser settings saved successfully!', 'success');
+  } else {
+    this.showAlert('Failed to save settings.', 'error');
+  }
+};
+
+CMSApp.prototype.handleResetSettings = function() {
+  if (!confirm('Reset all parser settings to defaults?')) return;
+  const defaults = this.getDefaultSettings();
+  document.getElementById('default-extraction-mode').value = defaults.defaultExtractionMode;
+  document.getElementById('max-pdf-pages').value = defaults.maxPdfPages;
+  document.getElementById('enable-multi-pass').checked = defaults.enableMultiPass;
+  document.getElementById('auto-detect-test-type').checked = defaults.autoDetectTestType;
+  this.saveParserSettings(defaults);
+  this.showAlert('Settings reset to defaults!', 'success');
+};
+
+CMSApp.prototype.updateStorageUsage = function() {
+  const usageSpan = document.getElementById('storage-usage');
+  if (!usageSpan) return;
+  try {
+    let totalSize = 0;
+    for (let key in localStorage) {
+      if (localStorage.hasOwnProperty(key)) totalSize += localStorage[key].length;
+    }
+    usageSpan.textContent = `${(totalSize / 1024).toFixed(2)} KB`;
+  } catch (e) {
+    usageSpan.textContent = 'Unable to calculate';
+  }
+};
+
+// ================================================
+// FORM HANDLERS
+// ================================================
+
+CMSApp.prototype.saveQuestionBank = function() {
+  this.handleQuestionBankSubmit();
+};
+
+CMSApp.prototype.saveEpisode = function() {
+  this.handleEpisodeSubmit();
+};
+
+CMSApp.prototype.saveGenre = function() {
+  this.handleGenreSubmit();
+};
+
+CMSApp.prototype.handleQuestionBankSubmit = function() {
+  const name = document.getElementById('q-bank-name').value.trim();
+  const approach = document.getElementById('q-bank-approach').value;
+  const descField = document.getElementById('q-bank-description');
+  const description = descField ? descField.value.trim() : '';
+  if (!name || !approach) { this.showAlert('Please fill in all required fields.', 'error'); return; }
+  this.showProcessing(this.state.editingBankId ? 'Updating question bank...' : 'Creating question bank...');
+  const bankData = { name, approach, description, updatedAt: this.serverTimestamp() };
+  const promise = this.state.editingBankId
+    ? this.updateDoc(this.doc(this.db, 'questionBanks', this.state.editingBankId), bankData)
+    : this.addDoc(this.collection(this.db, 'questionBanks'), {
+        ...bankData, questions: [], createdAt: this.serverTimestamp(), createdWith: 'Ultimate Parser CMS v2.3'
+      });
+  promise.then(() => {
+    this.showAlert(this.state.editingBankId ? 'Question bank updated!' : 'Question bank created!', 'success');
+    this.closeModal('question-bank-modal');
+    this.loadQuestionBanks();
+    this.state.editingBankId = null;
+    // Restore pending import if any
+    if (this.state.pendingImport) {
+      setTimeout(() => {
+        this.showAlert('Question bank created! Reopening AI Import with your content...', 'success');
+        setTimeout(() => {
+          this.state.contentFile = this.state.pendingImport.contentFile;
+          this.state.answerFile = this.state.pendingImport.answerFile;
+          this.showQuickImport();
+          setTimeout(() => {
+            if (this.state.contentFile) {
+              this.elements.contentUploadArea.classList.add('has-content');
+              const contentPreview = document.getElementById('content-preview');
+              const contentFileName = document.getElementById('content-file-name');
+              if (contentPreview) contentPreview.style.display = 'block';
+              if (contentFileName) contentFileName.textContent = this.state.contentFile.name;
+            }
+            if (this.state.pendingImport.contentText && this.elements.contentPasteArea) {
+              this.elements.contentPasteArea.textContent = this.state.pendingImport.contentText;
+            }
+            const frameworkCheckbox = document.getElementById('framework-mode-enable');
+            if (frameworkCheckbox && this.state.pendingImport.frameworkMode) frameworkCheckbox.checked = true;
+            this.state.pendingImport = null;
+            console.log('✅ Import state restored successfully');
+          }, 500);
+        }, 1000);
+      }, 500);
+    }
+  }).catch(error => {
+    console.error('Error saving question bank:', error);
+    this.showAlert('Error saving question bank.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ⭐ EPISODES WITH ENCOUNTERS ARRAY ⭐
+
+// ================================================
+// ENCOUNTER EDITOR METHODS
+// ================================================
+
+CMSApp.prototype.initEncounterEditor = function(encounters) {
+  const list = document.getElementById('encounters-list');
+  if (!list) return;
+  list.innerHTML = '';
+  this._encounterCount = 0;
+  if (encounters && encounters.length > 0) {
+    encounters.forEach(enc => this.addEncounterRow(enc));
+  } else {
+    this.addEncounterRow();
+  }
+};
+
+CMSApp.prototype.addEncounterRow = function(data) {
+  const list = document.getElementById('encounters-list');
+  if (!list) return;
+  const idx = this._encounterCount || 0;
+  this._encounterCount = idx + 1;
+  const row = document.createElement('div');
+  row.className = 'encounter-row';
+  row.dataset.encounterIdx = idx;
+  const title       = (data && data.title)    || '';
+  const narrative   = (data && data.narrative) || '';
+  const qCount      = (data && (data.questionsPerApproach || data.qCount)) || 5;
+  const minCorrect  = (data && data.successThreshold && data.successThreshold.minCorrect  != null)
+                      ? data.successThreshold.minCorrect : '';
+  const minAccuracy = (data && data.successThreshold && data.successThreshold.minAccuracy != null)
+                      ? data.successThreshold.minAccuracy : 60;
+  row.innerHTML = `
+    <div class="encounter-row-header">
+      <span class="encounter-row-title">⚔️ Encounter ${idx + 1}</span>
+      <button type="button" class="encounter-remove-btn"
+              onclick="window.cmsApp.removeEncounterRow(${idx})">Remove</button>
+    </div>
+    <div class="encounter-field" style="margin-bottom:12px;">
+      <label>Encounter Title</label>
+      <input type="text" class="enc-title" placeholder="e.g. Signal Detection" value="${title}">
+    </div>
+    <div class="encounter-field" style="margin-bottom:12px;">
+      <label>Narrative / Story Description</label>
+      <textarea class="enc-narrative"
+                placeholder="Describe what happens in this encounter...">${narrative}</textarea>
+    </div>
+    <div class="encounter-grid">
+      <div class="encounter-field">
+        <label>Questions Per Encounter</label>
+        <input type="number" class="enc-qcount" min="1" max="100" value="${qCount}" placeholder="5">
+      </div>
+      <div class="encounter-field">
+        <label>Min Accuracy to Pass (%)</label>
+        <input type="number" class="enc-accuracy" min="0" max="100" value="${minAccuracy}" placeholder="60">
+      </div>
+    </div>
+    <div class="encounter-field" style="margin-top:4px;">
+      <label>Min Correct Answers to Pass (optional)</label>
+      <input type="number" class="enc-mincorrect" min="0" value="${minCorrect}"
+             placeholder="e.g. 3 (leave blank for accuracy only)">
+    </div>
+  `;
+  list.appendChild(row);
+  this._updateEncounterNumbers();
+};
+
+CMSApp.prototype.removeEncounterRow = function(idx) {
+  const list = document.getElementById('encounters-list');
+  if (!list) return;
+  const row = list.querySelector(`[data-encounter-idx="${idx}"]`);
+  if (row) row.remove();
+  this._updateEncounterNumbers();
+};
+
+CMSApp.prototype._updateEncounterNumbers = function() {
+  document.querySelectorAll('.encounter-row').forEach((row, i) => {
+    const titleEl = row.querySelector('.encounter-row-title');
+    if (titleEl) titleEl.textContent = `⚔️ Encounter ${i + 1}`;
+  });
+};
+
+CMSApp.prototype.getEncountersFromEditor = function() {
+  const encounters = [];
+  document.querySelectorAll('.encounter-row').forEach(row => {
+    const title      = row.querySelector('.enc-title').value.trim();
+    const narrative  = row.querySelector('.enc-narrative').value.trim();
+    const qCount     = parseInt(row.querySelector('.enc-qcount').value) || 5;
+    const accuracy   = parseInt(row.querySelector('.enc-accuracy').value) || 60;
+    const minCorrect = row.querySelector('.enc-mincorrect').value.trim();
+    const enc = {
+      title, narrative,
+      questionsPerApproach: qCount,
+      qCount,
+      successThreshold: { minAccuracy: accuracy }
+    };
+    if (minCorrect !== '') enc.successThreshold.minCorrect = parseInt(minCorrect);
+    encounters.push(enc);
+  });
+  return encounters;
+};
+
+CMSApp.prototype.handleEpisodeSubmit = function() {
+  const title       = document.getElementById('episode-title').value.trim();
+  const genre       = document.getElementById('episode-genre').value;
+  const description = document.getElementById('episode-description').value.trim();
+  const active      = document.getElementById('episode-active').checked;
+  const selectedApproaches = [];
+  document.querySelectorAll('.approach-checkbox:checked').forEach(cb => selectedApproaches.push(cb.value));
+  const selectedQuestionBanks = this.getSelectedQuestionBanks();
+  if (!title || !genre) { this.showAlert('Please fill in all required fields.', 'error'); return; }
+  if (selectedApproaches.length === 0) { this.showAlert('Please select at least one available approach.', 'error'); return; }
+  const encounters = this.getEncountersFromEditor();
+  if (encounters.length === 0) { this.showAlert('Please add at least one encounter.', 'error'); return; }
+
+  // ── Read cutscene settings ────────────────────────────────────
+  const cutsceneEncountersEnabled = document.getElementById('cutscene-encounters-enabled')
+    ? document.getElementById('cutscene-encounters-enabled').checked
+    : true;
+  const cutsceneCompletionEnabled = document.getElementById('cutscene-completion-enabled')
+    ? document.getElementById('cutscene-completion-enabled').checked
+    : true;
+  const encounterCutsceneStyle = (document.getElementById('enc-style-novel') && document.getElementById('enc-style-novel').checked)
+    ? 'graphic_novel'
+    : 'cinematic';
+  const completionCutsceneStyle = (document.getElementById('comp-style-cinematic') && document.getElementById('comp-style-cinematic').checked)
+    ? 'cinematic'
+    : 'graphic_novel';
+
+  this.showProcessing(this.state.editingEpisodeId ? 'Updating episode...' : 'Creating episode...');
+  const episodeData = {
+    title, genre, description, active,
+    availableApproaches:    selectedApproaches,
+    selectedQuestionBanks:  selectedQuestionBanks,
+    encounters:             encounters,
+    cutsceneEncountersEnabled,
+    cutsceneCompletionEnabled,
+    encounterCutsceneStyle,
+    completionCutsceneStyle,
+    updatedAt:              this.serverTimestamp()
+  };
+  const promise = this.state.editingEpisodeId
+    ? this.updateDoc(this.doc(this.db, 'episodes', this.state.editingEpisodeId), episodeData)
+    : this.addDoc(this.collection(this.db, 'episodes'), {
+        ...episodeData, createdAt: this.serverTimestamp(), createdWith: 'Ultimate Parser CMS v2.3'
+      });
+  promise.then(() => {
+    this.showAlert(
+      `Episode ${this.state.editingEpisodeId ? 'updated' : 'created'} with ${encounters.length} encounter${encounters.length !== 1 ? 's' : ''} and ${selectedQuestionBanks.length} question bank${selectedQuestionBanks.length !== 1 ? 's' : ''}!`,
+      'success'
+    );
+    this.closeModal('episode-modal');
+    this.loadEpisodes();
+    this.state.editingEpisodeId = null;
+  }).catch(error => {
+    console.error('Error saving episode:', error);
+    this.showAlert('Error saving episode.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.handleGenreSubmit = function() {
+  const name = document.getElementById('genre-name').value.trim();
+  const descField = document.getElementById('genre-description');
+  const subjectField = document.getElementById('genre-subject');
+  const description = descField ? descField.value.trim() : '';
+  const primarySubject = subjectField ? subjectField.value : '';
+  if (!name) { this.showAlert('Please enter a genre name.', 'error'); return; }
+  this.showProcessing(this.state.editingGenreId ? 'Updating genre...' : 'Creating genre...');
+  const genreData = { name, description, primarySubject, updatedAt: this.serverTimestamp() };
+  const promise = this.state.editingGenreId
+    ? this.updateDoc(this.doc(this.db, 'genres', this.state.editingGenreId), genreData)
+    : this.addDoc(this.collection(this.db, 'genres'), { ...genreData, createdAt: this.serverTimestamp() });
+  promise.then(() => {
+    this.showAlert(this.state.editingGenreId ? 'Genre updated!' : 'Genre created!', 'success');
+    this.closeModal('genre-modal');
+    this.loadGenres();
+    this.state.editingGenreId = null;
+  }).catch(error => {
+    console.error('Error saving genre:', error);
+    this.showAlert('Error saving genre.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ================================================
+// QUESTION BANK SLIDERS FOR EPISODES
+// ================================================
+
+CMSApp.prototype.loadQuestionBanksForEpisode = function() {
+  console.log('🔄 Loading question banks for episode sliders...');
+  const togglesContainer = document.getElementById('question-banks-toggles');
+  if (!togglesContainer) { console.error('Question banks toggles container not found'); return Promise.resolve(); }
+  return new Promise((resolve) => {
+    this.getDocs(this.collection(this.db, 'questionBanks')).then(qBanksSnapshot => {
+      togglesContainer.innerHTML = '';
+      if (qBanksSnapshot.empty) {
+        togglesContainer.innerHTML = '<div style="text-align:center;color:#6c757d;padding:20px;">No question banks found. Create question banks first.</div>';
+        resolve();
+        return;
+      }
+      this.setupToggleAllButton();
+      qBanksSnapshot.forEach(doc => {
+        const bank = { id: doc.id, ...doc.data() };
+        this.renderQuestionBankToggle(bank, togglesContainer);
+      });
+      console.log('✅ Question banks loaded for episode toggles');
+      resolve();
+    }).catch(error => {
+      console.error('Error loading question banks for episode:', error);
+      togglesContainer.innerHTML = '<div style="text-align:center;color:#dc3545;padding:20px;">Error loading question banks</div>';
+      resolve();
+    });
+  });
+};
+
+CMSApp.prototype.renderQuestionBankToggle = function(bank, container) {
+  const questions = Array.isArray(bank.questions) ? bank.questions : [];
+  const bankItem = document.createElement('div');
+  bankItem.className = 'bank-toggle-item';
+  bankItem.dataset.bankId = bank.id;
+  bankItem.innerHTML = `
+    <div class="bank-info">
+      <div class="bank-name">${bank.name || 'Untitled Bank'}</div>
+      <div class="bank-details">${bank.approach || 'General'} • ${questions.length} questions</div>
+    </div>
+    <label class="toggle-switch">
+      <input type="checkbox" class="bank-toggle" data-bank-id="${bank.id}">
+      <span class="toggle-slider"></span>
+    </label>
+  `;
+  container.appendChild(bankItem);
+  const toggle = bankItem.querySelector('.bank-toggle');
+  toggle.addEventListener('change', (e) => {
+    bankItem.classList.toggle('enabled', e.target.checked);
+  });
+};
+
+CMSApp.prototype.setupToggleAllButton = function() {
+  const toggleAllBtn = document.getElementById('toggle-all-banks-btn');
+  if (!toggleAllBtn) return;
+  const newButton = toggleAllBtn.cloneNode(true);
+  toggleAllBtn.parentNode.replaceChild(newButton, toggleAllBtn);
+  newButton.addEventListener('click', () => this.toggleAllQuestionBanks());
+};
+
+CMSApp.prototype.toggleAllQuestionBanks = function() {
+  const toggles = document.querySelectorAll('.bank-toggle');
+  if (toggles.length === 0) return;
+  const allChecked = Array.from(toggles).every(t => t.checked);
+  toggles.forEach(toggle => {
+    toggle.checked = !allChecked;
+    toggle.closest('.bank-toggle-item').classList.toggle('enabled', !allChecked);
+  });
+};
+
+CMSApp.prototype.setSelectedQuestionBanks = function(selectedBankIds) {
+  document.querySelectorAll('.bank-toggle').forEach(toggle => {
+    const isSelected = selectedBankIds.includes(toggle.dataset.bankId);
+    toggle.checked = isSelected;
+    toggle.closest('.bank-toggle-item').classList.toggle('enabled', isSelected);
+  });
+};
+
+CMSApp.prototype.getSelectedQuestionBanks = function() {
+  const selectedBanks = [];
+  document.querySelectorAll('.bank-toggle:checked').forEach(toggle => {
+    selectedBanks.push(toggle.dataset.bankId);
+  });
+  console.log('📚 Getting selected banks:', selectedBanks);
+  return selectedBanks;
+};
+
+// ================================================
+// GENRE DROPDOWN POPULATION
+// ================================================
+
+CMSApp.prototype.populateGenreDropdown = function() {
+  return new Promise((resolve) => {
+    const genreSelect = document.getElementById('episode-genre');
+    if (!genreSelect) { resolve(); return; }
+    genreSelect.innerHTML = '<option value="">Select genre...</option>';
+    if (this.state.genres.length === 0) {
+      ['Mystery','Adventure','Science Fiction','Fantasy','Educational'].forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        genreSelect.appendChild(option);
+      });
+    } else {
+      this.state.genres.forEach(genre => {
+        const option = document.createElement('option');
+        option.value = genre.name;
+        option.textContent = genre.name;
+        genreSelect.appendChild(option);
+      });
+    }
+    resolve();
+  });
+};
+
+// ================================================
+// PROCESSING OVERLAY
+// ================================================
+
+CMSApp.prototype.showProcessing = function(message) {
+  let overlay = document.getElementById('processing-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'processing-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `<div style="background:white;padding:30px 40px;border-radius:12px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+      <div style="font-size:32px;margin-bottom:12px;">⚙️</div>
+      <div id="processing-message" style="font-size:16px;color:#495057;">${message || 'Processing...'}</div>
+    </div>`;
+    document.body.appendChild(overlay);
+  } else {
+    const msgEl = document.getElementById('processing-message');
+    if (msgEl) msgEl.textContent = message || 'Processing...';
+    overlay.style.display = 'flex';
+  }
+};
+
+CMSApp.prototype.hideProcessing = function() {
+  const overlay = document.getElementById('processing-overlay');
+  if (overlay) overlay.style.display = 'none';
+};
+
+CMSApp.prototype.hideProcessingOverlay = CMSApp.prototype.hideProcessing;
+
+CMSApp.prototype.updateProgress = function(percent, message) {
+  const fill = this.elements.aiProgressFill;
+  const status = this.elements.aiProcessingStatus;
+  const container = this.elements.aiProgressContainer;
+  if (container) container.style.display = 'block';
+  if (fill) fill.style.width = percent + '%';
+  if (status) status.textContent = message || '';
+};
+
+CMSApp.prototype.hideProgress = function() {
+  const container = this.elements.aiProgressContainer;
+  if (container) container.style.display = 'none';
+};
+
+// ================================================
+// NAVIGATION COUNTS + DASHBOARD
+// ================================================
+
+CMSApp.prototype.updateNavigationCounts = function() {
+  const banksCount = document.getElementById('banks-count');
+  const episodesCount = document.getElementById('episodes-count');
+  if (banksCount) banksCount.textContent = this.state.questionBanks.length;
+  if (episodesCount) episodesCount.textContent = this.state.episodes.length;
+};
+
+CMSApp.prototype.loadDashboardData = function() {
+  const totalQBanks = document.getElementById('total-question-banks');
+  const totalEpisodes = document.getElementById('total-episodes');
+  const activeEpisodes = document.getElementById('active-episodes');
+  if (totalQBanks) totalQBanks.textContent = this.state.questionBanks.length;
+  if (totalEpisodes) totalEpisodes.textContent = this.state.episodes.length;
+  if (activeEpisodes) activeEpisodes.textContent = this.state.episodes.filter(e => e.active).length;
+};
+
+CMSApp.prototype.updateDashboardParserStats = function() {
+  const successRateEl = document.getElementById('parser-success-rate');
+  const processedEl = document.getElementById('parser-processed');
+  if (successRateEl) successRateEl.textContent = this.state.parserStats.successRate + '%';
+  if (processedEl) processedEl.textContent = this.state.parserStats.processedDocuments;
+};
+
+// ================================================
+// SYSTEM STATUS AND MONITORING
+// ================================================
+
+CMSApp.prototype.getSystemStatus = function() {
+  return {
+    parserReady: this.parserReady,
+    firebaseConnected: !!this.db,
+    questionBanksLoaded: this.state.questionBanks.length > 0,
+    version: window.ULTIMATE_PARSER_CONFIG?.VERSION || '2.3',
+    successRate: this.state.parserStats.successRate,
+    processedDocuments: this.state.parserStats.processedDocuments,
+    extractedQuestions: this.state.parserStats.extractedQuestions
+  };
+};
+
+CMSApp.prototype.logPerformanceMetric = function(operation, duration, success = true) {
+  console.log(`📈 Performance: ${operation} took ${duration}ms (${success ? 'success' : 'failed'})`);
+};
+
+CMSApp.prototype.verifyInitialization = function() {
+  const status = this.getSystemStatus();
+  console.log('🔍 System Status Check:', status);
+  if (!status.parserReady) console.warn('⚠️ Ultimate Parser not ready. Some features may be limited.');
+  if (!status.firebaseConnected) this.showAlert('❌ Database connection failed. Please refresh the page.', 'error');
+  return status.parserReady && status.firebaseConnected;
+};
+
+CMSApp.prototype.cleanup = function() {
+  console.log('🧹 Cleaning up Ultimate Parser CMS...');
+  this.state.isProcessingImport = false;
+  this.hideProcessing();
+  this.hideProgress();
+  document.querySelectorAll('.cms-modal').forEach(modal => { modal.style.display = 'none'; });
+  console.log('✅ Cleanup complete');
+};
+
+// ================================================
+// GLOBAL ERROR HANDLERS
+// ================================================
+
+window.addEventListener('error', function(e) {
+  console.error('🚨 Global error:', e.error);
+  if (window.cmsApp) window.cmsApp.handleError(e.error, 'system error');
+});
+
+window.addEventListener('beforeunload', function() {
+  if (window.cmsApp) window.cmsApp.cleanup();
+});
+
+// ================================================
+// SYSTEM INITIALIZATION CHECK
+// ================================================
+
+setTimeout(() => {
+  if (window.cmsApp && window.cmsApp.verifyInitialization) {
+    const status = window.cmsApp.verifyInitialization();
+    if (status) {
+      console.log('✅ ============================================');
+      console.log('✅ ULTIMATE PARSER CMS v2.3 FULLY OPERATIONAL');
+      console.log('✅ ⭐ ENCOUNTERS BUG FIXED ⭐');
+      console.log('✅ ============================================');
+      console.log('✅ All sections loaded and integrated');
+      console.log('✅ Firebase v9: Connected');
+      console.log('✅ Ultimate Parser: Ready');
+      console.log('✅ showGenreModal: ADDED');
+      console.log('✅ showQuestionBankModal: ADDED');
+      console.log('✅ Episodes: NOW CREATE WITH ENCOUNTERS ARRAY');
+      console.log('✅ ============================================');
+    }
+  }
+}, 2000);
+
+console.log('✅ Section 13 COMPLETE - showGenreModal + showQuestionBankModal added');
+console.log('🎉 ALL 13 SECTIONS INTEGRATED - System fully operational!');
+</script>
+</script>
+
+<!-- ========================================= -->
+<!-- SECTION 14.5: MANUAL QUESTION ADDING    -->
+<!-- FIXED:                                  -->
+<!--   Modal appended to body (not nested)   -->
+<!--   High z-index, solid white background  -->
+<!--   Cancel button works properly          -->
+<!--   Format selector A/B/C/D, F/G/H/J,    -->
+<!--   True/False, Custom                    -->
+<!-- ========================================= -->
+<script>
+console.log('📝 Loading Section 14.5: Manual Question Adding...');
+
+CMSApp.prototype.showAddQuestionModal = function(bankId) {
+  console.log('➕ Opening add question modal for bank:', bankId);
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  this.state.addingQuestionToBankId = bankId;
+
+  // Remove any existing instance
+  const existing = document.getElementById('add-question-modal');
+  if (existing) existing.remove();
+
+  // Build modal and append directly to body so it sits above everything
+  const modalEl = document.createElement('div');
+  modalEl.id = 'add-question-modal';
+  modalEl.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-y: auto;
+    padding: 20px;
+  `;
+
+  modalEl.innerHTML = `
+    <div style="
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 30px;
+      width: 100%;
+      max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+      z-index: 99999;
+    ">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:2px solid #e9ecef;padding-bottom:14px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">➕ Add Question to: ${bank.name}</h2>
+        <button onclick="window.cmsApp.closeAddQuestionModal()"
+                style="background:none;border:none;font-size:24px;cursor:pointer;color:#6c757d;line-height:1;padding:0 4px;"
+                title="Cancel">&times;</button>
+      </div>
+
+      <form id="add-question-form" onsubmit="event.preventDefault(); window.cmsApp.handleManualQuestionSubmit();">
+
+        <!-- Format -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Answer Format *</label>
+          <select id="manual-q-format"
+                  onchange="window.cmsApp.renderManualQuestionOptions(this.value)"
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;background:#fff;">
+            <option value="abcd">A, B, C, D — Standard ACT (Math / Science / English)</option>
+            <option value="fghj">F, G, H, J — ACT Reading</option>
+            <option value="tf">True / False</option>
+            <option value="custom">Custom (up to 5 options A–E)</option>
+          </select>
+        </div>
+
+        <!-- Question Text -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Question Text *</label>
+          <textarea id="manual-q-text" rows="3" required
+                    placeholder="Enter your question here..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Passage -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Passage / Context
+            <span style="font-weight:400;color:#6c757d;">(Optional — for Reading questions)</span>
+          </label>
+          <textarea id="manual-q-passage" rows="4"
+                    placeholder="Enter the reading passage or context if applicable..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Dynamic options -->
+        <div id="manual-options-container"></div>
+
+        <!-- Explanation -->
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Explanation
+            <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          <textarea id="manual-q-explanation" rows="3"
+                    placeholder="Explain why this answer is correct..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Buttons -->
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#28a745;color:white;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            ➕ Add Question
+          </button>
+          <button type="button"
+                  onclick="window.cmsApp.closeAddQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+
+  // Close on backdrop click
+  modalEl.addEventListener('click', (e) => {
+    if (e.target === modalEl) window.cmsApp.closeAddQuestionModal();
+  });
+
+  // Render default options
+  this.renderManualQuestionOptions('abcd');
+};
+
+CMSApp.prototype.closeAddQuestionModal = function() {
+  const modal = document.getElementById('add-question-modal');
+  if (modal) modal.remove();
+  this.state.addingQuestionToBankId = null;
+};
+
+// Render options based on selected format
+CMSApp.prototype.renderManualQuestionOptions = function(format) {
+  const container = document.getElementById('manual-options-container');
+  if (!container) return;
+
+  const inputStyle = 'width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;box-sizing:border-box;';
+  const groupStyle = 'margin-bottom:12px;';
+  const labelStyle = 'display:block;font-weight:500;margin-bottom:4px;color:#495057;';
+
+  let letters = [];
+  if (format === 'abcd') letters = ['A','B','C','D'];
+  else if (format === 'fghj') letters = ['F','G','H','J'];
+  else if (format === 'tf') letters = ['T','F2'];
+  else if (format === 'custom') letters = ['A','B','C','D','E'];
+
+  let optionsHTML = `<div style="margin-bottom:16px;">
+    <div style="font-weight:600;color:#495057;margin-bottom:10px;font-size:15px;">Answer Options *</div>`;
+
+  if (format === 'tf') {
+    optionsHTML += `
+      <div style="${groupStyle}">
+        <label style="${labelStyle}">Option 1:</label>
+        <input type="text" id="manual-option-T" value="True" readonly style="${inputStyle}background:#f8f9fa;">
+      </div>
+      <div style="${groupStyle}">
+        <label style="${labelStyle}">Option 2:</label>
+        <input type="text" id="manual-option-F2" value="False" readonly style="${inputStyle}background:#f8f9fa;">
+      </div>
+    `;
+  } else {
+    const placeholder = format === 'custom' ? ' (leave blank to omit)' : '';
+    letters.forEach(l => {
+      optionsHTML += `
+        <div style="${groupStyle}">
+          <label style="${labelStyle}">${l}:</label>
+          <input type="text" id="manual-option-${l}" placeholder="Option ${l}${placeholder}" style="${inputStyle}">
+        </div>
+      `;
+    });
+  }
+
+  // Correct answer dropdown
+  let correctOptions = '';
+  if (format === 'tf') {
+    correctOptions = '<option value="T">True</option><option value="F2">False</option>';
+  } else {
+    letters.forEach(l => { correctOptions += `<option value="${l}">${l}</option>`; });
+  }
+
+  optionsHTML += `
+    <div style="${groupStyle}">
+      <label style="${labelStyle}">Correct Answer *</label>
+      <select id="manual-correct-answer" required style="${inputStyle}background:#fff;">
+        ${correctOptions}
+      </select>
+    </div>
+  </div>`;
+
+  container.innerHTML = optionsHTML;
+};
+
+CMSApp.prototype.handleManualQuestionSubmit = function() {
+  const bankId = this.state.addingQuestionToBankId;
+  if (!bankId) { this.showAlert('No bank selected.', 'error'); return; }
+
+  const questionText = document.getElementById('manual-q-text').value.trim();
+  const passage = document.getElementById('manual-q-passage').value.trim();
+  const explanation = document.getElementById('manual-q-explanation').value.trim();
+  const format = document.getElementById('manual-q-format').value;
+  const correctAnswer = document.getElementById('manual-correct-answer').value;
+
+  if (!questionText) { this.showAlert('Please enter a question.', 'error'); return; }
+
+  // Collect options
+  const options = {};
+  let letters = [];
+  if (format === 'abcd') letters = ['A','B','C','D'];
+  else if (format === 'fghj') letters = ['F','G','H','J'];
+  else if (format === 'tf') letters = ['T','F2'];
+  else if (format === 'custom') letters = ['A','B','C','D','E'];
+
+  let hasOptions = false;
+  letters.forEach(letter => {
+    const input = document.getElementById(`manual-option-${letter}`);
+    if (input && input.value.trim()) { options[letter] = input.value.trim(); hasOptions = true; }
+  });
+
+  if (!hasOptions) { this.showAlert('Please enter at least one answer option.', 'error'); return; }
+  if (!options[correctAnswer]) { this.showAlert('The correct answer option must have text entered.', 'error'); return; }
+
+  const newQuestion = {
+    question: questionText,
+    text: questionText,
+    options,
+    correct: correctAnswer,
+    format,
+    passage: passage || '',
+    explanation: explanation || '',
+    addedManually: true,
+    createdAt: new Date().toISOString()
+  };
+
+  this.showProcessing('Adding question...');
+  const bankRef = this.doc(this.db, 'questionBanks', bankId);
+  this.getDoc(bankRef).then(docSnap => {
+    if (!docSnap.exists()) throw new Error('Question bank not found');
+    const currentQuestions = docSnap.data().questions || [];
+    currentQuestions.push(newQuestion);
+    return this.updateDoc(bankRef, { questions: currentQuestions, updatedAt: this.serverTimestamp() });
+  }).then(() => {
+    this.showAlert('Question added successfully!', 'success');
+    this.closeAddQuestionModal();
+    // Reload bank then refresh questions view
+    const { doc, getDoc } = window.firebaseV9;
+    getDoc(doc(this.db, 'questionBanks', bankId)).then(snap => {
+      if (snap.exists()) {
+        const bank = this.state.questionBanks.find(b => b.id === bankId);
+        if (bank) {
+          bank.questions = snap.data().questions || [];
+          this.showQuestionsViewModal(bank);
+        }
+      }
+    });
+    this.loadQuestionBanks();
+  }).catch(error => {
+    console.error('Error adding question:', error);
+    this.showAlert('Error adding question: ' + error.message, 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+console.log('✅ Section 14.5 loaded — modal appended to body, z-index 99999, cancel works');
+</script>
