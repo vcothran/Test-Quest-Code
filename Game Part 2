@@ -1,0 +1,950 @@
+/* === SECTION 9: Game Mechanics & Class Abilities === */
+      const showScreen = (screenName) => {
+        Object.values(screens).forEach(screen => screen.classList.remove('active'));
+        if(screens[screenName]) screens[screenName].classList.add('active');
+      };
+
+      // Notification system for XP/Focus changes
+      const showNotification = (message, type) => {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => notification.classList.add('show'), 100);
+        setTimeout(() => {
+          notification.classList.remove('show');
+          setTimeout(() => document.body.removeChild(notification), 300);
+        }, 2500);
+      };
+
+      // ENHANCED: Focus system with clamping, color coding, and overcharge
+      const updatePlayerStats = () => {
+        const xpElement = document.getElementById('hud-xp');
+        const focusElement = document.getElementById('hud-focus');
+        
+        // CRITICAL FIX: Initialize focus if undefined, but DON'T reset 0 to 100
+        if (player.focus === undefined || player.focus === null) {
+          player.focus = 100;
+        }
+        
+        // Clamp focus at 0 (never negative)
+        player.focus = Math.max(0, player.focus);
+        
+        xpElement.textContent = player.xp || 0;
+        focusElement.textContent = player.focus;
+        
+        // Focus color coding
+        if (player.focus === 0) {
+          focusElement.style.color = '#e74c3c'; // Red at 0
+        } else if (player.focus < 30) {
+          focusElement.style.color = '#e67e22'; // Orange below 30
+        } else if (player.focus > 100) {
+          focusElement.style.color = '#f39c12'; // Gold above 100 (overcharged)
+        } else {
+          focusElement.style.color = '#2ecc71'; // Green normal
+        }
+        
+        xpElement.classList.add('stat-change');
+        focusElement.classList.add('stat-change');
+        
+        setTimeout(() => {
+          xpElement.classList.remove('stat-change');
+          focusElement.classList.remove('stat-change');
+        }, 600);
+        
+        // AUTO-UPDATE: If Character Stats panel is open, refresh it
+        const panel = document.getElementById('char-stats-panel');
+        if (panel && panel.style.display !== 'none') {
+          if (typeof updateCharacterStatsPanel === 'function') {
+            updateCharacterStatsPanel();
+          }
+        }
+      };
+
+      // ENHANCED: Overcharge decay system
+      const applyOverchargeDecay = () => {
+        if (player.focus > 100) {
+          player.focus = Math.max(100, player.focus - 5);
+          showNotification('Overcharge fading... (-5 Focus)', 'focus-loss');
+        }
+      };
+
+      // ENHANCED: Small focus restoration on correct answers
+      const restoreFocusOnCorrect = () => {
+        if (player.focus < 100) {
+          player.focus = Math.min(100, player.focus + 5);
+          showNotification('+5 Focus Restored', 'xp-gain');
+        }
+      };
+
+      // Save player progress with inventory
+      const savePlayerProgress = async () => {
+        if (!player || !player.uid) return;
+        
+        // Ensure inventory exists
+        if (!player.inventory) {
+          player.inventory = {
+            lastStandTrophy: null,
+            consumables: []
+          };
+        }
+        
+        if (isTestMode) {
+          console.log('Test mode: Player stats saved to memory', player);
+        } else {
+          try {
+            await setDoc(doc(db, "players", player.uid), {
+              name: player.name,
+              className: player.className,
+              xp: player.xp,
+              focus: player.focus,
+              abilities: player.abilities,
+              activeEffects: player.activeEffects,
+              inventory: player.inventory
+            });
+          } catch (error) {
+            console.error("Error saving player progress:", error);
+          }
+        }
+      };
+
+      // Get class avatar emoji
+      const getClassAvatar = (className) => {
+        const avatars = {
+          'Strategist': '⚔️',
+          'Arcanist': '🔮',
+          'Infiltrator': '🗡️',
+          'Empath': '❤️',
+          'Pathfinder': '🧭'
+        };
+        return avatars[className] || '🗡️';
+      };
+
+      // Get class abilities list
+      const getClassAbilities = (className) => {
+        const abilities = {
+          'Strategist': [
+            { key: 'powerStrike', name: 'Power Strike', description: 'Double XP for next correct answer' },
+            { key: 'tacticalAnalysis', name: 'Tactical Analysis', description: 'Eliminate two wrong answers' }
+          ],
+          'Arcanist': [
+            { key: 'empoweredSpell', name: 'Empowered Spell', description: 'Double XP for next correct answer' },
+            { key: 'arcaneKnowledge', name: 'Arcane Knowledge', description: 'Reveal the correct answer' }
+          ],
+          'Infiltrator': [
+            { key: 'eliminate', name: 'Eliminate', description: 'Remove one wrong answer' },
+            { key: 'shadowStep', name: 'Shadow Step', description: 'Skip this question without penalty' }
+          ],
+          'Empath': [
+            { key: 'secondLook', name: 'Second Look', description: 'Get another chance if you answer incorrectly' },
+            { key: 'emotionalInsight', name: 'Emotional Insight', description: 'Eliminate one wrong answer' }
+          ],
+          'Pathfinder': [
+            { key: 'keenEye', name: 'Keen Eye', description: 'Highlight key passage words (unlimited)' },
+            { key: 'trailBlazer', name: 'Trail Blazer', description: 'Eliminate two wrong answers' }
+          ]
+        };
+        return abilities[className] || [];
+      };
+
+      // Render class abilities UI
+      const renderClassAbilities = () => {
+        const buttonContainer = document.getElementById('class-abilities-container');
+        if (!buttonContainer) {
+          console.log('Abilities container not found');
+          return;
+        }
+        
+        buttonContainer.innerHTML = '';
+        
+        const classAbilities = getClassAbilities(player.className);
+        
+        classAbilities.forEach(ability => {
+          const usesRemaining = player.abilities[ability.key].uses;
+          const isUnlimited = usesRemaining === -1;
+          const isUsable = isUnlimited || usesRemaining > 0;
+          
+          const button = document.createElement('button');
+          button.className = `game-btn ability-btn ${isUsable ? '' : 'disabled'}`;
+          button.style.cssText = `
+            padding: 8px 12px; 
+            font-size: 12px; 
+            margin: 0 5px 5px 0;
+            ${!isUsable ? 'opacity: 0.5; cursor: not-allowed;' : ''}
+          `;
+          
+          const usesText = isUnlimited ? '' : ` (${usesRemaining})`;
+          button.textContent = ability.name + usesText;
+          button.disabled = !isUsable;
+          button.title = ability.description;
+          
+          if (isUsable) {
+            button.onclick = () => useAbility(ability.key);
+          }
+          
+          buttonContainer.appendChild(button);
+        });
+      };
+
+      // XP award system (uses XP_PER_CORRECT from Section 8)
+      const awardXP = async (amount) => {
+        player.xp = (player.xp || 0) + amount;
+        await savePlayerProgress();
+        updatePlayerStats();
+      };
+
+      // SMART FOCUS COST: Halves cost when at 30 or below
+      const deductFocusCost = (baseCost) => {
+        let actualCost = baseCost;
+        
+        // Half cost when focus is 30 or below
+        if (player.focus <= 30) {
+          actualCost = Math.ceil(baseCost / 2);
+          showNotification(`Low Focus: Ability cost reduced to ${actualCost}!`, 'ability-used');
+        }
+        
+        player.focus -= actualCost;
+        
+        // CRITICAL: Check for exhaustion after deducting
+        if (player.focus <= 0) {
+          player.focus = 0;
+          updatePlayerStats();
+          
+          // Trigger exhaustion handling
+          handleFocusExhaustion();
+        } else {
+          updatePlayerStats();
+        }
+      };
+
+      // NEW: Focus Exhaustion System (5 Options)
+      const handleFocusExhaustion = async () => {
+        console.log('💥 EXHAUSTION DIALOG OPENED');
+        
+        // ======= GENERATE AI EXHAUSTION NARRATIVE =======
+        let exhaustionNarrative = '';
+        if (typeof generateFocusExhaustionMoment === 'function') {
+          try {
+            const context = {
+              questionsCompleted: sessionStats.totalQuestions,
+              questionsRemaining: currentQuestionSet ? (currentQuestionSet.length - currentQuestionIndex) : 0,
+              recentFailures: sessionStats.totalQuestions - sessionStats.correctAnswers,
+              currentStreak: sessionStats.currentStreak
+            };
+            
+            exhaustionNarrative = await generateFocusExhaustionMoment(context);
+          } catch (error) {
+            console.error('Exhaustion narrative generation failed:', error);
+          }
+        }
+        // ===============================================
+        
+        return new Promise((resolve) => {
+          const exhaustionDialog = document.createElement('div');
+          exhaustionDialog.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(145deg, #1e2a38, #2c3e50);
+            border: 3px solid #e74c3c;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 600px;
+            max-height: 85vh;
+            overflow-y: auto;
+            z-index: 10000;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+          `;
+          
+          exhaustionDialog.innerHTML = `
+            <h2 style="color: #e74c3c; margin: 0 0 15px 0;">⚠️ Focus Exhausted!</h2>
+            
+            ${exhaustionNarrative ? `
+            <div style="
+              background: rgba(231, 76, 60, 0.1);
+              border-left: 4px solid #e74c3c;
+              padding: 15px;
+              margin-bottom: 20px;
+              border-radius: 5px;
+            ">
+              <p style="
+                margin: 0;
+                color: #ecf0f1;
+                font-size: 1em;
+                line-height: 1.6;
+                font-style: italic;
+              ">${exhaustionNarrative}</p>
+            </div>
+            ` : ''}
+            
+            <p style="margin-bottom: 20px; color: #ecf0f1; font-size: 1.1em;">Your focus has been depleted. Choose how to proceed:</p>
+            
+            <button class="game-btn" id="rest-recover" style="width: 100%; margin-bottom: 10px;">
+              Rest & Recover (+50 Focus, -50% Episode XP)
+            </button>
+            
+            <button class="game-btn" id="push-through" style="width: 100%; margin-bottom: 10px;">
+              Push Through (High Risk - Next Wrong Answer Forces Rest)
+            </button>
+            
+            <button class="game-btn" id="restart-encounter" style="width: 100%; margin-bottom: 10px;">
+              Restart Encounter (+100 Focus, Lose Current Encounter XP)
+            </button>
+            
+            <button class="game-btn" id="use-item" style="width: 100%; margin-bottom: 10px;" ${!hasUsableItem() ? 'disabled' : ''}>
+              Use Item ${!hasUsableItem() ? '(None Available)' : ''}
+            </button>
+            
+            <button class="game-btn" id="return-town" style="width: 100%;">
+              Return to Town (Exit Episode, Keep 75% XP)
+            </button>
+          `;
+          
+          document.body.appendChild(exhaustionDialog);
+          
+          document.getElementById('rest-recover').onclick = () => {
+            console.log('✅ User chose: Rest & Recover');
+            
+            // Calculate episode XP earned so far
+            const episodeXP = (player.xp || 0) - sessionStats.startXP;
+            
+            // Lose 50% of episode XP
+            const xpLoss = Math.floor(episodeXP * 0.5);
+            player.xp -= xpLoss;
+            
+            // Restore focus
+            player.focus = 50;
+            
+            updatePlayerStats();
+            showNotification(`Rested! Lost ${xpLoss} XP (-50% episode XP)`, 'focus-loss');
+            document.body.removeChild(exhaustionDialog);
+            resolve();
+          };
+          
+          document.getElementById('push-through').onclick = () => {
+            console.log('✅ User chose: Push Through');
+            player.activeEffects.pushingThrough = true;
+            showNotification('Pushing through at 0 Focus!', 'focus-loss');
+            document.body.removeChild(exhaustionDialog);
+            resolve();
+          };
+          
+          document.getElementById('restart-encounter').onclick = () => {
+            console.log('✅ User chose: Restart Encounter');
+            
+            // Calculate encounter XP (questions answered in this encounter)
+            const encounterXP = (sessionStats.correctAnswers * XP_PER_CORRECT);
+            
+            // Lose all encounter XP
+            player.xp -= encounterXP;
+            
+            // Reset stats for this encounter
+            sessionStats.totalQuestions = 0;
+            sessionStats.correctAnswers = 0;
+            
+            // Restore focus
+            player.focus = 100;
+            
+            updatePlayerStats();
+            showNotification(`Encounter restarted! Lost ${encounterXP} XP`, 'focus-loss');
+            document.body.removeChild(exhaustionDialog);
+            currentQuestionIndex = 0;
+            loadQuestion();
+            resolve();
+          };
+          
+          document.getElementById('use-item').onclick = () => {
+            if (hasUsableItem()) {
+              useInventoryItem();
+              document.body.removeChild(exhaustionDialog);
+              resolve();
+            }
+          };
+          
+          document.getElementById('return-town').onclick = () => {
+            const currentXP = player.xp - sessionStats.startXP;
+            const xpToKeep = Math.floor(currentXP * 0.75);
+            player.xp = sessionStats.startXP + xpToKeep;
+            player.focus = 100;
+            updatePlayerStats();
+            showNotification(`Returned safely. Kept ${xpToKeep} XP.`, 'xp-gain');
+            document.body.removeChild(exhaustionDialog);
+            showScreen('episodeSelection');
+            resolve();
+          };
+        });
+      };
+
+      // NEW: Check if player has usable items
+      const hasUsableItem = () => {
+        if (!player.inventory) return false;
+        return player.inventory.lastStandTrophy || (player.inventory.consumables && player.inventory.consumables.length > 0);
+      };
+
+      // NEW: Use inventory item
+      const useInventoryItem = () => {
+        if (!player.inventory) return;
+        
+        // Use trophy first if available
+        if (player.inventory.lastStandTrophy) {
+          const trophy = player.inventory.lastStandTrophy;
+          applyTrophyEffect(trophy);
+          player.inventory.lastStandTrophy = null;
+          savePlayerProgress();
+          return;
+        }
+        
+        // Use first consumable
+        if (player.inventory.consumables && player.inventory.consumables.length > 0) {
+          const item = player.inventory.consumables.shift();
+          applyConsumableEffect(item);
+          savePlayerProgress();
+        }
+      };
+
+      // NEW: Apply trophy effects
+      const applyTrophyEffect = (trophyType) => {
+        const effects = {
+          'legLamp': () => {
+            player.focus += 25;
+            player.activeEffects.forgivenError = true;
+            showNotification('🦵💡 Leg Lamp: +25 Focus, Next error forgiven!', 'ability-used');
+          },
+          'eternalTorch': () => {
+            player.focus += 25;
+            player.activeEffects.doubleXPNext = true;
+            showNotification('🔥 Eternal Torch: +25 Focus, Double XP next question!', 'ability-used');
+          },
+          'liquidShadow': () => {
+            player.focus += 25;
+            player.activeEffects.autoCorrectNext = true;
+            showNotification('🗡️ Liquid Shadow: +25 Focus, Auto-correct next wrong!', 'ability-used');
+          },
+          'playbook': () => {
+            player.focus += 25;
+            player.activeEffects.eliminateTwo = true;
+            player.activeEffects.bonusXP = 1.5;
+            player.activeEffects.bonusXPDuration = 3;
+            showNotification('📖 Playbook: +25 Focus, Eliminate 2, +50% XP for 3Q!', 'ability-used');
+          },
+          'phoenixTear': () => {
+            player.focus = 125;
+            player.activeEffects.mathHelpActive = true;
+            showNotification('🔮 Phoenix Tear: Overcharged to 125, Math help active!', 'ability-used');
+          }
+        };
+        
+        if (effects[trophyType]) {
+          effects[trophyType]();
+          updatePlayerStats();
+        }
+      };
+
+      // NEW: Apply consumable effects
+      const applyConsumableEffect = (itemType) => {
+        if (itemType === 'secondWind') {
+          player.focus = Math.min(150, player.focus + 50);
+          Object.keys(player.abilities).forEach(ability => {
+            if (player.abilities[ability].uses >= 0) {
+              player.abilities[ability].uses = Math.min(
+                player.abilities[ability].maxUses + 1,
+                player.abilities[ability].uses + 1
+              );
+            }
+          });
+          showNotification("Hero's Second Wind: +50 Focus, +1 all abilities!", 'ability-used');
+          updatePlayerStats();
+        } else if (itemType === 'timeturner') {
+          player.focus = 100;
+          const currentIndex = currentQuestionIndex;
+          currentQuestionIndex = 0;
+          showNotification('Time-Turner: Rewind to first question!', 'ability-used');
+          loadQuestion();
+        }
+      };
+
+      // NEW: Award Last Stand achievement trophy
+      const awardLastStandAchievement = () => {
+        if (player.inventory && !player.inventory.lastStandTrophy) {
+          const trophies = ['legLamp', 'eternalTorch', 'liquidShadow', 'playbook', 'phoenixTear'];
+          const randomTrophy = trophies[Math.floor(Math.random() * trophies.length)];
+          player.inventory.lastStandTrophy = randomTrophy;
+          
+          const trophyDetails = {
+            'legLamp': {
+              name: '🦵💡 Leg Lamp',
+              description: 'A major award! Grants +25 Focus and forgives your next error.'
+            },
+            'eternalTorch': {
+              name: '🔥 Eternal Torch',
+              description: 'The flame never dies! Grants +25 Focus and doubles XP for next question.'
+            },
+            'liquidShadow': {
+              name: '🗡️ Liquid Shadow',
+              description: 'Essence of stealth! Grants +25 Focus and auto-corrects your next wrong answer.'
+            },
+            'playbook': {
+              name: '📖 Playbook',
+              description: 'Ancient wisdom! Grants +25 Focus, eliminates 2 answers, and +50% XP for 3 questions.'
+            },
+            'phoenixTear': {
+              name: '🔮 Phoenix Tear',
+              description: 'Legendary regeneration! Overcharges Focus to 125 and activates math help mode.'
+            }
+          };
+          
+          const trophy = trophyDetails[randomTrophy];
+          
+          // Create achievement dialog
+          const achievementDialog = document.createElement('div');
+          achievementDialog.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(145deg, #2c3e50, #34495e);
+            border: 3px solid #f39c12;
+            border-radius: 15px;
+            padding: 40px;
+            max-width: 500px;
+            z-index: 10000;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            text-align: center;
+          `;
+          
+          achievementDialog.innerHTML = `
+            <h2 style="color: #f39c12; margin: 0 0 20px 0; font-size: 28px;">🏆 ACHIEVEMENT UNLOCKED!</h2>
+            <h3 style="color: #ecf0f1; margin: 0 0 10px 0; font-size: 24px;">Last Stand</h3>
+            <p style="color: #95a5a6; margin: 0 0 25px 0; font-style: italic;">
+              You pushed through at 0 Focus and survived!
+            </p>
+            <div style="background: rgba(52, 73, 94, 0.6); border-radius: 10px; padding: 20px; margin-bottom: 25px;">
+              <h4 style="color: #f39c12; margin: 0 0 10px 0; font-size: 20px;">${trophy.name}</h4>
+              <p style="color: #ecf0f1; margin: 0; font-size: 14px;">
+                ${trophy.description}
+              </p>
+            </div>
+            <button id="claim-trophy-btn" class="game-btn" style="font-size: 18px; padding: 12px 30px;">
+              Claim Trophy
+            </button>
+          `;
+          
+          document.body.appendChild(achievementDialog);
+          
+          document.getElementById('claim-trophy-btn').onclick = () => {
+            document.body.removeChild(achievementDialog);
+            savePlayerProgress();
+          };
+        }
+      };
+
+      console.log('✅ Section 9: Game Mechanics & Class Abilities loaded');
+		
+/* === SECTION 10: Ability Implementation & Game Flow === */
+      const useAbility = async (abilityKey) => {
+        // Track this ability use for AI narration
+        if (typeof lastAbilityUsed !== 'undefined') {
+          lastAbilityUsed = abilityKey;
+        }
+        
+        // Check if answer already submitted (CRITICAL BUG FIX)
+        if (submitAnswerBtn.disabled && submitAnswerBtn.style.display === 'none') {
+          showNotification('Cannot use abilities after submitting answer', 'focus-loss');
+          return;
+        }
+        
+        if (!player.abilities[abilityKey] || player.abilities[abilityKey].uses === 0) return;
+        
+        const q = currentQuestionSet[currentQuestionIndex];
+        if (!q) return;
+        
+        let feedbackMessage = '';
+        
+        switch (abilityKey) {
+          case 'powerStrike':
+            // Deduct use
+            if (player.abilities[abilityKey].uses > 0) {
+              player.abilities[abilityKey].uses--;
+            }
+            player.activeEffects.powerStrikeActive = true;
+            feedbackMessage = 'Power Strike activated! Your next correct answer will grant double XP!';
+            break;
+            
+          case 'tacticalAnalysis':
+            // ENHANCED: Smart detection of remaining wrong answers
+            const wrongAnswers = [];
+            q.options.forEach((opt, index) => {
+              if (index !== q.correct && !player.activeEffects.eliminatedAnswers.includes(index)) {
+                wrongAnswers.push(index);
+              }
+            });
+            
+            if (wrongAnswers.length < 2) {
+              const confirmUse = confirm(`Only ${wrongAnswers.length} incorrect answer(s) remain. Use Tactical Analysis anyway?`);
+              if (!confirmUse) {
+                return; // Don't use the ability
+              }
+            }
+            
+            // Deduct use
+            if (player.abilities[abilityKey].uses > 0) {
+              player.abilities[abilityKey].uses--;
+            }
+            
+            const toEliminate = wrongAnswers.slice(0, 2);
+            toEliminate.forEach(index => {
+              if (!player.activeEffects.eliminatedAnswers.includes(index)) {
+                player.activeEffects.eliminatedAnswers.push(index);
+              }
+            });
+            applyEliminatedAnswers();
+            feedbackMessage = `Tactical Analysis eliminates ${toEliminate.length} wrong answer(s)!`;
+            break;
+            
+          case 'empoweredSpell':
+            // Deduct use
+            if (player.abilities[abilityKey].uses > 0) {
+              player.abilities[abilityKey].uses--;
+            }
+            
+            // FIXED: Check for math keywords in question text
+            const questionText = (q.text || '').toLowerCase();
+            const hasMathKeywords = questionText.includes('calculate') || 
+                                    questionText.includes('equation') || 
+                                    questionText.includes('solve') ||
+                                    questionText.includes('formula') ||
+                                    questionText.includes('equals') ||
+                                    /\d+[\+\-\*\/×÷]\d+/.test(questionText) ||
+                                    questionText.includes('percent') ||
+                                    questionText.includes('average');
+            const isMath = selectedApproach === 'Calculation (Math)' || 
+                           q.format === 'math' || 
+                           hasMathKeywords;
+            
+            if (isMath) {
+              // Math: 1 charge, auto-select correct
+              selectedAnswerIndex = q.correct;
+              highlightCorrectAnswer();
+              feedbackMessage = 'Empowered Spell: Mathematical knowledge flows through you!';
+            } else {
+              // Non-math: Check if we have 2 charges
+              if (player.abilities.empoweredSpell.uses >= 1) {
+                // Deduct second charge
+                player.abilities.empoweredSpell.uses--;
+                selectedAnswerIndex = q.correct;
+                highlightCorrectAnswer();
+                feedbackMessage = 'Empowered Spell (2x charge): Arcane power reveals the answer!';
+              } else {
+                // Not enough charges, refund the one we took
+                player.abilities.empoweredSpell.uses++;
+                feedbackMessage = 'Empowered Spell needs 2 charges for non-math questions. (Only 1 charge for math)';
+              }
+            }
+            break;
+            
+          case 'arcaneKnowledge':
+            // Deduct use
+            if (player.abilities[abilityKey].uses > 0) {
+              player.abilities[abilityKey].uses--;
+            }
+            // FIXED: Detailed question-type-specific hints
+            feedbackMessage = `Arcane Knowledge reveals: ${getDetailedQuestionHint(q)}`;
+            break;
+            
+          case 'eliminate':
+            // KEEP STACKING: User wants this as tactical choice
+            const wrongAnswerOptions = [];
+            q.options.forEach((opt, index) => {
+              if (index !== q.correct && !player.activeEffects.eliminatedAnswers.includes(index)) {
+                wrongAnswerOptions.push(index);
+              }
+            });
+            if (wrongAnswerOptions.length > 0) {
+              // Deduct use
+              if (player.abilities[abilityKey].uses > 0) {
+                player.abilities[abilityKey].uses--;
+              }
+              const randomWrong = wrongAnswerOptions[Math.floor(Math.random() * wrongAnswerOptions.length)];
+              player.activeEffects.eliminatedAnswers.push(randomWrong);
+              applyEliminatedAnswers();
+              feedbackMessage = 'Eliminate: One wrong answer has been removed from consideration.';
+            } else {
+              feedbackMessage = 'Eliminate: No more wrong answers to remove!';
+            }
+            break;
+            
+          case 'shadowStep':
+            // Deduct use
+            if (player.abilities[abilityKey].uses > 0) {
+              player.abilities[abilityKey].uses--;
+            }
+            currentQuestionIndex++;
+            loadQuestion();
+            feedbackMessage = 'Shadow Step: You slip past this challenge undetected.';
+            return; // Exit early since we're loading next question
+            
+          case 'secondLook':
+            // Deduct use
+            if (player.abilities[abilityKey].uses > 0) {
+              player.abilities[abilityKey].uses--;
+            }
+            // FIXED: True retry system - marks for use BEFORE wrong answer
+            player.activeEffects.secondLookUsed = true;
+            feedbackMessage = 'Second Look prepared: Question will reset if you answer incorrectly!';
+            break;
+            
+          case 'emotionalInsight':
+            // ENHANCED: Show explanation text without revealing answer
+            if (q.explanation) {
+              // Deduct use
+              if (player.abilities[abilityKey].uses > 0) {
+                player.abilities[abilityKey].uses--;
+              }
+              feedbackMessage = `Emotional Insight reveals the key concept:\n\n"${q.explanation}"\n\nUse this knowledge to find the right answer!`;
+            } else {
+              // Fallback: Eliminate one wrong answer if no explanation exists
+              const emotionalWrongAnswers = [];
+              q.options.forEach((opt, index) => {
+                if (index !== q.correct && !player.activeEffects.eliminatedAnswers.includes(index)) {
+                  emotionalWrongAnswers.push(index);
+                }
+              });
+              if (emotionalWrongAnswers.length > 0) {
+                // Deduct use
+                if (player.abilities[abilityKey].uses > 0) {
+                  player.abilities[abilityKey].uses--;
+                }
+                const randomWrong = emotionalWrongAnswers[Math.floor(Math.random() * emotionalWrongAnswers.length)];
+                player.activeEffects.eliminatedAnswers.push(randomWrong);
+                applyEliminatedAnswers();
+                feedbackMessage = 'Emotional Insight: Understanding the characters reveals one wrong answer.';
+              } else {
+                feedbackMessage = 'Emotional Insight: No additional insights available for this question.';
+              }
+            }
+            break;
+            
+          case 'keenEye':
+            // Unlimited use - no deduction
+            feedbackMessage = `Keen Eye reveals: ${getQuestionDifficulty(q)} difficulty, ${selectedApproach || 'General'} approach.`;
+            break;
+            
+          case 'trailBlazer':
+            const oldFocus = player.focus;
+            player.focus = Math.min(150, (player.focus || 100) + 25);
+            const actualGain = player.focus - oldFocus;
+            
+            if (player.focus === 150 && oldFocus === 150) {
+              feedbackMessage = 'Trail Blazer: Already at maximum overcharge (150)!';
+            } else {
+              // Deduct use
+              if (player.abilities[abilityKey].uses > 0) {
+                player.abilities[abilityKey].uses--;
+              }
+              
+              if (player.focus === 150) {
+                feedbackMessage = `Trail Blazer: +${actualGain} Focus! ⚠️ Maximum overcharge reached (150)!`;
+              } else if (player.focus > 100) {
+                feedbackMessage = `Trail Blazer: +${actualGain} Focus! Overcharged status active!`;
+              } else {
+                feedbackMessage = `Trail Blazer: +${actualGain} Focus restored!`;
+              }
+            }
+            
+            updatePlayerStats();
+            break;
+        }
+        
+        // Show ability feedback
+        const existingFeedback = document.querySelector('.ability-feedback');
+        if (existingFeedback) existingFeedback.remove();
+        
+        const abilityFeedback = document.createElement('div');
+        abilityFeedback.className = 'ability-feedback';
+        abilityFeedback.style.whiteSpace = 'pre-line'; // Allow line breaks in feedback
+        abilityFeedback.textContent = feedbackMessage;
+        
+        const abilityContainer = document.getElementById('ability-container');
+        abilityContainer.appendChild(abilityFeedback);
+        
+        setTimeout(() => {
+          if (abilityFeedback.parentNode) {
+            abilityFeedback.parentNode.removeChild(abilityFeedback);
+          }
+        }, 5000); // Longer display for Emotional Insight
+        
+        renderClassAbilities();
+        await savePlayerProgress();
+        showNotification('Ability Used!', 'ability-used');
+      };
+
+      const applyEliminatedAnswers = () => {
+        const answerButtons = document.querySelectorAll('#answer-options .answer-option');
+        answerButtons.forEach((btn, index) => {
+          if (player.activeEffects.eliminatedAnswers.includes(index)) {
+            btn.classList.add('eliminated');
+            btn.disabled = true;
+          }
+        });
+      };
+
+      const highlightCorrectAnswer = () => {
+        const answerButtons = document.querySelectorAll('#answer-options .answer-option');
+        answerButtons.forEach(btn => btn.classList.remove('selected'));
+        if (answerButtons[selectedAnswerIndex]) {
+          answerButtons[selectedAnswerIndex].classList.add('selected');
+          submitAnswerBtn.style.display = 'block';
+        }
+      };
+
+      // ENHANCED: Detailed question-type-specific hints
+      const getDetailedQuestionHint = (question) => {
+        if (!selectedApproach) {
+          return 'careful analysis of all available information';
+        }
+        
+        const hints = {
+          'Logic (Science)': [
+            'analyzing the experimental data systematically',
+            'identifying cause-and-effect relationships in the data',
+            'examining the control variables and constants',
+            'understanding the scientific method applied here',
+            'looking for patterns in the measurements'
+          ],
+          'Persuasion (English)': [
+            'understanding the author\'s rhetorical strategy',
+            'identifying the tone and purpose of the passage',
+            'recognizing transitional phrases and their effects',
+            'analyzing sentence structure and word choice',
+            'finding the logical flow of the argument'
+          ],
+          'Calculation (Math)': [
+            'applying the correct formula or theorem',
+            'breaking down the problem into smaller steps',
+            'checking units and ensuring dimensional consistency',
+            'looking for patterns or relationships in the numbers',
+            'working backwards from the answer choices'
+          ],
+          'Empathy (Reading)': [
+            'understanding character motivations and conflicts',
+            'identifying the main idea versus supporting details',
+            'recognizing cause and effect in the narrative',
+            'paying attention to emotional undertones and subtext',
+            'tracking how relationships evolve through the passage'
+          ],
+          'General': [
+            'careful reading and attention to detail',
+            'eliminating obviously wrong answers first',
+            'looking for key words in both question and answers',
+            'trusting your first instinct after thorough analysis',
+            'checking if extreme answer choices are justified'
+          ]
+        };
+        
+        const approachHints = hints[selectedApproach] || hints['General'];
+        return approachHints[Math.floor(Math.random() * approachHints.length)];
+      };
+
+      const getQuestionHint = (question) => {
+        const hints = [
+          'careful reading and analysis',
+          'understanding of key concepts',
+          'attention to detail',
+          'logical reasoning skills',
+          'critical thinking abilities'
+        ];
+        return hints[Math.floor(Math.random() * hints.length)];
+      };
+
+      const getEmotionalContext = (question) => {
+        const contexts = [
+          'Pay attention to character motivations and relationships.',
+          'Consider the emotional undertones of the passage.',
+          'Look for clues about how characters feel about each other.',
+          'The answer often reflects the emotional truth of the situation.'
+        ];
+        return contexts[Math.floor(Math.random() * contexts.length)];
+      };
+
+      const getQuestionDifficulty = (question) => {
+        const difficulties = ['Easy', 'Medium', 'Hard'];
+        return difficulties[Math.floor(Math.random() * difficulties.length)];
+      };
+
+      // Generate dynamic feedback based on correct/incorrect answers
+      const getDynamicFeedback = (isCorrect, approach) => {
+        const correctFeedback = {
+          'Logic (Science)': [
+            'Your logical deduction is flawless!',
+            'Scientific precision guides your path!',
+            'Your analytical mind prevails!',
+            'Reasoning triumphs!'
+          ],
+          'Persuasion (English)': [
+            'Your words carry great power!',
+            'Eloquence opens new doors!',
+            'Your command of language is masterful!',
+            'Persuasion is your greatest weapon!'
+          ],
+          'Calculation (Math)': [
+            'Mathematical perfection achieved!',
+            'Your calculations are precise!',
+            'Numbers bend to your will!',
+            'Arithmetic excellence!'
+          ],
+          'Empathy (Reading)': [
+            'Your understanding runs deep!',
+            'Insight guides your choices!',
+            'Emotional intelligence prevails!',
+            'Empathy illuminates the path!'
+          ],
+          'General': [
+            'Excellent work!',
+            'Your wisdom shines through!',
+            'Well reasoned!',
+            'Knowledge is power!'
+          ]
+        };
+
+        const incorrectFeedback = {
+          'Logic (Science)': [
+            'The data suggests a different path...',
+            'Logic requires careful analysis.',
+            'Scientific method demands precision.',
+            'Reconsider the evidence.'
+          ],
+          'Persuasion (English)': [
+            'Your words did not convince.',
+            'Language requires careful consideration.',
+            'The message was unclear.',
+            'Eloquence comes with practice.'
+          ],
+          'Calculation (Math)': [
+            'The numbers tell a different story.',
+            'Mathematical precision is needed.',
+            'Check your calculations.',
+            'Every digit matters.'
+          ],
+          'Empathy (Reading)': [
+            'Understanding requires deeper reflection.',
+            'The true meaning was missed.',
+            'Insight comes with careful reading.',
+            'Empathy demands attention to detail.'
+          ],
+          'General': [
+            'Not quite right, but learning is part of the journey.',
+            'Every mistake is a lesson.',
+            'Consider the question more carefully.',
+            'Knowledge grows through practice.'
+          ]
+        };
+
+        const feedbackArray = isCorrect ? 
+          (correctFeedback[approach] || correctFeedback['General']) : 
+          (incorrectFeedback[approach] || incorrectFeedback['General']);
+        
+        return feedbackArray[Math.floor(Math.random() * feedbackArray.length)];
+      };
+		
