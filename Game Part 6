@@ -1,0 +1,794 @@
+
+      // ─────────────────────────────────────────────────────────────
+      // EPISODE OPENING
+      // ─────────────────────────────────────────────────────────────
+      const generateEpisodeOpening = async (episode) => {
+        console.log('Generating episode opening via Cloud Function...');
+
+        showNarrativeLoading('Conjuring your story…');
+
+        try {
+          const desc  = getEpisodeDescription(episode);
+          const level = Math.floor((player.xp || 0) / 100) + 1;
+
+          let reputation = 'Apprentice';
+          if (typeof reputationSystem !== 'undefined' && reputationSystem.reputation != null) {
+            const r = reputationSystem.reputation;
+            if      (r >= 75) reputation = 'Legend';
+            else if (r >= 50) reputation = 'Master';
+            else if (r >= 25) reputation = 'Expert';
+            else if (r >=  0) reputation = 'Journeyman';
+          }
+
+          const totalQ = episode.encounters
+            ? episode.encounters.reduce((sum, enc) => sum + (enc.qCount || enc.questionsPerApproach || 0), 0)
+            : 5;
+
+          const prompt = `You are the Dungeon Master for Test Quest, an educational adventure game. Generate a unique, engaging opening narrative for this episode. Every playthrough must feel fresh and different.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode Title: "${episodeNarrative.episodeTitle}"
+- Episode Description: "${desc}"
+- Player: ${player.name}, a Level ${level} ${player.className}
+- Reputation: ${reputation}
+- Difficulty: ${adaptiveDifficulty ? adaptiveDifficulty.currentLevel : 5}/10
+- Challenges Ahead: ${totalQ} trials
+
+NARRATIVE DIRECTION (follow these to make this playthrough unique):
+- Character Framing: Tell this ${episodeNarrative.sessionPerspective}
+- Atmosphere: ${episodeNarrative.sessionAtmosphere}
+- Opening Approach: ${episodeNarrative.sessionHook}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+CONTENT REQUIREMENTS:
+- Write 2-3 paragraphs in ${episodeNarrative.genre} style
+- Draw directly from the Episode Description — use its specific details, characters, and setting
+- Address the player as ${player.name} and acknowledge their ${player.className} class
+- Reference specific elements from the description (locations, characters, events mentioned)
+- Set up the stakes described in the episode
+- Hint at the ${totalQ} challenges ahead without calling them "questions"
+- Match tone to their reputation level (${reputation})
+- Keep it immersive and exciting
+- NO meta-references to "questions", "answers", or "game mechanics"
+- Make this feel completely different from a standard opening
+
+Generate the opening narrative now:`;
+
+          console.log('=== Calling Cloud Function ===');
+          console.log('Sending prompt (length):', prompt.length);
+          console.log('Episode description:', desc.substring(0, 100) + '...');
+          console.log('Narrative seeds:', episodeNarrative.sessionPerspective, '|', episodeNarrative.sessionAtmosphere);
+
+          const narrative = await callNarrativeFunction(prompt, 600);
+
+          episodeNarrative.openingNarrative = narrative;
+          displayNarrative(narrative, 'opening');
+          console.log('AI opening displayed successfully');
+          return narrative;
+
+        } catch (error) {
+          console.error('AI opening generation failed:', error);
+          hideNarrativeLoading();
+          const fallback = generateTemplateOpening(episode);
+          episodeNarrative.openingNarrative = fallback;
+          displayNarrative(fallback, 'opening');
+          return fallback;
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // ENCOUNTER TRANSITION — called between encounters
+      // ─────────────────────────────────────────────────────────────
+      const generateEncounterTransition = async (context) => {
+        const {
+          encounterTitle, correctAnswers, totalQuestions,
+          accuracy, passed, minAccuracy, minCorrect,
+          isLastEncounter
+        } = context;
+
+        const nextEncounter = !isLastEncounter
+          ? currentEpisode.encounters[currentEncounterIndex]
+          : null;
+
+        const nextDesc = nextEncounter
+          ? (nextEncounter.narrative || nextEncounter.title || '')
+          : '';
+
+        const performanceLabel = accuracy >= 80 ? 'exceptional' :
+                                 accuracy >= 60 ? 'solid'       :
+                                 accuracy >= 40 ? 'struggling'  : 'difficult';
+
+        try {
+          const prompt = `You are the Dungeon Master narrating a transition between story beats in a ${episodeNarrative.genre} adventure.
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+WRITING STYLE: ${episodeNarrative.sessionStyle}
+
+JUST COMPLETED: "${encounterTitle}"
+- Result: ${passed ? 'SUCCESS' : 'SETBACK'} (${correctAnswers}/${totalQuestions} correct, ${accuracy}%)
+- Performance: ${performanceLabel}
+
+${nextDesc ? `NEXT CHALLENGE AHEAD: "${nextDesc}"` : 'FINAL CHALLENGE APPROACHING'}
+
+GUIDELINES:
+- Write 2-3 paragraphs
+- Reflect their ${performanceLabel} performance — ${passed
+    ? 'acknowledge their success and build momentum'
+    : 'show consequences of the setback but keep hope alive'}
+- ${passed
+    ? 'They earned this transition — make it feel triumphant'
+    : 'They struggled — show an alternative path, a cost, or a harder road ahead'}
+- Naturally transition into the next challenge using its description
+- Draw from episode-specific details, characters, and setting
+- NO meta-references to "questions", "answers", or "score"
+- Make it feel like a D&D game master reacting to dice rolls
+
+Generate the transition narrative:`;
+
+          const narrative = await callNarrativeFunction(prompt, 500);
+          displayNarrative(narrative, 'transition');
+          return narrative;
+
+        } catch (error) {
+          console.error('Encounter transition generation failed:', error);
+          hideNarrativeLoading();
+
+          const fallback = passed
+            ? `${player.name} presses forward, their recent success giving them confidence. The next challenge awaits.`
+            : `${player.name} regathers themselves after a difficult trial. There is still a path forward — though it may be harder than before.`;
+          displayNarrative(fallback, 'transition');
+          return fallback;
+        }
+      };
+
+      const generateTemplateOpening = (episode) => {
+        const genre   = episode.genre || episode.theme || 'Fantasy';
+        const level   = Math.floor((player.xp || 0) / 100) + 1;
+        const desc    = getEpisodeDescription(episode);
+        const preview = desc ? desc.split('.').slice(0, 2).join('.') + '.' : '';
+        const templates = {
+          'Fantasy':          `${player.name}, your ${player.className} training has led you to this moment. ${preview} As a Level ${level} adventurer, ancient magic pulses through the air as you prepare to face the trials ahead.`,
+          'Sci-Fi':           `Captain ${player.name}, your ${player.className} expertise is required for this critical mission. ${preview} Your Level ${level} clearance grants access, but solving this demands sharp analytical thinking.`,
+          'Space/Sci-Fi':     `Captain ${player.name}, your ${player.className} expertise is required for this critical mission. ${preview} Your Level ${level} clearance grants access, but solving this demands sharp analytical thinking.`,
+          'Mystery':          `Detective ${player.name}, your reputation as a Level ${level} ${player.className} precedes you. ${preview} Time to put your analytical mind to work.`,
+          'Historical':       `${player.name}, history remembers those who rise to meet great challenges. ${preview} As a Level ${level} ${player.className}, the echoes of history call to you.`,
+          'Medieval Fantasy': `${player.name}, your ${player.className} training has led you to this moment. ${preview} As a Level ${level} adventurer, the fate of the realm rests in your hands.`
+        };
+        return templates[genre] || templates['Fantasy'];
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // QUESTION RESPONSE
+      // ─────────────────────────────────────────────────────────────
+      const generateQuestionResponse = async (questionResult) => {
+        try {
+          const { isCorrect, questionNumber, totalQuestions, abilityUsed, streak, currentFocus } = questionResult;
+          const prompt = `You are the Dungeon Master narrating an ongoing ${episodeNarrative.genre} adventure. React to the player's action in 1-2 sentences.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Question ${questionNumber} of ${totalQuestions}
+- Result: ${isCorrect ? 'SUCCESS' : 'FAILURE'}
+${abilityUsed && abilityUsed !== 'none' ? `- Ability Used: ${abilityUsed}` : ''}
+- Focus: ${currentFocus}
+${streak >= 3 ? `- Current Streak: ${streak} (impressive!)` : ''}
+- Tone: ${episodeNarrative.tonalShift}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+GUIDELINES:
+- Write 1-2 sentences ONLY
+- React to their ${isCorrect ? 'success' : 'setback'} in context of this specific episode
+- Reference elements from the episode description when possible
+${streak >= 3 ? '- Note their impressive streak!' : ''}
+- NO meta-references to "questions"
+
+Generate response:`;
+
+          const narrative = await callNarrativeFunction(prompt, 150);
+          episodeNarrative.questionNarratives.push(narrative);
+          return narrative;
+        } catch (error) {
+          console.error('Question response generation failed:', error);
+          return null;
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // EPISODE ENDING
+      // ─────────────────────────────────────────────────────────────
+      const generateEpisodeEnding = async (endingContext) => {
+        try {
+          const { tier, percentage, totalQuestions, correctAnswers, bestStreak, tonalShift } = endingContext;
+          const prompt = `You are the Dungeon Master concluding a ${episodeNarrative.genre} adventure. Write a 2-3 paragraph ending.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name}, Level ${Math.floor((player.xp || 0) / 100) + 1} ${player.className}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+PERFORMANCE:
+- Result: ${tier.toUpperCase()} (${percentage}% accuracy)
+- Completed: ${correctAnswers}/${totalQuestions} challenges
+- Best Streak: ${bestStreak}
+- Overall Tone: ${tonalShift}
+
+GUIDELINES:
+- Write 2-3 paragraphs concluding the story
+- Draw from the episode description — resolve its specific plot elements
+- Reference their ${tier} performance naturally
+- ${percentage >= 90 ? 'Celebrate their excellence' : percentage >= 75 ? 'Acknowledge solid performance' : percentage >= 60 ? 'Note progress while encouraging improvement' : 'Acknowledge difficulty while highlighting lessons learned'}
+- NO meta-references to "questions" or "tests"
+
+Generate the ending:`;
+
+          return await callNarrativeFunction(prompt, 600);
+        } catch (error) {
+          console.error('Episode ending generation failed:', error);
+          return '';
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // FOCUS EXHAUSTION
+      // ─────────────────────────────────────────────────────────────
+      const generateFocusExhaustionMoment = async (context) => {
+        try {
+          const { questionsCompleted, questionsRemaining, recentFailures } = context;
+          const prompt = `You are the Dungeon Master narrating a critical moment in a ${episodeNarrative.genre} adventure. The player has exhausted their focus.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Completed: ${questionsCompleted} challenges, ${questionsRemaining} remaining
+- Recent failures: ${recentFailures}
+- Tone: ${episodeNarrative.tonalShift}
+
+GUIDELINES:
+- Write 2-3 sentences capturing this CRITICAL moment
+- Tie exhaustion to something specific in the episode's setting or plot
+- Show the physical/mental toll on the player
+- Create dramatic tension
+- NO meta-references to "focus" or "game mechanics"
+
+Generate the exhaustion moment:`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Focus exhaustion narrative failed:', error);
+          return '';
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // STREAK MILESTONE
+      // ─────────────────────────────────────────────────────────────
+      const generateStreakMilestone = async (streak) => {
+        try {
+          const prompt = `You are the Dungeon Master celebrating a ${streak}-challenge streak in a ${episodeNarrative.genre} adventure!
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+
+Write 1-2 sentences celebrating their momentum, tied to the episode's world.
+${streak === 3  ? 'Acknowledge they found their rhythm.' : ''}
+${streak === 5  ? 'Show impressive sustained excellence.' : ''}
+${streak >= 10  ? 'Treat this as legendary performance.' : ''}
+NO meta-references to "streak" or "score".`;
+
+          return await callNarrativeFunction(prompt, 150);
+        } catch (error) {
+          console.error('Streak milestone generation failed:', error);
+          return '';
+        }
+      };
+
+      const showStreakMilestone = (streak, narrative) => {
+        const existing = document.getElementById('streak-milestone-overlay');
+        if (existing) existing.remove();
+
+        const el = document.createElement('div');
+        el.id = 'streak-milestone-overlay';
+        el.style.cssText = `
+          position:fixed; top:20%; left:50%; transform:translateX(-50%);
+          background:linear-gradient(145deg,rgba(46,204,113,0.95),rgba(39,174,96,0.95));
+          border:3px solid #f39c12; border-radius:15px; padding:25px;
+          max-width:500px; z-index:9999;
+          box-shadow:0 10px 40px rgba(0,0,0,0.5);
+          animation:slideDown 0.3s ease-out;
+        `;
+
+        const dismiss = () => {
+          const overlay = document.getElementById('streak-milestone-overlay');
+          if (overlay) {
+            overlay.style.animation = 'slideUp 0.3s ease-in';
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+          }
+        };
+
+        el.innerHTML = `
+          <div style="position:relative;">
+            <button id="streak-close-btn"
+                    style="position:absolute;top:-10px;right:-10px;
+                           background:rgba(255,255,255,0.9);border:none;border-radius:50%;
+                           width:30px;height:30px;font-size:18px;cursor:pointer;
+                           box-shadow:0 2px 8px rgba(0,0,0,0.3);
+                           display:flex;align-items:center;justify-content:center;">x</button>
+            <h3 style="color:#fff;margin:0 0 15px 0;font-family:'Cinzel',serif;font-size:24px;text-align:center;">
+              🔥 ${streak}-Challenge Streak! 🔥
+            </h3>
+            <p style="color:#fff;margin:0 0 15px 0;font-size:16px;line-height:1.7;text-align:center;">
+              ${narrative}
+            </p>
+            <button id="streak-continue-btn"
+                    style="display:block;width:100%;padding:10px;
+                           background:rgba(255,255,255,0.2);border:2px solid rgba(255,255,255,0.5);
+                           border-radius:8px;color:white;font-size:14px;font-weight:600;cursor:pointer;">
+              Continue
+            </button>
+          </div>
+        `;
+        document.body.appendChild(el);
+
+        document.getElementById('streak-close-btn').onclick    = dismiss;
+        document.getElementById('streak-continue-btn').onclick = dismiss;
+
+        setTimeout(() => dismiss(), 12000);
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // HALFWAY POINT
+      // ─────────────────────────────────────────────────────────────
+      const generateHalfwayPoint = async (context) => {
+        try {
+          const { questionsCompleted, questionsRemaining, accuracy } = context;
+          const prompt = `You are the Dungeon Master narrating the halfway point in a ${episodeNarrative.genre} adventure.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Completed: ${questionsCompleted}, Remaining: ${questionsRemaining}
+- Performance: ${accuracy}% accuracy
+- Tone: ${episodeNarrative.tonalShift}
+
+Write 2-3 sentences marking this turning point. Reference the episode's specific setting or stakes.
+${accuracy >= 75 ? 'Hint at greater challenges ahead.' : accuracy >= 50 ? 'Encourage continued effort.' : 'Offer hope for the second half.'}
+NO meta-references to "halfway" or "questions".`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Halfway point generation failed:', error);
+          return '';
+        }
+      };
+
+      const showHalfwayMoment = (narrative) => {
+        const el = document.createElement('div');
+        el.style.cssText = `
+          position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+          background:linear-gradient(145deg,rgba(52,73,94,0.98),rgba(44,62,80,0.98));
+          border:3px solid #f39c12; border-radius:15px; padding:30px;
+          max-width:600px; z-index:9999;
+          box-shadow:0 20px 60px rgba(0,0,0,0.8);
+        `;
+        el.innerHTML = `
+          <h3 style="color:#f39c12;margin:0 0 15px 0;font-family:'Cinzel',serif;font-size:24px;text-align:center;">
+            ⚡ Turning Point ⚡
+          </h3>
+          <p style="color:#ecf0f1;margin:0 0 20px 0;font-size:15px;line-height:1.8;">
+            ${narrative}
+          </p>
+          <button id="halfway-continue"
+                  style="width:100%;padding:12px;
+                         background:linear-gradient(145deg,#f39c12,#e67e22);
+                         border:none;border-radius:8px;color:white;
+                         font-size:16px;font-weight:bold;cursor:pointer;">
+            ✦ Continue the Journey ✦
+          </button>
+        `;
+        document.body.appendChild(el);
+        document.getElementById('halfway-continue').onclick = () => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        };
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // TEACHING MOMENTS — full overlay, persistent until clicked
+      // ─────────────────────────────────────────────────────────────
+      const generateStruggleHint = async (context) => {
+        try {
+          const { consecutiveFailures, availableAbilities } = context;
+          const abilityList = availableAbilities && availableAbilities.length > 0
+            ? availableAbilities.join(', ') : 'none';
+          const prompt = `You are the Dungeon Master providing gentle guidance to a struggling player in a ${episodeNarrative.genre} adventure.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Consecutive failures: ${consecutiveFailures}
+- Available abilities: ${abilityList}
+
+Write 2-3 ENCOURAGING sentences framed through the episode's world.
+${abilityList !== 'none' ? `Gently remind them of available abilities: ${abilityList}` : ''}
+End on a hopeful note tied to the episode's stakes.
+NO meta-references to "wrong answers" or "game".`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Struggle hint generation failed:', error);
+          return '';
+        }
+      };
+
+      const generateComebackCoaching = async (previousFailures) => {
+        try {
+          const lastQ       = currentQuestionSet ? currentQuestionSet[currentQuestionIndex] : null;
+          const explanation = lastQ ? (lastQ.explanation || '') : '';
+          const prompt = `You are the Dungeon Master teaching a concept in a ${episodeNarrative.genre} adventure. The player just answered correctly after ${previousFailures} failures.
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+${explanation ? `Explanation: ${explanation}` : ''}
+
+Write 2-3 sentences that TEACH why the answer was correct. Frame the lesson through the episode's world — make it feel like wisdom earned in this adventure.
+NO meta-references to "questions" or "game".`;
+
+          return await callNarrativeFunction(prompt, 250);
+        } catch (error) {
+          console.error('Comeback coaching generation failed:', error);
+          return '';
+        }
+      };
+
+      const showTeachingMoment = (message, type) => {
+        const styles = {
+          struggle: {
+            bg:    'linear-gradient(145deg,rgba(230,126,34,0.97),rgba(211,84,0,0.97))',
+            border: '#e67e22', icon: '💡', title: 'Insight'
+          },
+          success: {
+            bg:    'linear-gradient(145deg,rgba(52,152,219,0.97),rgba(41,128,185,0.97))',
+            border: '#3498db', icon: '📚', title: 'Wisdom Gained'
+          }
+        };
+        const s = styles[type] || styles.struggle;
+
+        const existing = document.getElementById('teaching-moment-overlay');
+        if (existing) existing.remove();
+
+        const el = document.createElement('div');
+        el.id = 'teaching-moment-overlay';
+        el.style.cssText = `
+          position:fixed; top:0; left:0; right:0; bottom:0;
+          background:rgba(0,0,0,0.55);
+          display:flex; align-items:center; justify-content:center;
+          z-index:10000; padding:20px;
+        `;
+        el.innerHTML = `
+          <div style="
+            background:${s.bg};
+            border:3px solid ${s.border};
+            border-radius:16px; padding:30px;
+            max-width:560px; width:100%;
+            box-shadow:0 20px 60px rgba(0,0,0,0.6);
+          ">
+            <h3 style="
+              color:#fff; margin:0 0 16px 0;
+              font-family:'Cinzel',serif; font-size:22px;
+              text-align:center; letter-spacing:0.05em;
+            ">${s.icon} ${s.title} ${s.icon}</h3>
+            <p style="
+              color:#fff; margin:0 0 24px 0;
+              font-size:16px; line-height:1.8; font-style:normal;
+            ">${message}</p>
+            <button onclick="document.getElementById('teaching-moment-overlay').remove()"
+                    style="
+                      display:block; width:100%; padding:14px;
+                      background:rgba(255,255,255,0.2);
+                      border:2px solid rgba(255,255,255,0.6);
+                      border-radius:10px; color:white;
+                      font-size:16px; font-weight:700; cursor:pointer;
+                      letter-spacing:0.05em;
+                    "
+                    onmouseover="this.style.background='rgba(255,255,255,0.35)'"
+                    onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+              ✦ Got it — Continue ✦
+            </button>
+          </div>
+        `;
+        el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
+        document.body.appendChild(el);
+      };
+
+      // ═══════════════════════════════════════════════════════════════
+      // CUTSCENE SYSTEM v1
+      // Cinematic (single image + typewriter text) and
+      // Graphic Novel (3-panel comic layout) modes.
+      // Called from Section 12 (encounter transitions) and
+      // Section 15 (episode completion).
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── Generate one image via Cloud Function ─────────────────────
+      const generateCutsceneImage = async (imagePrompt, aspectRatio = '16:9') => {
+        const fn = httpsCallable(functions, 'generateCutsceneImage');
+        const result = await fn({ imagePrompt, aspectRatio });
+        if (result.data && result.data.success && result.data.imageData) {
+          return `data:${result.data.mimeType || 'image/png'};base64,${result.data.imageData}`;
+        }
+        throw new Error('No image data returned from generateCutsceneImage');
+      };
+
+      // ── Build image prompt from episode/encounter context ─────────
+      const buildCutsceneImagePrompt = (context) => {
+        const { genre, episodeTitle, encounterTitle, passed, isCompletion, performanceLabel } = context;
+        const outcomeDesc = isCompletion
+          ? (performanceLabel === 'exceptional' || performanceLabel === 'solid'
+              ? 'triumphant hero celebrating victory, golden light'
+              : 'weary but determined hero, hard-won wisdom, reflective')
+          : (passed
+              ? 'hero moving forward confidently after a victory'
+              : 'hero regrouping after a setback, determined expression');
+        return `${genre || 'fantasy'} adventure scene. ${encounterTitle || episodeTitle || 'epic quest'}. ${outcomeDesc}. Epic cinematic composition, no text, no UI elements.`;
+      };
+
+      // ── CINEMATIC MODE: single image + typewriter narrative ───────
+      const showCinematicCutscene = (narrative, imageSrc, onComplete) => {
+        const screen    = document.getElementById('cutscene-screen');
+        const cinematic = document.getElementById('cutscene-cinematic');
+        const novel     = document.getElementById('cutscene-graphic-novel');
+        const loading   = document.getElementById('cutscene-loading');
+        const bg        = document.getElementById('cutscene-bg');
+        const bgImg     = document.getElementById('cutscene-bg-img');
+        const textWrap  = document.getElementById('cutscene-text-wrap');
+        const textEl    = document.getElementById('cutscene-narrative-text');
+        const contBtn   = document.getElementById('cutscene-continue-btn');
+        const skipBtn   = document.getElementById('cutscene-skip-btn');
+        if (!screen || !cinematic) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display    = 'flex';
+        cinematic.style.display = 'block';
+        novel.style.display     = 'none';
+        loading.style.display   = 'none';
+        bg.style.opacity        = '0';
+        textWrap.style.opacity  = '0';
+        textEl.textContent      = '';
+        contBtn.style.display   = 'none';
+
+        const finish = () => {
+          screen.style.display    = 'none';
+          cinematic.style.display = 'none';
+          if (typeof onComplete === 'function') onComplete();
+        };
+        skipBtn.onclick = finish;
+        contBtn.onclick = finish;
+
+        const startText = () => {
+          textWrap.style.opacity = '1';
+          let i = 0;
+          const type = () => {
+            if (i < narrative.length) { textEl.textContent += narrative[i++]; setTimeout(type, 8); }
+            else { contBtn.style.display = 'inline-block'; }
+          };
+          type();
+        };
+
+        if (imageSrc) {
+          bgImg.src = imageSrc;
+          bgImg.onload = () => {
+            setTimeout(() => { bg.style.opacity = '1'; setTimeout(startText, 800); }, 100);
+          };
+          bgImg.onerror = () => {
+            bgImg.style.display = 'none';
+            bg.style.backgroundColor = '#1a1a2e';
+            bg.style.opacity = '1';
+            setTimeout(startText, 400);
+          };
+        } else {
+          bg.style.backgroundColor = '#1a1a2e';
+          bg.style.opacity = '1';
+          setTimeout(startText, 400);
+        }
+      };
+
+      // ── GRAPHIC NOVEL MODE: 3 panels, staggered reveal ────────────
+      const showGraphicNovelCutscene = (panels, title, onComplete) => {
+        const screen  = document.getElementById('cutscene-screen');
+        const novel   = document.getElementById('cutscene-graphic-novel');
+        const cinema  = document.getElementById('cutscene-cinematic');
+        const loading = document.getElementById('cutscene-loading');
+        const gnTitle = document.getElementById('gn-title');
+        const titleEl = document.getElementById('gn-title-text');
+        const grid    = document.getElementById('gn-panels');
+        const contBtn = document.getElementById('gn-continue-btn');
+        if (!screen || !novel) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display  = 'flex';
+        novel.style.display   = 'block';
+        cinema.style.display  = 'none';
+        loading.style.display = 'none';
+        grid.innerHTML        = '';
+        contBtn.style.display = 'none';
+        gnTitle.style.opacity = '0';
+
+        if (title) { titleEl.textContent = title; setTimeout(() => { gnTitle.style.opacity = '1'; }, 200); }
+
+        const finish = () => {
+          screen.style.display = 'none';
+          novel.style.display  = 'none';
+          if (typeof onComplete === 'function') onComplete();
+        };
+        contBtn.onclick = finish;
+
+        let loadedCount = 0;
+        const checkAllLoaded = () => {
+          loadedCount++;
+          if (loadedCount === panels.length) {
+            setTimeout(() => { contBtn.style.display = 'inline-block'; }, 400);
+          }
+        };
+
+        panels.forEach((panel, i) => {
+          const panelEl = document.createElement('div');
+          panelEl.className = 'gn-panel';
+
+          const img = document.createElement('img');
+          img.alt = `Panel ${i + 1}`;
+
+          const caption = document.createElement('div');
+          caption.className = 'gn-panel-caption';
+          caption.textContent = panel.caption || '';
+
+          panelEl.appendChild(img);
+          panelEl.appendChild(caption);
+          grid.appendChild(panelEl);
+
+          const reveal = () => setTimeout(() => { panelEl.classList.add('revealed'); checkAllLoaded(); }, i * 350);
+
+          img.onload  = reveal;
+          img.onerror = () => {
+            img.style.display = 'none';
+            panelEl.style.minHeight = '140px';
+            panelEl.style.display = 'flex';
+            panelEl.style.alignItems = 'center';
+            panelEl.style.justifyContent = 'center';
+            reveal();
+          };
+          img.src = panel.imageSrc;
+        });
+      };
+
+      // ── ORCHESTRATOR: cinematic (generates image then shows) ──────
+      const playCinematicCutscene = async (transitionContext, narrative, onComplete) => {
+        const screen  = document.getElementById('cutscene-screen');
+        const loading = document.getElementById('cutscene-loading');
+        const loadTxt = document.getElementById('cutscene-loading-text');
+        if (!screen) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display = 'flex';
+        loading.style.display = 'flex';
+        document.getElementById('cutscene-cinematic').style.display    = 'none';
+        document.getElementById('cutscene-graphic-novel').style.display = 'none';
+        if (loadTxt) loadTxt.textContent = '♦ Painting your world… ♦';
+
+        try {
+          const imagePrompt = buildCutsceneImagePrompt({
+            genre:             episodeNarrative.genre,
+            episodeTitle:      episodeNarrative.episodeTitle,
+            encounterTitle:    transitionContext.encounterTitle || '',
+            passed:            transitionContext.passed,
+            isCompletion:      transitionContext.isCompletion || false,
+            performanceLabel:  transitionContext.performanceLabel || 'solid'
+          });
+          const imageSrc = await generateCutsceneImage(imagePrompt, '16:9');
+          showCinematicCutscene(narrative, imageSrc, onComplete);
+        } catch (err) {
+          console.error('Cinematic cutscene image failed:', err);
+          showCinematicCutscene(narrative, '', onComplete);
+        }
+      };
+
+      // ── ORCHESTRATOR: graphic novel (3 parallel images) ──────────
+      const playGraphicNovelCutscene = async (episode, endingContext, narrative, onComplete) => {
+        const screen  = document.getElementById('cutscene-screen');
+        const loading = document.getElementById('cutscene-loading');
+        const loadTxt = document.getElementById('cutscene-loading-text');
+        if (!screen) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display = 'flex';
+        loading.style.display = 'flex';
+        document.getElementById('cutscene-cinematic').style.display    = 'none';
+        document.getElementById('cutscene-graphic-novel').style.display = 'none';
+        if (loadTxt) loadTxt.textContent = '♦ Illustrating your legend… ♦';
+
+        const { percentage } = endingContext;
+        const performanceLabel = percentage >= 80 ? 'exceptional' :
+                                 percentage >= 60 ? 'solid'       :
+                                 percentage >= 40 ? 'struggling'  : 'difficult';
+        const desc  = episodeNarrative.episodeDescription || episodeNarrative.episodeTitle || episode.title || 'epic quest';
+        const genre = episodeNarrative.genre || 'fantasy';
+
+        // Split narrative into 3 captions
+        const sentences = narrative ? narrative.split(/(?<=[.!?])\s+/).filter(s => s.trim()) : [];
+        const third = Math.ceil(sentences.length / 3);
+        const caps = [
+          sentences.slice(0, third).join(' ') || `${player.name} sets forth.`,
+          sentences.slice(third, third * 2).join(' ') || 'The greatest trial is met.',
+          sentences.slice(third * 2).join(' ') || `${player.name}'s legend grows.`
+        ];
+
+        const panelPrompts = [
+          { prompt: `${genre} adventure opening scene. ${desc}. ${player.name} the hero arrives, establishing shot, dramatic sky.`, caption: caps[0] },
+          { prompt: `${genre} adventure climax. ${player.name} the ${player.className} faces the ultimate challenge. Intense action, dramatic lighting.`, caption: caps[1] },
+          { prompt: `${genre} adventure resolution. ${player.name} ${performanceLabel === 'exceptional' || performanceLabel === 'solid' ? 'triumphant, victorious, golden light' : 'determined, hard-won wisdom, sunset'}. Epic final scene.`, caption: caps[2] }
+        ];
+
+        const gnTitle = `${episode.title || episodeNarrative.episodeTitle} — ${
+          performanceLabel === 'exceptional' ? 'A Legend is Born'        :
+          performanceLabel === 'solid'       ? 'Victory Earned'          :
+          performanceLabel === 'struggling'  ? 'Lessons of the Trial'    : 'The Journey Continues'
+        }`;
+
+        try {
+          // Stagger panel requests and retry once on 429
+          const panelResults = [];
+          for (let pi = 0; pi < panelPrompts.length; pi++) {
+            if (pi > 0) await new Promise(r => setTimeout(r, 1000));
+            let attempt = 0;
+            let success = false;
+            while (attempt < 2 && !success) {
+              try {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 2500));
+                const img = await generateCutsceneImage(panelPrompts[pi].prompt, '4:3');
+                panelResults.push({ status: 'fulfilled', value: img });
+                success = true;
+              } catch (e) {
+                attempt++;
+                if (attempt >= 2) {
+                  console.warn(`Panel ${pi + 1} image failed after retry:`, e.message);
+                  panelResults.push({ status: 'rejected', reason: e });
+                } else {
+                  console.warn(`Panel ${pi + 1} attempt ${attempt} failed, retrying...`, e.message);
+                }
+              }
+            }
+          }
+          const panels = panelPrompts.map((p, i) => ({
+            imageSrc: panelResults[i].status === 'fulfilled' ? panelResults[i].value : '',
+            caption:  p.caption
+          }));
+          showGraphicNovelCutscene(panels, gnTitle, onComplete);
+        } catch (err) {
+          console.error('Graphic novel cutscene failed:', err);
+          // Fallback to cinematic
+          await playCinematicCutscene(
+            { passed: true, isCompletion: true, performanceLabel },
+            narrative,
+            onComplete
+          );
+        }
+      };
+
+      console.log('🎬 Cutscene system loaded — cinematic + graphic novel modes ready');
+
+      console.log('✅ Section 17 v5: AI Narrative Generation + Cutscene System loaded');
+      console.log('♦ Diamond loader: ENABLED (uses #narrative-loader — narrative-text untouched)');
+      console.log('✦ Teaching moments: persistent until clicked');
+      console.log('🔥 Streak milestone: clickable close + 12s auto-dismiss');
+      console.log('⚔️ Encounter transition: generateEncounterTransition ENABLED');
+	
+  </script>
+	
+</body>
+</html>
