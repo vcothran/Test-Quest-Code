@@ -1,0 +1,1065 @@
+       // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          canvas.dispatchEvent(new MouseEvent('mouseup'));
+        }, { passive: false });
+      };
+
+      // Make element draggable
+      const makeDraggable = (element, handle) => {
+        let isDragging = false;
+        let startX, startY;
+        
+        handle.onmousedown = (e) => {
+          if (e.target.id === 'close-scratch') return;
+          isDragging = true;
+          startX = e.clientX - element.offsetLeft;
+          startY = e.clientY - element.offsetTop;
+        };
+        
+        document.onmousemove = (e) => {
+          if (!isDragging) return;
+          element.style.left = (e.clientX - startX) + 'px';
+          element.style.top = (e.clientY - startY) + 'px';
+          element.style.right = 'auto';
+          element.style.bottom = 'auto';
+        };
+        
+        document.onmouseup = () => {
+          isDragging = false;
+        };
+      };
+
+      console.log('✅ Section 13: Direct Passage Annotation + Scratch Pad loaded');
+
+/* === SECTION 14: ADAPTIVE DIFFICULTY SYSTEM (MINIMAL) === */
+
+      // Adaptive difficulty system
+      const adaptiveDifficulty = {
+        currentLevel: 5,        // Scale 1-10 (5 = baseline ACT difficulty)
+        history: [],            // Last 3 episode difficulties
+        performanceHistory: [], // Last 3 episode scores
+        
+        // Calculate next difficulty based on performance
+        adjustDifficulty: function(performance) {
+          let adjustment = 0;
+          
+          if (performance >= 90) {
+            adjustment = 1;  // Mastery: level up!
+          } else if (performance >= 75) {
+            adjustment = 0;  // Proficient: maintain
+          } else if (performance >= 60) {
+            adjustment = -1; // Developing: easier
+          } else {
+            adjustment = -2; // Struggling: much easier
+          }
+          
+          this.currentLevel = Math.max(1, Math.min(10, this.currentLevel + adjustment));
+          this.history.push(this.currentLevel);
+          
+          // Keep only last 3
+          if (this.history.length > 3) {
+            this.history.shift();
+          }
+          
+          return this.currentLevel;
+        },
+        
+        // Get difficulty trend
+        getTrend: function() {
+          if (this.history.length < 2) return 'stable';
+          
+          const recent = this.history.slice(-2);
+          if (recent[1] > recent[0]) return 'rising';
+          if (recent[1] < recent[0]) return 'declining';
+          return 'stable';
+        },
+        
+        // Get difficulty descriptor for display
+        getDifficultyDescriptor: function() {
+          const descriptors = {
+            1: 'Basic fundamentals, Grade 8-9, ACT 16-19',
+            2: 'Foundational, Grade 9-10, ACT 20-23',
+            3: 'Intermediate, Grade 10, ACT 24-26',
+            4: 'Solid, Grade 10-11, ACT 27-29',
+            5: 'Standard ACT, Grade 11, ACT 28-30',
+            6: 'Challenging, Grade 11-12, ACT 31-33',
+            7: 'Advanced, Grade 12, ACT 34-35',
+            8: 'Highly Advanced, College-level, ACT 35-36',
+            9: 'Expert, Advanced College, Perfect Score',
+            10: 'Master, Graduate-level reasoning'
+          };
+          return descriptors[this.currentLevel] || descriptors[5];
+        }
+      };
+
+      // Reputation system
+      const reputationSystem = {
+        score: 0,               // -100 to +100
+        title: 'Apprentice',
+        relationshipScores: {},
+        
+        // Update reputation based on performance tier
+        updateReputation: function(tier) {
+          const changes = {
+            mastery: 15,
+            proficient: 5,
+            developing: 0,
+            struggling: -5
+          };
+          
+          this.score += changes[tier];
+          this.score = Math.max(-100, Math.min(100, this.score));
+          this.updateTitle();
+          
+          return this.score;
+        },
+        
+        // Update title based on score
+        updateTitle: function() {
+          if (this.score >= 80) {
+            this.title = 'Master Scholar';
+          } else if (this.score >= 60) {
+            this.title = 'Renowned Expert';
+          } else if (this.score >= 40) {
+            this.title = 'Skilled Practitioner';
+          } else if (this.score >= 20) {
+            this.title = 'Rising Scholar';
+          } else if (this.score >= 0) {
+            this.title = 'Dedicated Student';
+          } else if (this.score >= -20) {
+            this.title = 'Struggling Apprentice';
+          } else {
+            this.title = 'Novice Learner';
+          }
+        },
+        
+        // Update relationship with NPC
+        updateRelationship: function(npcId, change) {
+          if (!this.relationshipScores[npcId]) {
+            this.relationshipScores[npcId] = 50;
+          }
+          this.relationshipScores[npcId] += change;
+          this.relationshipScores[npcId] = Math.max(0, Math.min(100, this.relationshipScores[npcId]));
+        }
+      };
+
+      // Calculate performance tier (used by Character Stats panel)
+      const calculatePerformanceTier = (percentage) => {
+        if (percentage >= 90) return 'mastery';
+        if (percentage >= 75) return 'proficient';
+        if (percentage >= 60) return 'developing';
+        return 'struggling';
+      };
+
+      console.log('✅ Section 14: Adaptive Difficulty System (Minimal) loaded');
+
+/* === SECTION 15: ENDING SYSTEM v2 — with Cutscene Support === */
+
+      // Display episode ending and apply consequences
+      const completeEpisode = async () => {
+        const percentage = sessionStats.calculateAccuracy();
+        const tier = calculatePerformanceTier(percentage);
+
+        console.log(`Episode complete! Accuracy: ${percentage}%, Tier: ${tier}`);
+
+        // ── GENERATE AI ENDING NARRATIVE ────────────────────────────
+        let aiEnding = '';
+        if (typeof generateEpisodeEnding === 'function') {
+          try {
+            const endingContext = {
+              tier:           tier,
+              percentage:     percentage,
+              totalQuestions: sessionStats.totalQuestions,
+              correctAnswers: sessionStats.correctAnswers,
+              bestStreak:     sessionStats.bestStreak,
+              playerActions:  episodeNarrative.playerActions || [],
+              tonalShift:     episodeNarrative.tonalShift || 'neutral'
+            };
+            aiEnding = await generateEpisodeEnding(endingContext);
+          } catch (error) {
+            console.error('AI ending generation failed:', error);
+          }
+        }
+
+        // ── APPLY CONSEQUENCES ───────────────────────────────────────
+        const consequences = applyEndingConsequences(tier, percentage);
+
+        // ── CUTSCENE before results screen ───────────────────────────
+        const cutsceneOn    = currentEpisode.cutsceneCompletionEnabled !== false;
+        const cutsceneStyle = currentEpisode.completionCutsceneStyle || 'graphic_novel';
+
+        const showResults = () => {
+          displayEndingScreen(tier, percentage, consequences, aiEnding);
+        };
+
+        if (cutsceneOn && (typeof playGraphicNovelCutscene === 'function' || typeof playCinematicCutscene === 'function')) {
+          const endingContext = { percentage, passed: percentage >= 60 };
+
+          if (cutsceneStyle === 'graphic_novel' && typeof playGraphicNovelCutscene === 'function') {
+            await playGraphicNovelCutscene(
+              currentEpisode,
+              endingContext,
+              aiEnding || `${player.name} has completed the adventure.`,
+              showResults
+            );
+          } else if (typeof playCinematicCutscene === 'function') {
+            const performanceLabel = percentage >= 80 ? 'exceptional' :
+                                     percentage >= 60 ? 'solid'       :
+                                     percentage >= 40 ? 'struggling'  : 'difficult';
+            await playCinematicCutscene(
+              { passed: percentage >= 60, isCompletion: true, performanceLabel },
+              aiEnding || `${player.name} has completed the adventure.`,
+              showResults
+            );
+          } else {
+            showResults();
+          }
+        } else {
+          showResults();
+        }
+
+        // ── SAVE PROGRESS ────────────────────────────────────────────
+        if (typeof savePlayerProgress === 'function') {
+          await savePlayerProgress();
+        }
+      };
+
+      // Apply ending consequences (XP, gold, reputation, difficulty)
+      const applyEndingConsequences = (tier, percentage) => {
+        const consequences = {
+          mastery: {
+            xpBonus: 150,
+            gold: 100,
+            reputationChange: 15,
+            difficultyAdjustment: 1,
+            message: '🌟 Exceptional Performance!'
+          },
+          proficient: {
+            xpBonus: 100,
+            gold: 60,
+            reputationChange: 5,
+            difficultyAdjustment: 0,
+            message: '✅ Solid Achievement!'
+          },
+          developing: {
+            xpBonus: 60,
+            gold: 40,
+            reputationChange: 0,
+            difficultyAdjustment: -1,
+            message: '📚 Making Progress'
+          },
+          struggling: {
+            xpBonus: 30,
+            gold: 20,
+            reputationChange: -5,
+            difficultyAdjustment: -2,
+            message: '🆘 Building Foundations'
+          }
+        };
+
+        const consequence = consequences[tier];
+
+        // Award XP bonus
+        player.xp += consequence.xpBonus;
+
+        // Update reputation
+        reputationSystem.updateReputation(tier);
+
+        // Adjust difficulty for next episode
+        adaptiveDifficulty.adjustDifficulty(percentage);
+        adaptiveDifficulty.performanceHistory.push(percentage);
+
+        // Keep only last 3 performances
+        if (adaptiveDifficulty.performanceHistory.length > 3) {
+          adaptiveDifficulty.performanceHistory.shift();
+        }
+
+        return consequence;
+      };
+
+      // Display ending screen with results
+      const displayEndingScreen = (tier, percentage, consequences, aiEnding = '') => {
+        let resultsContainer = document.getElementById('results-container');
+
+        if (!resultsContainer) {
+          console.log('Results container not found, creating one');
+          let resultsScreen = document.getElementById('results-screen');
+          if (!resultsScreen) {
+            resultsScreen = document.createElement('div');
+            resultsScreen.id = 'results-screen';
+            resultsScreen.className = 'screen';
+            resultsScreen.innerHTML = '<div class="screen-content"><div id="results-container"></div></div>';
+            document.body.appendChild(resultsScreen);
+          }
+          resultsContainer = document.getElementById('results-container');
+        }
+
+        if (!resultsContainer) {
+          console.error('Could not create results container');
+          showScreen('episodeSelection');
+          alert(`Episode Complete! ${percentage}% accuracy. +${consequences.xpBonus} XP!`);
+          return;
+        }
+
+        const tierColors = {
+          mastery:    '#2ecc71',
+          proficient: '#3498db',
+          developing: '#f39c12',
+          struggling: '#e74c3c'
+        };
+        const tierColor = tierColors[tier];
+
+        const narratives = {
+          mastery:    `Outstanding work! You've demonstrated mastery of the material with ${percentage}% accuracy. Your advanced understanding sets you apart. The challenge level will increase for your next adventure.`,
+          proficient: `Well done! You've shown solid understanding with ${percentage}% accuracy. You're consistently performing well. The difficulty will remain at your current level.`,
+          developing: `You're making progress with ${percentage}% accuracy. Some concepts need reinforcement, but you're on the right track. The next episode will be slightly easier to help build confidence.`,
+          struggling: `This was challenging, with ${percentage}% accuracy. Let's build stronger foundations with structured support. The next episode will be more accessible to help you succeed.`
+        };
+
+        resultsContainer.innerHTML = `
+          <div style="padding: 30px; max-width: 800px; margin: 0 auto;">
+            <h2 style="
+              font-family: 'Cinzel', serif;
+              color: ${tierColor};
+              font-size: 32px;
+              text-align: center;
+              margin-bottom: 20px;
+            ">${consequences.message}</h2>
+
+            <!-- Performance Summary -->
+            <div style="
+              background: linear-gradient(145deg, #2c3e50, #34495e);
+              border: 2px solid #e67e22;
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #f39c12; margin-bottom: 15px;">Your Performance</h3>
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Accuracy</div>
+                  <div style="color: ${tierColor}; font-size: 28px; font-weight: bold;">${percentage}%</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Questions</div>
+                  <div style="color: white; font-size: 28px; font-weight: bold;">${sessionStats.correctAnswers}/${sessionStats.totalQuestions}</div>
+                </div>
+              </div>
+            </div>
+
+            ${aiEnding ? `
+            <!-- AI Generated Ending Narrative -->
+            <div style="
+              background: linear-gradient(145deg, rgba(52,152,219,0.2), rgba(41,128,185,0.3));
+              border: 2px solid #3498db;
+              border-radius: 10px;
+              padding: 25px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #3498db; margin-bottom: 15px; font-family: 'Cinzel', serif;">
+                📖 Your Journey's End
+              </h3>
+              <p style="color: #ecf0f1; font-size: 16px; line-height: 1.8; margin: 0; font-style: italic;">
+                ${aiEnding}
+              </p>
+            </div>
+            ` : ''}
+
+            <!-- Narrative -->
+            <div style="
+              background: rgba(52,73,94,0.6);
+              border-left: 4px solid ${tierColor};
+              padding: 20px;
+              margin-bottom: 30px;
+              border-radius: 5px;
+            ">
+              <p style="color: #ecf0f1; font-size: 16px; line-height: 1.6; margin: 0;">
+                ${narratives[tier]}
+              </p>
+            </div>
+
+            <!-- Rewards -->
+            <div style="
+              background: linear-gradient(145deg, #2c3e50, #34495e);
+              border: 2px solid #f39c12;
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #f39c12; margin-bottom: 15px;">Rewards Earned</h3>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Bonus XP</div>
+                  <div style="color: #3498db; font-size: 24px; font-weight: bold;">+${consequences.xpBonus}</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Gold</div>
+                  <div style="color: #f39c12; font-size: 24px; font-weight: bold;">+${consequences.gold}</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Reputation</div>
+                  <div style="color: ${consequences.reputationChange >= 0 ? '#2ecc71' : '#e74c3c'}; font-size: 24px; font-weight: bold;">
+                    ${consequences.reputationChange >= 0 ? '+' : ''}${consequences.reputationChange}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Adaptive Difficulty Update -->
+            <div style="
+              background: rgba(52,73,94,0.6);
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #9b59b6; margin-bottom: 15px;">Next Challenge</h3>
+              <div style="color: #ecf0f1; font-size: 14px; margin-bottom: 10px;">
+                Difficulty Level: <span style="color: white; font-weight: bold;">${adaptiveDifficulty.currentLevel}/10</span>
+                ${consequences.difficultyAdjustment > 0  ? '<span style="color:#2ecc71;"> (+' + consequences.difficultyAdjustment + ' ⬆️)</span>' : ''}
+                ${consequences.difficultyAdjustment < 0  ? '<span style="color:#e74c3c;"> (' + consequences.difficultyAdjustment + ' ⬇️)</span>'  : ''}
+                ${consequences.difficultyAdjustment === 0 ? '<span style="color:#95a5a6;"> (maintained)</span>' : ''}
+              </div>
+              <div style="color: #95a5a6; font-size: 13px; font-style: italic;">
+                ${adaptiveDifficulty.getDifficultyDescriptor()}
+              </div>
+            </div>
+
+            <!-- Continue Button -->
+            <div style="text-align: center;">
+              <button id="return-to-episodes" class="game-btn" style="font-size: 18px; padding: 15px 40px;">
+                Choose Another Adventure
+              </button>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('return-to-episodes').onclick = () => {
+          if (typeof showScreen === 'function') {
+            showScreen('episodeSelection');
+          } else {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            const epScreen = document.getElementById('episode-selection-screen');
+            if (epScreen) epScreen.classList.add('active');
+          }
+        };
+
+        if (typeof showScreen === 'function') {
+          showScreen('results');
+        } else {
+          document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+          const resScreen = document.getElementById('results-screen');
+          if (resScreen) {
+            resScreen.classList.add('active');
+          } else {
+            resultsContainer.style.display = 'block';
+          }
+        }
+      };
+
+      console.log('✅ Section 15 v2: Ending System + Cutscene support loaded');
+	
+/* === SECTION 16: PLAYER PROFILE & CHARACTER STATS WITH TROPHIES === */
+
+      // Create character stats toggle button
+      const createCharacterStatsToggle = () => {
+        if (document.getElementById('char-stats-toggle')) return;
+        
+        const toggleBtn = document.createElement('button');
+        toggleBtn.id = 'char-stats-toggle';
+        toggleBtn.style.cssText = `
+          position: fixed; top: 20px; left: 20px;
+          background: linear-gradient(145deg, #e67e22, #d35400);
+          border: 2px solid #f39c12; color: white;
+          padding: 10px 15px; border-radius: 8px; cursor: pointer;
+          font-family: 'Roboto', sans-serif; font-weight: bold; font-size: 14px;
+          z-index: 10000; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          transition: all 0.3s ease;
+        `;
+        toggleBtn.innerHTML = '📊 Character Stats';
+        toggleBtn.onclick = () => toggleCharacterStatsPanel();
+        document.body.appendChild(toggleBtn);
+      };
+
+      // Toggle character stats panel
+      const toggleCharacterStatsPanel = () => {
+        const panel = document.getElementById('char-stats-panel');
+        if (panel) {
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        } else {
+          createCharacterStatsPanel();
+        }
+      };
+
+      // Create character stats panel with tabs
+      const createCharacterStatsPanel = () => {
+        let currentPlayer = player || window.player;
+        
+        if (!currentPlayer || !currentPlayer.name) {
+          alert('Player data not loaded yet.');
+          return;
+        }
+        
+        const panel = document.createElement('div');
+        panel.id = 'char-stats-panel';
+        panel.style.cssText = `
+          position: fixed; top: 80px; left: 20px;
+          background: rgba(30, 42, 56, 0.98); border: 3px solid #e67e22;
+          border-radius: 15px; padding: 20px; width: 280px;
+          max-height: 80vh; overflow-y: auto; z-index: 9999;
+          font-family: 'Roboto', sans-serif;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.6); cursor: move;
+        `;
+        
+        panel.innerHTML = `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: #e67e22;">📊 Character</h3>
+            <button id="close-stats" style="background: #e74c3c; color: white; border: none; border-radius: 5px; padding: 5px 10px; cursor: pointer;">✕</button>
+          </div>
+          
+          <div style="display: flex; gap: 5px; margin-bottom: 15px; border-bottom: 2px solid #34495e;">
+            <button id="tab-stats" class="tab-btn" style="flex: 1; background: transparent; color: #e67e22; border: none; padding: 10px; cursor: pointer; border-bottom: 3px solid #e67e22; font-weight: bold;">Stats</button>
+            <button id="tab-trophies" class="tab-btn" style="flex: 1; background: transparent; color: #95a5a6; border: none; padding: 10px; cursor: pointer; border-bottom: 3px solid transparent;">Trophies</button>
+          </div>
+          
+          <div id="content-stats"></div>
+          <div id="content-trophies" style="display: none;"></div>
+        `;
+        
+        document.body.appendChild(panel);
+        
+        // Close button
+        document.getElementById('close-stats').onclick = (e) => {
+          e.stopPropagation();
+          panel.style.display = 'none';
+        };
+        
+        // Tab switching
+        document.getElementById('tab-stats').onclick = () => switchTab('stats');
+        document.getElementById('tab-trophies').onclick = () => switchTab('trophies');
+        
+        // Draggable
+        let dragging = false, startX, startY;
+        panel.onmousedown = (e) => {
+          if (e.target.tagName === 'BUTTON') return;
+          dragging = true;
+          startX = e.clientX - panel.offsetLeft;
+          startY = e.clientY - panel.offsetTop;
+        };
+        document.onmousemove = (e) => {
+          if (dragging) {
+            panel.style.left = (e.clientX - startX) + 'px';
+            panel.style.top = (e.clientY - startY) + 'px';
+          }
+        };
+        document.onmouseup = () => dragging = false;
+        
+        updateStatsTab();
+      };
+
+      // Switch tabs
+      const switchTab = (tab) => {
+        const statsBtn = document.getElementById('tab-stats');
+        const trophiesBtn = document.getElementById('tab-trophies');
+        const statsContent = document.getElementById('content-stats');
+        const trophiesContent = document.getElementById('content-trophies');
+        
+        if (tab === 'stats') {
+          statsBtn.style.borderBottom = '3px solid #e67e22';
+          statsBtn.style.color = '#e67e22';
+          statsBtn.style.fontWeight = 'bold';
+          trophiesBtn.style.borderBottom = '3px solid transparent';
+          trophiesBtn.style.color = '#95a5a6';
+          trophiesBtn.style.fontWeight = 'normal';
+          statsContent.style.display = 'block';
+          trophiesContent.style.display = 'none';
+          updateStatsTab();
+        } else {
+          trophiesBtn.style.borderBottom = '3px solid #e67e22';
+          trophiesBtn.style.color = '#e67e22';
+          trophiesBtn.style.fontWeight = 'bold';
+          statsBtn.style.borderBottom = '3px solid transparent';
+          statsBtn.style.color = '#95a5a6';
+          statsBtn.style.fontWeight = 'normal';
+          trophiesContent.style.display = 'block';
+          statsContent.style.display = 'none';
+          updateTrophiesTab();
+        }
+      };
+
+      // Update stats tab
+      const updateStatsTab = () => {
+        const content = document.getElementById('content-stats');
+        if (!content) return;
+        
+        const level = Math.floor((player.xp || 0) / 100) + 1;
+        
+        // Safely get difficulty level
+        let diffLevel = 5;
+        let diffDesc = 'Standard';
+        if (typeof adaptiveDifficulty !== 'undefined' && adaptiveDifficulty) {
+          diffLevel = adaptiveDifficulty.currentLevel || 5;
+          if (typeof adaptiveDifficulty.getDifficultyDescriptor === 'function') {
+            diffDesc = adaptiveDifficulty.getDifficultyDescriptor();
+          }
+        }
+        
+        // Safely get reputation
+        let repValue = 0;
+        let repTitle = 'Apprentice';
+        if (typeof reputationSystem !== 'undefined' && reputationSystem) {
+          if (typeof reputationSystem.getReputation === 'function') {
+            repValue = reputationSystem.getReputation();
+          }
+          if (typeof reputationSystem.getTitle === 'function') {
+            repTitle = reputationSystem.getTitle();
+          }
+        }
+        
+        // Get class avatar
+        let avatar = '⚔️';
+        if (typeof getClassAvatar === 'function') {
+          avatar = getClassAvatar(player.className);
+        }
+        
+        // Calculate percentages for bars
+        const diffPercent = (diffLevel / 10) * 100;
+        const repPercent = ((repValue + 100) / 200) * 100; // -100 to +100 mapped to 0-100%
+        
+        // Performance trend
+        let trendIcon = '📊';
+        let trendText = 'Stable';
+        if (typeof adaptiveDifficulty !== 'undefined' && adaptiveDifficulty && typeof adaptiveDifficulty.getTrend === 'function') {
+          const trend = adaptiveDifficulty.getTrend();
+          trendIcon = trend === 'rising' ? '📈' : trend === 'declining' ? '📉' : '📊';
+          trendText = trend === 'rising' ? 'Rising' : trend === 'declining' ? 'Declining' : 'Stable';
+        }
+        
+        content.innerHTML = `
+          <!-- Player Info -->
+          <div style="text-align: center; margin-bottom: 20px; padding: 15px; background: rgba(52, 73, 94, 0.6); border-radius: 10px;">
+            <div style="font-size: 40px; margin-bottom: 10px;">${avatar}</div>
+            <div style="font-size: 18px; font-weight: bold; color: #ecf0f1;">${player.name}</div>
+            <div style="font-size: 14px; color: #95a5a6;">${player.className}</div>
+            <div style="font-size: 14px; color: #3498db; margin-top: 5px;">Level ${level}</div>
+          </div>
+          
+          <!-- Adaptive Difficulty -->
+          <div style="background: rgba(52, 73, 94, 0.6); border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+            <h3 style="color: #f39c12; margin: 0 0 12px 0; font-size: 16px;">⚙️ Adaptive Difficulty</h3>
+            
+            <div style="margin-bottom: 10px;">
+              <div style="color: #95a5a6; font-size: 11px; margin-bottom: 5px;">Current Level</div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="flex: 1; height: 8px; background: rgba(149, 165, 166, 0.3); border-radius: 4px; overflow: hidden;">
+                  <div style="height: 100%; background: linear-gradient(90deg, #2ecc71, #f39c12, #e74c3c); width: ${diffPercent}%; transition: width 0.3s;"></div>
+                </div>
+                <div style="font-size: 18px; font-weight: bold; color: #f39c12; min-width: 45px;">${diffLevel}/10</div>
+              </div>
+            </div>
+            
+            <div style="color: #95a5a6; font-size: 12px; margin-bottom: 8px;">${diffDesc}</div>
+            
+            <div style="margin-top: 12px;">
+              <div style="color: #95a5a6; font-size: 11px; margin-bottom: 5px;">Performance Trend</div>
+              <div style="font-size: 14px; font-weight: bold;">${trendIcon} ${trendText}</div>
+            </div>
+          </div>
+          
+          <!-- Reputation -->
+          <div style="background: rgba(52, 73, 94, 0.6); border-radius: 10px; padding: 15px;">
+            <h3 style="color: #9b59b6; margin: 0 0 12px 0; font-size: 16px;">👑 Reputation</h3>
+            
+            <div style="text-align: center; margin-bottom: 10px;">
+              <div style="font-size: 20px; font-weight: bold; color: #ecf0f1;">${repTitle}</div>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div style="flex: 1; height: 8px; background: rgba(149, 165, 166, 0.3); border-radius: 4px; overflow: hidden;">
+                <div style="height: 100%; background: linear-gradient(90deg, #e74c3c, #95a5a6, #2ecc71); width: ${repPercent}%; transition: width 0.3s;"></div>
+              </div>
+              <div style="font-size: 14px; font-weight: bold; color: #9b59b6; min-width: 35px;">${repValue}</div>
+            </div>
+          </div>
+        `;
+      };
+
+      // Update trophies tab
+      const updateTrophiesTab = () => {
+        const content = document.getElementById('content-trophies');
+        if (!content) return;
+        
+        if (!player.inventory || Object.keys(player.inventory).length === 0) {
+          content.innerHTML = `
+            <div style="text-align: center; padding: 40px 20px; color: #95a5a6;">
+              <div style="font-size: 48px; margin-bottom: 15px;">🏆</div>
+              <h3 style="margin: 0 0 10px 0; color: #ecf0f1;">No Trophies Yet</h3>
+              <p style="margin: 0; font-size: 14px;">Earn trophies by completing challenging achievements!</p>
+            </div>
+          `;
+          return;
+        }
+        
+        const trophies = {
+          legLamp: { icon: '🦵💡', name: 'Leg Lamp', desc: 'Forgives next error', color: '#f39c12' },
+          eternalTorch: { icon: '🔥', name: 'Eternal Torch', desc: '+25 Focus, 2x XP next', color: '#e74c3c' },
+          liquidShadow: { icon: '🗡️', name: 'Liquid Shadow', desc: '+25 Focus, auto-correct next', color: '#9b59b6' },
+          playbook: { icon: '📖', name: 'Playbook', desc: '+25 Focus, eliminate 2, +50% XP', color: '#3498db' },
+          phoenixTear: { icon: '🔮', name: 'Phoenix Tear', desc: 'Overcharge Focus to 125', color: '#2ecc71' }
+        };
+        
+        let html = '<h3 style="color: #f39c12; margin: 0 0 15px 0;">🏆 Trophy Collection</h3>';
+        
+        Object.entries(player.inventory).forEach(([key, trophyId]) => {
+          const trophy = trophies[trophyId];
+          if (!trophy) return;
+          
+          html += `
+            <div style="background: rgba(52, 73, 94, 0.6); border: 2px solid ${trophy.color}; border-radius: 10px; padding: 15px; margin-bottom: 12px;">
+              <div style="display: flex; gap: 12px; margin-bottom: 10px;">
+                <div style="font-size: 36px;">${trophy.icon}</div>
+                <div>
+                  <div style="font-size: 16px; font-weight: bold; color: ${trophy.color};">${trophy.name}</div>
+                  <div style="font-size: 12px; color: #bdc3c7;">${trophy.desc}</div>
+                </div>
+              </div>
+              <button onclick="useTrophy('${trophyId}', '${key}')" style="width: 100%; padding: 8px; background: ${trophy.color}; border: none; color: white; border-radius: 5px; cursor: pointer; font-weight: bold;">⚡ Use Trophy</button>
+            </div>
+          `;
+        });
+        
+        content.innerHTML = html;
+      };
+
+      // Use trophy
+      const useTrophy = (trophyId, key) => {
+        const challengeBox = document.getElementById('challenge-box');
+        if (!challengeBox || challengeBox.style.display === 'none') {
+          alert('Trophies can only be used during challenges!');
+          return;
+        }
+        
+        switch (trophyId) {
+          case 'legLamp':
+            player.focus += 25;
+            player.activeEffects.forgivenError = true;
+            showNotification('🦵💡 Leg Lamp: Next error forgiven!', 'ability-used');
+            break;
+          case 'eternalTorch':
+            player.focus += 25;
+            player.activeEffects.doubleXPNext = true;
+            showNotification('🔥 Eternal Torch: 2x XP next!', 'ability-used');
+            break;
+          case 'liquidShadow':
+            player.focus += 25;
+            player.activeEffects.autoCorrectNext = true;
+            showNotification('🗡️ Liquid Shadow: Auto-correct next!', 'ability-used');
+            break;
+          case 'playbook':
+            player.focus += 25;
+            player.activeEffects.bonusXP = 1.5;
+            player.activeEffects.bonusXPDuration = 3;
+            const q = currentQuestionSet[currentQuestionIndex];
+            if (q) {
+              const wrong = [];
+              q.options.forEach((opt, i) => {
+                if (i !== q.correct && !player.activeEffects.eliminatedAnswers.includes(i)) wrong.push(i);
+              });
+              wrong.slice(0, 2).forEach(i => player.activeEffects.eliminatedAnswers.push(i));
+              if (typeof applyEliminatedAnswers === 'function') applyEliminatedAnswers();
+            }
+            showNotification('📖 Playbook: +50% XP, 2 eliminated!', 'ability-used');
+            break;
+          case 'phoenixTear':
+            player.focus = 125;
+            player.activeEffects.phoenixTearActive = true;
+            showNotification('🔮 Phoenix Tear: Overcharged!', 'ability-used');
+            break;
+        }
+        
+        delete player.inventory[key];
+        updatePlayerStats();
+        updateTrophiesTab();
+        document.getElementById('char-stats-panel').style.display = 'none';
+        
+        if (typeof savePlayerProgress === 'function') savePlayerProgress();
+      };
+
+      console.log('✅ Section 16: Character Stats & Trophies loaded');
+
+      // Auto-create button when page loads
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createCharacterStatsToggle);
+      } else {
+        // DOM already loaded, create immediately
+        setTimeout(createCharacterStatsToggle, 100);
+      }
+	
+/* === SECTION 17: AI NARRATIVE GENERATION (via Cloud Function) === */
+/* v4: generateEncounterTransition added after generateEpisodeOpening */
+/*     Diamond loader uses dedicated #narrative-loader div            */
+/*     narrative-text is NEVER touched with innerHTML                 */
+/* ================================================================== */
+
+      // CSS animations
+      const streakAnimStyle = document.createElement('style');
+      streakAnimStyle.textContent = `
+        @keyframes slideDown {
+          from { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+          to   { transform: translateX(-50%) translateY(0);      opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateX(-50%) translateY(0);      opacity: 1; }
+          to   { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+        }
+        @keyframes diamondPulse {
+          0%   { transform: rotate(45deg) scale(1);   opacity: 1; }
+          50%  { transform: rotate(45deg) scale(1.3); opacity: 0.6; }
+          100% { transform: rotate(45deg) scale(1);   opacity: 1; }
+        }
+        @keyframes diamondOrbit {
+          0%   { transform: rotate(0deg)   translateX(28px) rotate(0deg); }
+          100% { transform: rotate(360deg) translateX(28px) rotate(-360deg); }
+        }
+        @keyframes narrativeFadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .diamond-loader-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 16px 0 8px 0;
+          gap: 14px;
+        }
+        .diamond-loader-rig {
+          position: relative;
+          width: 64px;
+          height: 64px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .diamond-center {
+          width: 20px;
+          height: 20px;
+          background: linear-gradient(135deg, #f39c12, #e74c3c);
+          transform: rotate(45deg);
+          animation: diamondPulse 1.2s ease-in-out infinite;
+          box-shadow: 0 0 12px rgba(243,156,18,0.7);
+          border-radius: 2px;
+        }
+        .diamond-orbit {
+          position: absolute;
+          top: 50%; left: 50%;
+          width: 8px; height: 8px;
+          margin: -4px 0 0 -4px;
+          background: #f39c12;
+          transform: rotate(45deg);
+          border-radius: 1px;
+          animation: diamondOrbit 1.4s linear infinite;
+          box-shadow: 0 0 6px rgba(243,156,18,0.8);
+        }
+        .diamond-orbit:nth-child(2) { animation-delay: -0.35s; background: #e74c3c; }
+        .diamond-orbit:nth-child(3) { animation-delay: -0.70s; background: #9b59b6; }
+        .diamond-orbit:nth-child(4) { animation-delay: -1.05s; background: #3498db; }
+        .diamond-loader-label {
+          color: #bdc3c7;
+          font-size: 13px;
+          font-style: normal;
+          letter-spacing: 0.05em;
+          opacity: 0.85;
+        }
+        #narrative-text.narrative-ready {
+          animation: narrativeFadeIn 0.6s ease-out;
+        }
+      `;
+      document.head.appendChild(streakAnimStyle);
+
+      // ─────────────────────────────────────────────────────────────
+      // NARRATIVE STATE
+      // ─────────────────────────────────────────────────────────────
+      let episodeNarrative = {
+        genre:               '',
+        episodeTitle:        '',
+        episodeDescription:  '',
+        openingNarrative:    '',
+        questionNarratives:  [],
+        playerActions:       [],
+        storyBeats:          [],
+        tonalShift:          'neutral',
+        sessionPerspective:  '',
+        sessionAtmosphere:   '',
+        sessionHook:         '',
+        sessionStyle:        ''
+      };
+
+      const narrativeSeeds = {
+        perspectives: [
+          'from the perspective of a reluctant hero thrust into destiny',
+          'through the eyes of a seasoned veteran who has seen it all',
+          'as a young prodigy proving themselves for the first time',
+          'as an outsider who has earned their place through sheer determination',
+          'as someone returning after a long absence to face old challenges',
+          'as an unlikely champion chosen by fate rather than birth'
+        ],
+        atmospheres: [
+          'The air crackles with electric anticipation.',
+          'An eerie stillness hangs over everything.',
+          'A distant storm brews on the horizon.',
+          'Ancient energy pulses through the ground itself.',
+          'The world holds its breath in this pivotal moment.',
+          'Something has shifted — the stakes have never felt higher.',
+          'A rare convergence of forces has made this moment possible.',
+          'The threads of fate have drawn everything to this point.'
+        ],
+        openingHooks: [
+          'Begin with an unexpected complication that sets the tone',
+          'Open with a sensory detail that grounds the player in the world',
+          'Start with a revelation that reframes everything that follows',
+          'Begin mid-action, dropping the player into the heart of things',
+          'Open with a question that the episode will answer',
+          'Start with a character moment that establishes personal stakes'
+        ],
+        styleVariants: [
+          'Write in a lyrical, poetic style with vivid imagery',
+          'Write in a terse, urgent style that builds immediate tension',
+          'Write in a warm, storyteller style as if around a campfire',
+          'Write in a cinematic style with sharp scene-setting',
+          'Write in an epic, mythic style befitting legends',
+          'Write in an intimate style that focuses on personal emotion'
+        ]
+      };
+
+      const randomSeed = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+      // ─────────────────────────────────────────────────────────────
+      // HELPERS
+      // ─────────────────────────────────────────────────────────────
+      const getEpisodeDescription = (episode) => {
+        if (episode.encounters && episode.encounters.length > 0 && episode.encounters[0].narrative) {
+          return episode.encounters[0].narrative
+            .replace(/^Episode Description:\s*/i, '')
+            .trim();
+        }
+        return '';
+      };
+
+      const resetEpisodeNarrative = (episode) => {
+        episodeNarrative = {
+          genre:               episode.genre || episode.theme || 'Fantasy',
+          episodeTitle:        episode.title || 'Unknown Quest',
+          episodeDescription:  getEpisodeDescription(episode),
+          openingNarrative:    '',
+          questionNarratives:  [],
+          playerActions:       [],
+          storyBeats:          [],
+          tonalShift:          'neutral',
+          sessionPerspective:  randomSeed(narrativeSeeds.perspectives),
+          sessionAtmosphere:   randomSeed(narrativeSeeds.atmospheres),
+          sessionHook:         randomSeed(narrativeSeeds.openingHooks),
+          sessionStyle:        randomSeed(narrativeSeeds.styleVariants)
+        };
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // DIAMOND LOADER — writes to #narrative-loader ONLY
+      // narrative-text is never touched here
+      // ─────────────────────────────────────────────────────────────
+      const showNarrativeLoading = (message = 'Conjuring your story…') => {
+        const loader = document.getElementById('narrative-loader');
+        if (!loader) return;
+        loader.innerHTML = `
+          <div class="diamond-loader-wrap">
+            <div class="diamond-loader-rig">
+              <div class="diamond-center"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+            </div>
+            <div class="diamond-loader-label">♦ ${message} ♦</div>
+          </div>`;
+        loader.style.display = 'block';
+
+        const narrativeEl = document.getElementById('narrative-text');
+        if (narrativeEl) narrativeEl.textContent = '';
+      };
+
+      const hideNarrativeLoading = () => {
+        const loader = document.getElementById('narrative-loader');
+        if (loader) {
+          loader.innerHTML = '';
+          loader.style.display = 'none';
+        }
+      };
+
+      // Write final narrative — only ever uses textContent, never innerHTML
+      const displayNarrative = (narrative, type = 'opening') => {
+        const el = document.getElementById('narrative-text');
+        if (!el) { console.warn('narrative-text element not found'); return; }
+
+        hideNarrativeLoading();
+
+        el.style.fontStyle  = 'normal';
+        el.style.fontSize   = type === 'opening' ? '15px' : '14px';
+        el.style.color      = type === 'opening' ? '#ecf0f1' : '#dfe6e9';
+        el.style.lineHeight = '1.7';
+
+        el.textContent = narrative;
+
+        el.classList.remove('narrative-ready');
+        void el.offsetWidth;
+        el.classList.add('narrative-ready');
+      };
+
+      const trackPlayerAction = (action) => {
+        episodeNarrative.playerActions.push(action);
+        if (episodeNarrative.playerActions.length > 10) episodeNarrative.playerActions.shift();
+      };
+
+      const updateTonalShift = () => {
+        const accuracy     = sessionStats.calculateAccuracy();
+        const focusPercent = player.focus || 0;
+        if      (accuracy >= 80 && focusPercent >= 70) episodeNarrative.tonalShift = 'triumphant';
+        else if (accuracy >= 60 && focusPercent >= 50) episodeNarrative.tonalShift = 'hopeful';
+        else if (accuracy <  40 || focusPercent <  30) episodeNarrative.tonalShift = 'desperate';
+        else                                            episodeNarrative.tonalShift = 'tense';
+      };
+
+      const callNarrativeFunction = async (promptText, maxTokens = 300) => {
+        const generateNarrative = httpsCallable(functions, 'generateNarrative');
+        const result = await generateNarrative({
+          requestData: { model: 'claude-sonnet-4-5', maxTokens, promptText }
+        });
+        if (result.data && result.data.success && result.data.data && result.data.data.content) {
+          return result.data.data.content
+            .filter(item => item.type === 'text')
+            .map(item => item.text)
+            .join('\n\n')
+            .replace(/\*\*/g, '')
+            .trim();
+        }
+        throw new Error('Invalid response from Cloud Function');
+      };
