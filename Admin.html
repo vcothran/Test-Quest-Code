@@ -1,0 +1,1309 @@
+<!DOCTYPE html>
+<!-- ================================================================
+     TEST QUEST — ADMIN PORTAL
+     ================================================================
+     BEFORE DEPLOYING — add your Firebase API key:
+       Find: apiKey: "YOUR_FIREBASE_API_KEY"
+       Replace with your actual key from:
+       Firebase Console → Project Settings → Your Apps → Web API Key
+     ================================================================ -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test Quest — Admin Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet">
+
+<!-- Firebase v9 -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut }
+    from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js';
+  import { getFirestore, collection, getDocs, doc, getDoc, updateDoc,
+    query, where, orderBy, addDoc, serverTimestamp, setDoc, deleteDoc }
+    from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js';
+
+  window.firebaseAdmin = {
+    initializeApp, getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+    getFirestore, collection, getDocs, doc, getDoc, updateDoc,
+    query, where, orderBy, addDoc, serverTimestamp, setDoc, deleteDoc
+  };
+  window.firebaseAdminReady = true;
+  document.dispatchEvent(new Event('firebaseAdminReady'));
+</script>
+
+<style>
+:root {
+  --ink:       #0d0d0f;
+  --parchment: #f5f0e8;
+  --parchment2:#ede7d5;
+  --gold:      #c9973a;
+  --gold-bright:#e8b84b;
+  --gold-dark: #8a6520;
+  --crimson:   #8b1a1a;
+  --crimson-light:#c0392b;
+  --emerald:   #1a4a2e;
+  --emerald-light:#27ae60;
+  --slate:     #2c3e50;
+  --slate-light:#445566;
+  --mist:      #ddd5c3;
+  --shadow:    rgba(0,0,0,0.45);
+  --glow:      rgba(201,151,58,0.25);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Crimson Pro', Georgia, serif;
+  background: var(--ink); color: var(--parchment); min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(201,151,58,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 90%, rgba(139,26,26,0.07) 0%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c9973a' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+#login-screen { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:2rem; }
+.login-card {
+  background: linear-gradient(160deg,#1a1610 0%,#120f0a 100%);
+  border:1px solid var(--gold-dark); border-radius:2px;
+  padding:3rem 3.5rem; width:100%; max-width:420px; text-align:center;
+  box-shadow:0 0 60px rgba(201,151,58,0.12),inset 0 1px 0 rgba(201,151,58,0.15); position:relative;
+}
+.login-card::before { content:'⚔'; display:block; font-size:2.5rem; color:var(--gold); margin-bottom:1rem; filter:drop-shadow(0 0 12px var(--gold)); }
+.login-card h1 { font-family:'Cinzel',serif; font-size:1.4rem; font-weight:700; color:var(--gold); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:0.4rem; }
+.login-card p { color:var(--mist); font-size:0.9rem; font-style:italic; margin-bottom:2rem; opacity:0.7; }
+.login-field { margin-bottom:1.2rem; text-align:left; }
+.login-field label { display:block; font-size:0.75rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--gold-dark); margin-bottom:0.4rem; font-family:'Cinzel',serif; }
+.login-field input { width:100%; padding:0.75rem 1rem; background:rgba(255,255,255,0.04); border:1px solid var(--gold-dark); border-radius:1px; color:var(--parchment); font-family:'Crimson Pro',serif; font-size:1rem; outline:none; transition:border-color 0.2s,box-shadow 0.2s; }
+.login-field input:focus { border-color:var(--gold); box-shadow:0 0 0 3px rgba(201,151,58,0.12); }
+.btn-primary { width:100%; padding:0.85rem; background:linear-gradient(135deg,var(--gold-dark) 0%,var(--gold) 100%); border:none; border-radius:1px; color:var(--ink); font-family:'Cinzel',serif; font-size:0.85rem; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; cursor:pointer; transition:opacity 0.2s,transform 0.1s; margin-top:0.5rem; }
+.btn-primary:hover { opacity:0.9; transform:translateY(-1px); }
+#login-error { color:#e74c3c; font-size:0.85rem; margin-top:1rem; min-height:1.2rem; }
+#app { display:none; }
+.admin-header { background:linear-gradient(90deg,#100d08 0%,#1a1610 50%,#100d08 100%); border-bottom:1px solid var(--gold-dark); padding:0 2rem; display:flex; align-items:center; justify-content:space-between; height:60px; position:sticky; top:0; z-index:100; box-shadow:0 2px 20px rgba(0,0,0,0.5); }
+.header-brand { display:flex; align-items:center; gap:0.75rem; }
+.header-brand .crest { font-size:1.4rem; color:var(--gold); }
+.header-brand h1 { font-family:'Cinzel',serif; font-size:1rem; color:var(--gold); letter-spacing:0.1em; font-weight:700; }
+.header-brand span { font-size:0.7rem; color:var(--mist); opacity:0.5; font-style:italic; letter-spacing:0.05em; }
+.header-right { display:flex; align-items:center; gap:1.5rem; }
+#admin-email-display { font-size:0.8rem; color:var(--mist); opacity:0.6; font-style:italic; }
+#flag-badge { background:var(--crimson); color:#fff; font-size:0.7rem; font-weight:700; padding:0.2rem 0.6rem; border-radius:20px; font-family:'Cinzel',serif; letter-spacing:0.05em; display:none; animation:pulse-badge 2s ease-in-out infinite; }
+@keyframes pulse-badge { 0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,0.5);}50%{box-shadow:0 0 0 6px rgba(192,57,43,0);} }
+.btn-signout { background:transparent; border:1px solid var(--gold-dark); color:var(--gold-dark); padding:0.3rem 0.9rem; font-family:'Cinzel',serif; font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; border-radius:1px; transition:all 0.2s; }
+.btn-signout:hover { border-color:var(--gold); color:var(--gold); }
+.admin-nav { background:#13100b; border-bottom:1px solid rgba(201,151,58,0.2); padding:0 2rem; display:flex; gap:0; overflow-x:auto; }
+.nav-tab { padding:0.85rem 1.5rem; font-family:'Cinzel',serif; font-size:0.75rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--mist); opacity:0.5; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s; white-space:nowrap; background:none; border-top:none; border-left:none; border-right:none; position:relative; }
+.nav-tab:hover { opacity:0.8; color:var(--gold); }
+.nav-tab.active { opacity:1; color:var(--gold); border-bottom-color:var(--gold); }
+.nav-tab .tab-count { display:inline-block; background:rgba(201,151,58,0.15); color:var(--gold); font-size:0.65rem; padding:0.1rem 0.4rem; border-radius:10px; margin-left:0.4rem; }
+.nav-tab .tab-flag { display:inline-block; background:var(--crimson); color:#fff; font-size:0.6rem; padding:0.1rem 0.4rem; border-radius:10px; margin-left:0.4rem; }
+.admin-content { padding:2rem; max-width:1400px; margin:0 auto; }
+.page { display:none; }
+.page.active { display:block; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin-bottom:2.5rem; }
+.stat-card { background:linear-gradient(145deg,#1c1710 0%,#141009 100%); border:1px solid rgba(201,151,58,0.2); border-radius:2px; padding:1.5rem; position:relative; overflow:hidden; transition:border-color 0.2s,transform 0.2s; }
+.stat-card:hover { border-color:var(--gold-dark); transform:translateY(-2px); }
+.stat-card::after { content:''; position:absolute; bottom:0; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,var(--gold),transparent); opacity:0.3; }
+.stat-card.flagged { border-color:rgba(139,26,26,0.4); }
+.stat-card.flagged::after { background:linear-gradient(90deg,transparent,var(--crimson),transparent); opacity:0.6; }
+.stat-icon { font-size:1.8rem; margin-bottom:0.5rem; }
+.stat-value { font-family:'Cinzel',serif; font-size:2.5rem; font-weight:900; color:var(--gold); line-height:1; margin-bottom:0.25rem; }
+.stat-card.flagged .stat-value { color:#e74c3c; }
+.stat-label { font-size:0.75rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--mist); opacity:0.6; font-family:'Cinzel',serif; }
+.section-title { font-family:'Cinzel',serif; font-size:1.1rem; font-weight:700; color:var(--gold); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:1.25rem; padding-bottom:0.6rem; border-bottom:1px solid rgba(201,151,58,0.2); display:flex; align-items:center; gap:0.75rem; }
+.section-title::before { content:'◆'; font-size:0.6rem; opacity:0.6; }
+.data-table { width:100%; border-collapse:collapse; font-size:0.9rem; margin-bottom:2rem; }
+.data-table th { font-family:'Cinzel',serif; font-size:0.65rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--gold-dark); padding:0.75rem 1rem; border-bottom:1px solid rgba(201,151,58,0.2); text-align:left; white-space:nowrap; }
+.data-table td { padding:0.85rem 1rem; vertical-align:middle; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--parchment2); }
+.data-table tr:hover td { background:rgba(201,151,58,0.04); }
+.badge { display:inline-block; padding:0.2rem 0.6rem; border-radius:2px; font-size:0.7rem; font-weight:700; font-family:'Cinzel',serif; letter-spacing:0.06em; text-transform:uppercase; }
+.badge-approved { background:rgba(26,74,46,0.5); color:#27ae60; border:1px solid rgba(39,174,96,0.3); }
+.badge-flagged  { background:rgba(139,87,0,0.4); color:#e8b84b; border:1px solid rgba(232,184,75,0.4); animation:flicker 3s ease-in-out infinite; }
+.badge-blocked  { background:rgba(139,26,26,0.4); color:#e74c3c; border:1px solid rgba(231,76,60,0.3); }
+.badge-pending  { background:rgba(44,62,80,0.5); color:#95a5a6; border:1px solid rgba(149,165,166,0.3); }
+.badge-disabled { background:rgba(80,30,30,0.4); color:#e74c3c; border:1px solid rgba(231,76,60,0.3); }
+.badge-active   { background:rgba(26,74,46,0.5); color:#2ecc71; border:1px solid rgba(46,204,113,0.3); }
+@keyframes flicker { 0%,100%{opacity:1;}50%{opacity:0.7;} }
+.mod-cards { display:grid; gap:1.5rem; }
+.mod-card { background:linear-gradient(145deg,#1c1710 0%,#141009 100%); border:1px solid rgba(201,151,58,0.15); border-radius:2px; padding:1.5rem; position:relative; }
+.mod-card.flagged { border-color:rgba(232,184,75,0.35); }
+.mod-card.blocked { border-color:rgba(231,76,60,0.35); }
+.mod-card-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:1rem; gap:1rem; }
+.mod-card-title { font-family:'Cinzel',serif; font-size:1rem; color:var(--parchment); font-weight:600; }
+.mod-card-meta { font-size:0.8rem; color:var(--mist); opacity:0.6; margin-top:0.25rem; font-style:italic; }
+.mod-content-box { background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.07); border-radius:2px; padding:1rem; font-size:0.9rem; color:var(--mist); margin-bottom:1rem; line-height:1.6; max-height:120px; overflow-y:auto; }
+.mod-flag-reason { background:rgba(139,26,26,0.15); border:1px solid rgba(139,26,26,0.3); border-radius:2px; padding:0.6rem 0.9rem; font-size:0.8rem; color:#e74c3c; margin-bottom:1rem; font-style:italic; }
+.mod-flag-reason::before { content:'⚠ Flagged reason: '; font-weight:700; font-style:normal; }
+.mod-image-box { background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; margin-bottom:1rem; text-align:center; padding:0.5rem; }
+.mod-image-box img { max-width:100%; max-height:200px; border-radius:1px; }
+.mod-actions { display:flex; gap:0.75rem; flex-wrap:wrap; }
+.btn-approve { background:linear-gradient(135deg,#1a4a2e,#27ae60); border:1px solid rgba(39,174,96,0.4); color:#fff; padding:0.5rem 1.2rem; font-family:'Cinzel',serif; font-size:0.72rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; border-radius:1px; transition:all 0.2s; }
+.btn-approve:hover { filter:brightness(1.2); }
+.btn-block { background:linear-gradient(135deg,#4a1a1a,#c0392b); border:1px solid rgba(192,57,43,0.4); color:#fff; padding:0.5rem 1.2rem; font-family:'Cinzel',serif; font-size:0.72rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; border-radius:1px; transition:all 0.2s; }
+.btn-block:hover { filter:brightness(1.2); }
+.btn-disable-teacher { background:transparent; border:1px solid rgba(231,76,60,0.4); color:#e74c3c; padding:0.5rem 1.2rem; font-family:'Cinzel',serif; font-size:0.72rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; border-radius:1px; transition:all 0.2s; }
+.btn-disable-teacher:hover { background:rgba(231,76,60,0.1); }
+.btn-email-teacher { background:transparent; border:1px solid rgba(201,151,58,0.4); color:var(--gold); padding:0.5rem 1.2rem; font-family:'Cinzel',serif; font-size:0.72rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; border-radius:1px; transition:all 0.2s; }
+.btn-email-teacher:hover { background:rgba(201,151,58,0.08); }
+.btn-sm { padding:0.3rem 0.7rem; font-size:0.65rem; font-family:'Cinzel',serif; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; border-radius:1px; transition:all 0.2s; border:1px solid; margin-right:0.3rem; }
+.btn-sm-gold { border-color:rgba(201,151,58,0.4); color:var(--gold); background:transparent; }
+.btn-sm-gold:hover { background:rgba(201,151,58,0.1); }
+.btn-sm-red { border-color:rgba(231,76,60,0.4); color:#e74c3c; background:transparent; }
+.btn-sm-red:hover { background:rgba(231,76,60,0.1); }
+.btn-sm-green { border-color:rgba(39,174,96,0.4); color:#27ae60; background:transparent; }
+.btn-sm-green:hover { background:rgba(39,174,96,0.1); }
+.progress-bar-wrap { background:rgba(0,0,0,0.4); border-radius:2px; height:8px; overflow:hidden; }
+.progress-bar-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--gold-dark),var(--gold)); transition:width 0.5s ease; }
+.filter-row { display:flex; gap:0.75rem; margin-bottom:1.5rem; flex-wrap:wrap; align-items:center; }
+.filter-input { background:rgba(255,255,255,0.04); border:1px solid rgba(201,151,58,0.2); border-radius:1px; color:var(--parchment); padding:0.5rem 0.9rem; font-family:'Crimson Pro',serif; font-size:0.9rem; outline:none; transition:border-color 0.2s; }
+.filter-input:focus { border-color:var(--gold-dark); }
+.filter-input::placeholder { color:var(--mist); opacity:0.4; }
+select.filter-input option { background:#1c1710; color:var(--parchment); }
+.loading-spinner { text-align:center; padding:3rem; color:var(--gold); opacity:0.5; font-style:italic; font-size:0.9rem; }
+.loading-spinner::before { content:'⟳ '; animation:spin 1s linear infinite; display:inline-block; }
+@keyframes spin { to{transform:rotate(360deg);} }
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:1000; display:none; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
+.modal-overlay.open { display:flex; }
+.modal-box { background:linear-gradient(145deg,#1c1710,#141009); border:1px solid var(--gold-dark); border-radius:2px; padding:2rem; max-width:560px; width:90%; max-height:90vh; overflow-y:auto; box-shadow:0 0 60px rgba(0,0,0,0.8),0 0 30px rgba(201,151,58,0.08); }
+.modal-title { font-family:'Cinzel',serif; font-size:1.1rem; color:var(--gold); margin-bottom:1.25rem; padding-bottom:0.75rem; border-bottom:1px solid rgba(201,151,58,0.2); }
+.modal-close { float:right; background:none; border:none; color:var(--mist); cursor:pointer; font-size:1.2rem; opacity:0.5; }
+.modal-close:hover { opacity:1; }
+.email-field { margin-bottom:1rem; }
+.email-field label { display:block; font-family:'Cinzel',serif; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--gold-dark); margin-bottom:0.4rem; }
+.email-field input,.email-field textarea { width:100%; background:rgba(0,0,0,0.3); border:1px solid rgba(201,151,58,0.2); border-radius:1px; color:var(--parchment); font-family:'Crimson Pro',serif; font-size:0.95rem; padding:0.6rem 0.8rem; outline:none; transition:border-color 0.2s; resize:vertical; }
+.email-field input:focus,.email-field textarea:focus { border-color:var(--gold-dark); }
+.toast { position:fixed; bottom:2rem; right:2rem; background:linear-gradient(135deg,#1a1610,#1c1710); border:1px solid var(--gold-dark); border-radius:2px; padding:0.85rem 1.5rem; font-size:0.9rem; color:var(--parchment); z-index:9999; transform:translateY(100px); opacity:0; transition:all 0.3s ease; box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+.toast.show { transform:translateY(0); opacity:1; }
+.toast.success { border-color:rgba(39,174,96,0.5); }
+.toast.error { border-color:rgba(231,76,60,0.5); }
+.empty-state { text-align:center; padding:4rem 2rem; color:var(--mist); opacity:0.4; font-style:italic; }
+.empty-state .empty-icon { font-size:3rem; margin-bottom:1rem; }
+
+/* API KEY MODAL */
+#assign-key-modal {
+  position:fixed; inset:0; background:rgba(0,0,0,0.8);
+  z-index:9999; display:none; align-items:center; justify-content:center;
+  backdrop-filter:blur(4px);
+}
+#assign-key-modal.open { display:flex; }
+.ak-input {
+  width:100%; padding:10px 14px;
+  background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.12);
+  border-radius:6px; color:white; font-size:14px;
+  font-family:'Crimson Pro',serif; outline:none; box-sizing:border-box;
+}
+.ak-input:focus { border-color:rgba(201,151,58,0.5); }
+.ak-label {
+  display:block; color:#8892a4; font-size:11px;
+  text-transform:uppercase; letter-spacing:1px;
+  margin-bottom:6px; font-family:'Cinzel',serif;
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Test Quest</h1>
+    <p>Administrative Portal — Restricted Access</p>
+    <div class="login-field">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="admin@example.com" autocomplete="email">
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" onclick="doLogin()">Enter the Realm</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <header class="admin-header">
+    <div class="header-brand">
+      <span class="crest">⚔</span>
+      <div>
+        <h1>Test Quest Admin</h1>
+        <span>Command &amp; Oversight</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="admin-email-display"></span>
+      <span id="flag-badge">⚑ Flags</span>
+      <button class="btn-signout" onclick="doSignOut()">Sign Out</button>
+    </div>
+  </header>
+
+  <nav class="admin-nav">
+    <button class="nav-tab active" data-page="dashboard">Dashboard</button>
+    <button class="nav-tab" data-page="moderation">Moderation <span class="tab-flag" id="mod-count-badge" style="display:none">0</span></button>
+    <button class="nav-tab" data-page="teachers">Teachers <span class="tab-count" id="teacher-tab-count">0</span></button>
+    <button class="nav-tab" data-page="episodes">Episodes <span class="tab-count" id="episode-tab-count">0</span></button>
+    <button class="nav-tab" data-page="banks">Question Banks <span class="tab-count" id="bank-tab-count">0</span></button>
+    <button class="nav-tab" data-page="students">Students <span class="tab-count" id="student-tab-count">0</span></button>
+    <button class="nav-tab" data-page="apikeys">API Keys <span class="tab-count" id="apikey-tab-count">0</span></button>
+    <button class="nav-tab" data-page="log">Audit Log</button>
+    <button class="nav-tab" data-page="health">System Health</button>
+  </nav>
+
+  <main class="admin-content">
+
+    <!-- DASHBOARD -->
+    <div class="page active" id="page-dashboard">
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon">👨‍🏫</div><div class="stat-value" id="stat-teachers">—</div><div class="stat-label">Teachers</div></div>
+        <div class="stat-card"><div class="stat-icon">🎭</div><div class="stat-value" id="stat-episodes">—</div><div class="stat-label">Episodes</div></div>
+        <div class="stat-card"><div class="stat-icon">📚</div><div class="stat-value" id="stat-banks">—</div><div class="stat-label">Question Banks</div></div>
+        <div class="stat-card"><div class="stat-icon">🎒</div><div class="stat-value" id="stat-students">—</div><div class="stat-label">Students</div></div>
+        <div class="stat-card flagged"><div class="stat-icon">⚑</div><div class="stat-value" id="stat-flagged">—</div><div class="stat-label">Awaiting Review</div></div>
+        <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-value" id="stat-completions">—</div><div class="stat-label">Episode Completions</div></div>
+      </div>
+      <div class="section-title">Recent Flagged Content</div>
+      <div id="dashboard-flags-list"><div class="loading-spinner">Loading flagged items…</div></div>
+    </div>
+
+    <!-- MODERATION -->
+    <div class="page" id="page-moderation">
+      <div class="filter-row">
+        <select class="filter-input" id="mod-status-filter" onchange="renderModerationPage()">
+          <option value="">All Statuses</option>
+          <option value="flagged">Flagged</option>
+          <option value="blocked">Blocked</option>
+          <option value="approved">Approved</option>
+        </select>
+        <input class="filter-input" id="mod-search" placeholder="Search teacher or episode…" oninput="renderModerationPage()">
+      </div>
+      <div id="mod-cards-container"><div class="loading-spinner">Loading moderation queue…</div></div>
+    </div>
+
+    <!-- TEACHERS -->
+    <div class="page" id="page-teachers">
+      <div class="filter-row">
+        <input class="filter-input" id="teacher-search" placeholder="Search teachers…" oninput="renderTeachersPage()">
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Email</th><th>Name</th><th>School / District</th>
+            <th>Subjects</th><th>Episodes</th><th>Banks</th>
+            <th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="teachers-tbody">
+          <tr><td colspan="8"><div class="loading-spinner">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- EPISODES -->
+    <div class="page" id="page-episodes">
+      <div class="filter-row">
+        <input class="filter-input" id="episode-search" placeholder="Search episodes…" oninput="renderEpisodesPage()">
+        <select class="filter-input" id="episode-status-filter" onchange="renderEpisodesPage()">
+          <option value="">All Statuses</option>
+          <option value="approved">Approved</option>
+          <option value="flagged">Flagged</option>
+          <option value="blocked">Blocked</option>
+          <option value="pending">Pending</option>
+        </select>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Title</th><th>Teacher</th><th>Genre</th><th>Moderation</th><th>Banks</th><th>Active</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="episodes-tbody">
+          <tr><td colspan="7"><div class="loading-spinner">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- QUESTION BANKS -->
+    <div class="page" id="page-banks">
+      <div class="filter-row">
+        <input class="filter-input" id="bank-search" placeholder="Search banks…" oninput="renderBanksPage()">
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Bank Name</th><th>Teacher</th><th>Questions</th><th>Test Type</th><th>Last Import</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="banks-tbody">
+          <tr><td colspan="6"><div class="loading-spinner">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- STUDENTS -->
+    <div class="page" id="page-students">
+      <div class="filter-row">
+        <input class="filter-input" id="student-search" placeholder="Search students…" oninput="renderStudentsPage()">
+        <select class="filter-input" id="student-class-filter" onchange="renderStudentsPage()">
+          <option value="">All Classes</option>
+        </select>
+      </div>
+      <div class="stats-grid" style="margin-bottom:1.5rem">
+        <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem" id="agg-avg-accuracy">—</div><div class="stat-label">Avg Accuracy</div></div>
+        <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem" id="agg-completions">—</div><div class="stat-label">Total Completions</div></div>
+        <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem" id="agg-avg-xp">—</div><div class="stat-label">Avg XP</div></div>
+        <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem" id="agg-active-students">—</div><div class="stat-label">Active Students</div></div>
+      </div>
+      <div class="section-title">Student Roster</div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Name</th><th>Char Class</th><th>Level / XP</th><th>Episodes</th><th>Avg Accuracy</th><th>School Class</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="students-tbody">
+          <tr><td colspan="7"><div class="loading-spinner">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- API KEYS -->
+    <div class="page" id="page-apikeys">
+      <div class="filter-row" style="justify-content:space-between;align-items:center;">
+        <input class="filter-input" id="apikey-search" placeholder="Search teachers…" oninput="renderApiKeysPage()" style="max-width:300px;">
+        <button onclick="openAssignKeyModal()" style="padding:8px 18px;background:linear-gradient(135deg,#27ae60,#1e8449);border:none;border-radius:6px;color:white;font-size:13px;font-weight:700;cursor:pointer;font-family:'Cinzel',serif;letter-spacing:0.05em;">
+          + Assign Key
+        </button>
+      </div>
+      <div style="background:rgba(201,151,58,0.06);border:1px solid rgba(201,151,58,0.2);border-radius:8px;padding:14px 18px;margin-bottom:18px;font-size:13px;color:#8892a4;line-height:1.7;">
+        <strong style="color:#c9973a;">How it works:</strong>
+        Each teacher can have a personal Gemini API key. Without one they use the system default.
+        Deactivating a key immediately blocks that teacher from using the parser.
+        Get keys at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#c9973a;">aistudio.google.com</a>.
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>Teacher</th><th>Key (masked)</th><th>Status</th><th>Assigned</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="apikeys-tbody">
+          <tr><td colspan="5"><div class="loading-spinner">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- AUDIT LOG -->
+    <div class="page" id="page-log">
+      <table class="data-table">
+        <thead>
+          <tr><th>Timestamp</th><th>Action</th><th>Admin</th><th>Target</th><th>Details</th></tr>
+        </thead>
+        <tbody id="log-tbody">
+          <tr><td colspan="5"><div class="loading-spinner">Loading…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <!-- SYSTEM HEALTH -->
+    <div class="page" id="page-health">
+      <div class="stats-grid" style="margin-bottom:2rem">
+        <div class="stat-card" id="health-anthropic-card">
+          <div class="stat-icon">🤖</div>
+          <div class="stat-value" id="health-anthropic-status" style="font-size:1.4rem">—</div>
+          <div class="stat-label">Anthropic AI (Narratives)</div>
+          <div id="health-anthropic-detail" style="font-size:0.7rem;color:var(--mist);opacity:0.5;margin-top:0.5rem;font-style:italic;">Not checked yet</div>
+        </div>
+        <div class="stat-card" id="health-gemini-card">
+          <div class="stat-icon">✨</div>
+          <div class="stat-value" id="health-gemini-status" style="font-size:1.4rem">—</div>
+          <div class="stat-label">Gemini AI (Questions)</div>
+          <div id="health-gemini-detail" style="font-size:0.7rem;color:var(--mist);opacity:0.5;margin-top:0.5rem;font-style:italic;">Not checked yet</div>
+        </div>
+        <div class="stat-card" id="health-imagen-card">
+          <div class="stat-icon">🎨</div>
+          <div class="stat-value" id="health-imagen-status" style="font-size:1.4rem">—</div>
+          <div class="stat-label">Imagen (Cutscene Art)</div>
+          <div id="health-imagen-detail" style="font-size:0.7rem;color:var(--mist);opacity:0.5;margin-top:0.5rem;font-style:italic;">Not checked yet</div>
+        </div>
+        <div class="stat-card" id="health-firebase-card">
+          <div class="stat-icon">🔥</div>
+          <div class="stat-value" id="health-firebase-status" style="font-size:1.4rem">—</div>
+          <div class="stat-label">Firebase / Firestore</div>
+          <div id="health-firebase-detail" style="font-size:0.7rem;color:var(--mist);opacity:0.5;margin-top:0.5rem;font-style:italic;">Not checked yet</div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:1rem;">
+        <div class="section-title" style="margin-bottom:0;">Service Status</div>
+        <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+          <span id="health-last-checked" style="font-size:0.8rem;color:var(--mist);opacity:0.5;font-style:italic;">Never checked</span>
+          <button onclick="runHealthCheck()" id="health-check-btn"
+            style="padding:8px 20px;background:linear-gradient(135deg,var(--gold-dark),var(--gold));border:none;border-radius:2px;color:var(--ink);font-family:'Cinzel',serif;font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;">
+            ◆ Run Health Check
+          </button>
+        </div>
+      </div>
+
+      <div id="health-log" style="background:rgba(0,0,0,0.3);border:1px solid rgba(201,151,58,0.15);border-radius:2px;padding:1.25rem;font-family:monospace;font-size:0.8rem;line-height:1.8;min-height:120px;max-height:320px;overflow-y:auto;color:var(--mist);">
+        <span style="opacity:0.4;">Click "Run Health Check" to test all services…</span>
+      </div>
+
+      <div style="margin-top:2rem">
+        <div class="section-title">Cost Monitoring</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;">
+          <div style="background:rgba(0,0,0,0.2);border:1px solid rgba(201,151,58,0.15);border-radius:2px;padding:1.25rem;">
+            <div style="font-family:'Cinzel',serif;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--gold-dark);margin-bottom:0.75rem;">Anthropic Credits</div>
+            <div style="font-size:0.85rem;color:var(--mist);line-height:1.7;">
+              Check balance at:<br>
+              <a href="https://console.anthropic.com/settings/billing" target="_blank" style="color:var(--gold);text-decoration:none;">console.anthropic.com/settings/billing</a>
+            </div>
+            <div style="margin-top:0.75rem;padding:0.6rem 0.9rem;background:rgba(201,151,58,0.08);border-radius:2px;font-size:0.78rem;color:var(--mist);opacity:0.7;">
+              💡 $5 lasted ~7 weeks of heavy dev testing. $20 covers ~400–600 student episode playthroughs.
+            </div>
+          </div>
+          <div style="background:rgba(0,0,0,0.2);border:1px solid rgba(201,151,58,0.15);border-radius:2px;padding:1.25rem;">
+            <div style="font-family:'Cinzel',serif;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--gold-dark);margin-bottom:0.75rem;">Google / Firebase</div>
+            <div style="font-size:0.85rem;color:var(--mist);line-height:1.7;">
+              Check usage at:<br>
+              <a href="https://console.firebase.google.com/project/act-quest-beta-43760/usage" target="_blank" style="color:var(--gold);text-decoration:none;">Firebase Console → Usage</a>
+            </div>
+            <div style="margin-top:0.75rem;padding:0.6rem 0.9rem;background:rgba(201,151,58,0.08);border-radius:2px;font-size:0.78rem;color:var(--mist);opacity:0.7;">
+              💡 Set budget alerts at 50% and 80% in Google Cloud Billing to get email warnings before hitting zero.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- EMAIL MODAL -->
+<div class="modal-overlay" id="email-modal">
+  <div class="modal-box">
+    <div class="modal-title">
+      <button class="modal-close" onclick="closeModal('email-modal')">✕</button>
+      Contact Teacher
+    </div>
+    <div class="email-field"><label>To</label><input type="email" id="email-to" readonly></div>
+    <div class="email-field"><label>Subject</label><input type="text" id="email-subject"></div>
+    <div class="email-field"><label>Message</label><textarea id="email-body" rows="6"></textarea></div>
+    <div style="display:flex;gap:0.75rem;margin-top:1rem">
+      <button class="btn-approve" onclick="sendEmailViaMailto()">Open in Mail Client</button>
+      <button class="btn-email-teacher" onclick="copyEmailToClipboard()">Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
+
+<!-- BANK MODAL -->
+<div class="modal-overlay" id="bank-modal">
+  <div class="modal-box" style="max-width:700px">
+    <div class="modal-title">
+      <button class="modal-close" onclick="closeModal('bank-modal')">✕</button>
+      <span id="bank-modal-title">Question Bank</span>
+    </div>
+    <div id="bank-modal-content"></div>
+  </div>
+</div>
+
+<!-- STUDENT MODAL -->
+<div class="modal-overlay" id="student-modal">
+  <div class="modal-box" style="max-width:620px">
+    <div class="modal-title">
+      <button class="modal-close" onclick="closeModal('student-modal')">✕</button>
+      <span id="student-modal-title">Student Detail</span>
+    </div>
+    <div id="student-modal-content"></div>
+  </div>
+</div>
+
+<!-- ASSIGN KEY MODAL -->
+<div id="assign-key-modal">
+  <div style="background:linear-gradient(145deg,#1c1710,#141009);border:1px solid rgba(201,151,58,0.3);border-radius:16px;padding:36px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.7);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+      <h3 id="ak-modal-title" style="color:#c9973a;margin:0;font-family:'Cinzel',serif;font-size:1.1rem;">Assign API Key</h3>
+      <button onclick="closeAssignKeyModal()" style="background:none;border:none;color:#8892a4;cursor:pointer;font-size:1.2rem;opacity:0.6;">✕</button>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label class="ak-label">Teacher (type to search)</label>
+      <input id="ak-teacher-input" class="ak-input" placeholder="Start typing email or UID…" oninput="akSearchTeachers()">
+      <div id="ak-teacher-matches" style="margin-top:4px;max-height:150px;overflow-y:auto;"></div>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label class="ak-label">Gemini API Key</label>
+      <input id="ak-key-input" class="ak-input" placeholder="AIza…" type="password">
+      <div style="margin-top:5px;font-size:11px;color:#4a5568;font-family:'Crimson Pro',serif;">Stored in Firestore. Never shown in full after saving.</div>
+    </div>
+    <div style="margin-bottom:24px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;color:#8892a4;font-size:13px;font-family:'Crimson Pro',serif;">
+        <input type="checkbox" id="ak-active-check" checked style="width:16px;height:16px;cursor:pointer;">
+        Key is active (teacher can use parser immediately)
+      </label>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;">
+      <button onclick="closeAssignKeyModal()" style="padding:10px 20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#8892a4;cursor:pointer;font-size:13px;font-family:'Cinzel',serif;">Cancel</button>
+      <button onclick="saveApiKeyAssignment()" id="ak-save-btn" style="padding:10px 20px;background:linear-gradient(135deg,#c9973a,#8a6520);border:none;border-radius:6px;color:white;cursor:pointer;font-size:13px;font-weight:700;font-family:'Cinzel',serif;">Save Key</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ══════════════════════════════════════════════════════════════════
+const ADMIN_EMAILS = ['vcothran@cox.net'];
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyB3lavJoSXk7CL3bTE62kOao4y9I3MRvJc",
+  authDomain: "act-quest-beta-43760.firebaseapp.com",
+  projectId: "act-quest-beta-43760",
+  storageBucket: "act-quest-beta-43760.firebasestorage.app",
+  messagingSenderId: "270361313231",
+  appId: "1:270361313231:web:de8531f8d35296397c1cba",
+  measurementId: "G-RV33D64RKJ"
+};
+
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+let db, auth, currentAdmin;
+let allData = {
+  teachers: [], episodes: [], banks: [], students: [],
+  classes: [], progress: [], modItems: [], log: [], apiKeys: []
+};
+
+// ══════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════
+function init() {
+  const { initializeApp, getAuth, onAuthStateChanged, getFirestore } = window.firebaseAdmin;
+  const app = initializeApp(FIREBASE_CONFIG);
+  auth = getAuth(app);
+  db   = getFirestore(app);
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) { showLogin(); return; }
+    if (!ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+      await window.firebaseAdmin.signOut(auth);
+      showLoginError('Access denied. This account is not authorised.');
+      return;
+    }
+    currentAdmin = user;
+    showApp();
+    await loadAllData();
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════════
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-password').value;
+  try {
+    await window.firebaseAdmin.signInWithEmailAndPassword(auth, email, pass);
+  } catch(e) {
+    showLoginError(e.message.replace('Firebase: ','').replace(/ \(.*\)/,''));
+  }
+}
+function doSignOut() { window.firebaseAdmin.signOut(auth); }
+function showLogin() { document.getElementById('login-screen').style.display='flex'; document.getElementById('app').style.display='none'; }
+function showApp() { document.getElementById('login-screen').style.display='none'; document.getElementById('app').style.display='block'; document.getElementById('admin-email-display').textContent=currentAdmin.email; }
+function showLoginError(msg) { document.getElementById('login-error').textContent=msg; }
+document.addEventListener('keydown', e => { if (e.key==='Enter' && document.getElementById('login-screen').style.display!=='none') doLogin(); });
+
+// ══════════════════════════════════════════════════════════════════
+// DATA LOADING
+// ══════════════════════════════════════════════════════════════════
+async function loadAllData() {
+  const { collection, getDocs, query, orderBy } = window.firebaseAdmin;
+
+  const [userSnap, epSnap, bankSnap, playerSnap, classSnap, logSnap] = await Promise.all([
+    getDocs(collection(db,'users')),
+    getDocs(collection(db,'episodes')),
+    getDocs(collection(db,'questionBanks')),
+    getDocs(collection(db,'players')),
+    getDocs(collection(db,'classes')),
+    getDocs(query(collection(db,'moderationLog'),orderBy('timestamp','desc'))).catch(()=>({docs:[]}))
+  ]);
+
+  const userDocs = userSnap.docs.map(d=>({id:d.id,...d.data()}));
+  allData.episodes = epSnap.docs.map(d=>({id:d.id,...d.data()}));
+  allData.banks    = bankSnap.docs.map(d=>({id:d.id,...d.data()}));
+  allData.classes  = classSnap.docs.map(d=>({id:d.id,...d.data()}));
+  allData.log      = logSnap.docs.map(d=>({id:d.id,...d.data()}));
+  allData.students = playerSnap.docs.map(d=>({id:d.id,...d.data()}));
+
+  allData.progress = [];
+  try {
+    const charSnaps = await Promise.all(allData.students.map(s=>getDocs(collection(db,'players',s.id,'characters')).catch(()=>({docs:[]}))));
+    charSnaps.forEach((snap,i) => {
+      const studentId = allData.students[i].id;
+      snap.docs.forEach(d => {
+        const charData = d.data();
+        const epProgress = charData.episodeProgress || charData.progress || {};
+        Object.entries(epProgress).forEach(([epId,prog]) => {
+          allData.progress.push({ studentId, characterId:d.id, episodeId:epId, completed:prog.completed||false, accuracy:prog.accuracy||prog.score||0, episodeName:prog.episodeName||'' });
+        });
+      });
+    });
+  } catch(e) { console.warn('Progress load error:',e); }
+
+  // Build teacher list from users + episodes + banks + teachers collection
+  const teacherUIDs = new Set();
+  userDocs.forEach(u => teacherUIDs.add(u.id));
+  allData.episodes.forEach(e => { if(e.teacherId) teacherUIDs.add(e.teacherId); });
+  allData.banks.forEach(b => { if(b.teacherId) teacherUIDs.add(b.teacherId); });
+
+  let teacherProfiles = {};
+  try {
+    const tSnap = await getDocs(collection(db,'teachers'));
+    tSnap.docs.forEach(d => { teacherProfiles[d.id] = d.data(); teacherUIDs.add(d.id); });
+  } catch(e) { console.warn('Could not load teacher profiles:',e); }
+
+  allData.teachers = Array.from(teacherUIDs).map(uid => {
+    const profile       = teacherProfiles[uid] || {};
+    const userDoc       = userDocs.find(u=>u.id===uid) || {};
+    const epWithEmail   = allData.episodes.find(e=>e.teacherId===uid&&e.teacherEmail);
+    const bankWithEmail = allData.banks.find(b=>b.teacherId===uid&&b.teacherEmail);
+    const email         = profile.email || epWithEmail?.teacherEmail || bankWithEmail?.teacherEmail || null;
+    return {
+      id: uid, email,
+      displayName:  profile.name         || null,
+      school:       profile.school       || null,
+      district:     profile.district     || null,
+      subjects:     profile.subjects     || [],
+      registeredAt: profile.registeredAt || null,
+      license:      userDoc.license      || null,
+      disabled:     userDoc.disabled     || false
+    };
+  });
+
+  // Build API keys list from teachers collection entries that have apiKey
+  allData.apiKeys = Object.entries(teacherProfiles)
+    .filter(([,v]) => v.apiKey)
+    .map(([uid,v]) => ({ id:uid, ...v }));
+
+  allData.modItems = allData.episodes.filter(e => ['flagged','blocked'].includes(e.moderationStatus));
+
+  updateCounts();
+  renderDashboard();
+  renderModerationPage();
+  renderTeachersPage();
+  renderEpisodesPage();
+  renderBanksPage();
+  renderStudentsPage();
+  renderLogPage();
+  renderApiKeysPage();
+  populateClassFilter();
+}
+
+function updateCounts() {
+  const flagCount = allData.modItems.length;
+  document.getElementById('stat-teachers').textContent    = allData.teachers.length;
+  document.getElementById('stat-episodes').textContent    = allData.episodes.length;
+  document.getElementById('stat-banks').textContent       = allData.banks.length;
+  document.getElementById('stat-students').textContent    = allData.students.length;
+  document.getElementById('stat-flagged').textContent     = flagCount;
+  document.getElementById('stat-completions').textContent = allData.progress.filter(p=>p.completed).length;
+  document.getElementById('teacher-tab-count').textContent = allData.teachers.length;
+  document.getElementById('episode-tab-count').textContent = allData.episodes.length;
+  document.getElementById('bank-tab-count').textContent    = allData.banks.length;
+  document.getElementById('student-tab-count').textContent = allData.students.length;
+  document.getElementById('apikey-tab-count').textContent  = allData.apiKeys.length;
+  if (flagCount > 0) {
+    document.getElementById('flag-badge').style.display = 'inline';
+    document.getElementById('flag-badge').textContent   = `⚑ ${flagCount} Flag${flagCount>1?'s':''}`;
+    document.getElementById('mod-count-badge').style.display = 'inline';
+    document.getElementById('mod-count-badge').textContent   = flagCount;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════════════
+function renderDashboard() {
+  const container = document.getElementById('dashboard-flags-list');
+  const items = allData.modItems.slice(0,5);
+  if (!items.length) { container.innerHTML=`<div class="empty-state"><div class="empty-icon">✅</div>No content awaiting review</div>`; return; }
+  container.innerHTML = items.map(ep=>buildModCard(ep,true)).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MODERATION
+// ══════════════════════════════════════════════════════════════════
+function renderModerationPage() {
+  const statusFilter = document.getElementById('mod-status-filter')?.value||'';
+  const search       = (document.getElementById('mod-search')?.value||'').toLowerCase();
+  let items = allData.episodes.filter(e=>e.moderationStatus);
+  if (statusFilter) items = items.filter(e=>e.moderationStatus===statusFilter);
+  if (search) items = items.filter(e=>(e.title||'').toLowerCase().includes(search)||(e.teacherEmail||'').toLowerCase().includes(search));
+  const container = document.getElementById('mod-cards-container');
+  if (!items.length) { container.innerHTML=`<div class="empty-state"><div class="empty-icon">🎉</div>No items match the current filter</div>`; return; }
+  container.innerHTML = `<div class="mod-cards">${items.map(ep=>buildModCard(ep,false)).join('')}</div>`;
+}
+
+function buildModCard(ep, compact) {
+  const status = ep.moderationStatus||'pending';
+  const badge  = `<span class="badge badge-${status}">${status}</span>`;
+  const teacher = ep.teacherEmail||ep.teacherId||'Unknown teacher';
+  const narrative = ep.cutscenePrompt||ep.description||ep.encounters?.[0]?.narrative||'';
+  const flagReason = ep.moderationReason ? `<div class="mod-flag-reason">${escHtml(ep.moderationReason)}</div>` : '';
+  const imageHtml = ep.flaggedImageData ? `<div class="mod-image-box"><img src="${ep.flaggedImageData}" alt="Flagged"></div>` : '';
+  const actions = status !== 'approved' ? `
+    <button class="btn-approve" onclick="moderateEpisode('${ep.id}','approve')">✓ Approve</button>
+    <button class="btn-block"   onclick="moderateEpisode('${ep.id}','block')">✕ Block</button>
+    <button class="btn-email-teacher" onclick="openEmailModal('${teacher}','${escHtml(ep.title||'Episode')}')">✉ Email Teacher</button>
+    <button class="btn-disable-teacher" onclick="disableTeacher('${ep.teacherId||''}','${teacher}')">⛔ Disable Teacher</button>
+  ` : `<button class="btn-block" onclick="moderateEpisode('${ep.id}','block')">✕ Revoke Approval</button>`;
+  return `<div class="mod-card ${status}" id="mod-card-${ep.id}">
+    <div class="mod-card-header"><div><div class="mod-card-title">${escHtml(ep.title||'Untitled Episode')}</div><div class="mod-card-meta">by ${escHtml(teacher)} · ${formatDate(ep.createdAt)}</div></div>${badge}</div>
+    ${flagReason}<div class="mod-content-box">${escHtml(narrative)||'<em style="opacity:0.5">No narrative text</em>'}</div>${imageHtml}
+    <div class="mod-actions">${actions}</div></div>`;
+}
+
+async function moderateEpisode(episodeId, action) {
+  const { doc, updateDoc } = window.firebaseAdmin;
+  const newStatus = action==='approve'?'approved':'blocked';
+  try {
+    await updateDoc(doc(db,'episodes',episodeId),{ moderationStatus:newStatus, moderationReviewedBy:currentAdmin.email, moderationReviewedAt:new Date().toISOString() });
+    const ep = allData.episodes.find(e=>e.id===episodeId);
+    if (ep) ep.moderationStatus = newStatus;
+    allData.modItems = allData.episodes.filter(e=>['flagged','blocked'].includes(e.moderationStatus));
+    await logAction(action==='approve'?'APPROVE_EPISODE':'BLOCK_EPISODE', episodeId, `Episode: ${allData.episodes.find(e=>e.id===episodeId)?.title}`);
+    updateCounts(); renderModerationPage(); renderDashboard(); renderEpisodesPage();
+    showToast(action==='approve'?'✓ Episode approved':'✕ Episode blocked', action==='approve'?'success':'');
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+async function disableTeacher(teacherId, teacherEmail) {
+  if (!confirm(`Disable account for ${teacherEmail}?\n\nThis will prevent them from accessing the CMS.`)) return;
+  const { doc, updateDoc } = window.firebaseAdmin;
+  try {
+    if (teacherId) await updateDoc(doc(db,'users',teacherId),{ disabled:true, disabledBy:currentAdmin.email, disabledAt:new Date().toISOString() });
+    await logAction('DISABLE_TEACHER', teacherId||teacherEmail, `Disabled: ${teacherEmail}`);
+    const t = allData.teachers.find(t=>t.id===teacherId);
+    if (t) t.disabled = true;
+    renderTeachersPage();
+    showToast('⛔ Teacher account disabled','error');
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+async function enableTeacher(teacherId, teacherEmail) {
+  const { doc, updateDoc } = window.firebaseAdmin;
+  try {
+    await updateDoc(doc(db,'users',teacherId),{ disabled:false });
+    await logAction('ENABLE_TEACHER', teacherId, `Re-enabled: ${teacherEmail}`);
+    const t = allData.teachers.find(t=>t.id===teacherId);
+    if (t) t.disabled = false;
+    renderTeachersPage();
+    showToast('✓ Teacher account re-enabled','success');
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TEACHERS PAGE
+// ══════════════════════════════════════════════════════════════════
+function renderTeachersPage() {
+  const search = (document.getElementById('teacher-search')?.value||'').toLowerCase();
+  let teachers = allData.teachers;
+  if (search) teachers = teachers.filter(t=>(t.email||'').toLowerCase().includes(search)||(t.displayName||'').toLowerCase().includes(search)||(t.school||'').toLowerCase().includes(search)||(t.district||'').toLowerCase().includes(search)||(t.id||'').toLowerCase().includes(search));
+  const tbody = document.getElementById('teachers-tbody');
+  if (!teachers.length) { tbody.innerHTML=`<tr><td colspan="8"><div class="empty-state">No teachers found</div></td></tr>`; return; }
+  tbody.innerHTML = teachers.map(t => {
+    const email = t.email||null;
+    const displayEmail = email
+      ? `<div style="font-size:13px;">${escHtml(email)}</div>`
+      : `<div style="font-size:11px;opacity:0.4;font-style:italic;font-family:monospace;">${t.id.substring(0,16)}...</div>`;
+    const nameCell   = t.displayName ? `<strong style="color:#ecf0f1;">${escHtml(t.displayName)}</strong>` : `<span style="opacity:0.35;font-style:italic;">—</span>`;
+    const schoolCell = t.school ? `<div style="font-size:13px;">${escHtml(t.school)}</div>${t.district?`<div style="font-size:11px;opacity:0.5;margin-top:2px;">${escHtml(t.district)}</div>`:''}` : `<span style="opacity:0.35;font-style:italic;">—</span>`;
+    const subjCell   = t.subjects&&t.subjects.length ? t.subjects.map(s=>`<span style="display:inline-block;padding:2px 8px;background:rgba(102,126,234,0.15);border:1px solid rgba(102,126,234,0.3);border-radius:10px;font-size:10px;color:#667eea;margin:2px 2px 2px 0;">${escHtml(s)}</span>`).join('') : `<span style="opacity:0.35;font-style:italic;font-size:12px;">—</span>`;
+    const epCount    = allData.episodes.filter(e=>e.teacherId===t.id||(email&&e.teacherEmail===email)).length;
+    const bankCount  = allData.banks.filter(b=>b.teacherId===t.id||(email&&b.teacherEmail===email)).length;
+    const licBadge   = t.license ? `<span class="badge badge-approved" style="font-size:0.6rem">${t.license}</span>` : '';
+    const regBadge   = t.registeredAt
+      ? `<span style="font-size:0.6rem;background:rgba(39,174,96,0.15);color:#27ae60;border:1px solid rgba(39,174,96,0.3);border-radius:4px;padding:2px 6px;">Registered</span>`
+      : `<span style="font-size:0.6rem;background:rgba(243,156,18,0.15);color:#f39c12;border:1px solid rgba(243,156,18,0.3);border-radius:4px;padding:2px 6px;">Pending</span>`;
+    const status  = t.disabled ? `<span class="badge badge-disabled">Disabled</span>` : `<span class="badge badge-active">Active</span>`;
+    const actions = t.disabled
+      ? `<button class="btn-sm btn-sm-green" onclick="enableTeacher('${t.id}','${escHtml(email||t.id)}')">Enable</button>`
+      : `<button class="btn-sm btn-sm-red"   onclick="disableTeacher('${t.id}','${escHtml(email||t.id)}')">Disable</button>`;
+    return `<tr>
+      <td>${displayEmail} ${licBadge}</td><td>${nameCell}</td><td>${schoolCell}</td><td>${subjCell}</td>
+      <td style="text-align:center;">${epCount}</td><td style="text-align:center;">${bankCount}</td>
+      <td>${status} ${regBadge}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;">${actions}
+        <button class="btn-sm btn-sm-gold" onclick="openAssignKeyModal('${t.id}')">🔑 Key</button>
+        ${email?`<button class="btn-sm btn-sm-gold" onclick="openEmailModal('${escHtml(email)}','')">✉</button>`:''}
+      </div></td></tr>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EPISODES PAGE
+// ══════════════════════════════════════════════════════════════════
+function renderEpisodesPage() {
+  const search  = (document.getElementById('episode-search')?.value||'').toLowerCase();
+  const statusF = document.getElementById('episode-status-filter')?.value||'';
+  let eps = allData.episodes;
+  if (search)  eps = eps.filter(e=>(e.title||'').toLowerCase().includes(search)||(e.teacherEmail||'').toLowerCase().includes(search));
+  if (statusF) eps = eps.filter(e=>(e.moderationStatus||'pending')===statusF);
+  const tbody = document.getElementById('episodes-tbody');
+  if (!eps.length) { tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state">No episodes found</div></td></tr>`; return; }
+  tbody.innerHTML = eps.map(ep => {
+    const status = ep.moderationStatus||'pending';
+    return `<tr>
+      <td><strong>${escHtml(ep.title||'Untitled')}</strong></td>
+      <td style="font-size:0.8rem;opacity:0.7">${escHtml(ep.teacherEmail||ep.teacherId||'—')}</td>
+      <td>${escHtml(ep.genre||'—')}</td>
+      <td><span class="badge badge-${status}">${status}</span></td>
+      <td>${(ep.selectedQuestionBanks||[]).length}</td>
+      <td>${ep.active?'✓':'—'}</td>
+      <td>${status!=='approved'?`<button class="btn-sm btn-sm-green" onclick="moderateEpisode('${ep.id}','approve')">Approve</button>`:`<button class="btn-sm btn-sm-red" onclick="moderateEpisode('${ep.id}','block')">Revoke</button>`}
+      <button class="btn-sm btn-sm-gold" onclick="viewEpisodeDetail('${ep.id}')">View</button></td></tr>`;
+  }).join('');
+}
+
+function viewEpisodeDetail(id) {
+  const ep = allData.episodes.find(e=>e.id===id);
+  if (!ep) return;
+  alert(`Episode: ${ep.title}\n\nNarrative:\n${ep.cutscenePrompt||ep.description||ep.encounters?.[0]?.narrative||''}\n\nModeration: ${ep.moderationStatus||'pending'}\nReason: ${ep.moderationReason||'none'}`);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// QUESTION BANKS PAGE
+// ══════════════════════════════════════════════════════════════════
+function renderBanksPage() {
+  const search = (document.getElementById('bank-search')?.value||'').toLowerCase();
+  let banks = allData.banks;
+  if (search) banks = banks.filter(b=>(b.name||'').toLowerCase().includes(search));
+  const tbody = document.getElementById('banks-tbody');
+  if (!banks.length) { tbody.innerHTML=`<tr><td colspan="6"><div class="empty-state">No banks found</div></td></tr>`; return; }
+  tbody.innerHTML = banks.map(b => {
+    const qCount = (b.questions||[]).length;
+    const testType = b.questions?.[0]?.testType||b.testType||'—';
+    const lastImport = b.lastExtraction?.date ? new Date(b.lastExtraction.date).toLocaleDateString() : '—';
+    return `<tr><td><strong>${escHtml(b.name||'Unnamed')}</strong></td><td style="font-size:0.8rem;opacity:0.7">${escHtml(b.teacherEmail||b.teacherId||'—')}</td><td>${qCount}</td><td>${escHtml(testType)}</td><td>${lastImport}</td><td><button class="btn-sm btn-sm-gold" onclick="viewBank('${b.id}')">View Questions</button></td></tr>`;
+  }).join('');
+}
+
+function viewBank(id) {
+  const bank = allData.banks.find(b=>b.id===id);
+  if (!bank) return;
+  document.getElementById('bank-modal-title').textContent = bank.name||'Question Bank';
+  const qs = bank.questions||[];
+  document.getElementById('bank-modal-content').innerHTML = qs.length
+    ? qs.slice(0,30).map((q,i)=>`<div style="border-bottom:1px solid rgba(255,255,255,0.06);padding:0.8rem 0"><div style="font-size:0.75rem;color:var(--gold-dark);margin-bottom:0.3rem">Q${q.questionNumber||i+1} · ${q.testType||'—'}</div><div style="font-size:0.85rem;color:var(--parchment2)">${escHtml((q.text||'').substring(0,200))}${(q.text||'').length>200?'…':''}</div>${q.passageImages?.length||q.questionImages?.length?`<div style="font-size:0.7rem;color:var(--gold-dark);margin-top:0.25rem">📷 Has images</div>`:''}</div>`).join('')+(qs.length>30?`<div style="text-align:center;padding:1rem;opacity:0.5;font-style:italic">…and ${qs.length-30} more</div>`:'')
+    : '<div class="empty-state">No questions in this bank</div>';
+  document.getElementById('bank-modal').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// STUDENTS PAGE
+// ══════════════════════════════════════════════════════════════════
+function populateClassFilter() {
+  const sel = document.getElementById('student-class-filter');
+  allData.classes.forEach(c => { const opt=document.createElement('option'); opt.value=c.id; opt.textContent=c.name||c.id; sel.appendChild(opt); });
+}
+
+function renderStudentsPage() {
+  const search      = (document.getElementById('student-search')?.value||'').toLowerCase();
+  const classFilter = document.getElementById('student-class-filter')?.value||'';
+  let students = allData.students;
+  if (search)      students = students.filter(s=>(s.name||s.email||'').toLowerCase().includes(search));
+  if (classFilter) students = students.filter(s=>(s.enrolledCodes||[]).some(code=>{ const cls=allData.classes.find(c=>c.id===classFilter); return cls&&code===cls.joinCode; }));
+  const total = students.length;
+  const withProgress = students.filter(s=>allData.progress.filter(p=>p.studentId===s.id).length>0);
+  const completions = allData.progress.filter(p=>p.completed).length;
+  const avgAccuracy = withProgress.length ? Math.round(withProgress.reduce((sum,s)=>{ const prog=allData.progress.filter(p=>p.studentId===s.id&&p.completed); if(!prog.length) return sum; return sum+prog.reduce((a,p)=>a+(p.accuracy||0),0)/prog.length; },0)/withProgress.length) : 0;
+  const avgXp = total ? Math.round(students.reduce((s,st)=>s+(st.xp||0),0)/total) : 0;
+  document.getElementById('agg-avg-accuracy').textContent   = total ? avgAccuracy+'%' : '—';
+  document.getElementById('agg-completions').textContent    = completions||'—';
+  document.getElementById('agg-avg-xp').textContent         = total ? avgXp : '—';
+  document.getElementById('agg-active-students').textContent = withProgress.length||'—';
+  const tbody = document.getElementById('students-tbody');
+  if (!students.length) { tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state">No students found</div></td></tr>`; return; }
+  tbody.innerHTML = students.map(s => {
+    const prog   = allData.progress.filter(p=>p.studentId===s.id&&p.completed);
+    const avgAcc = prog.length ? Math.round(prog.reduce((a,p)=>a+(p.accuracy||0),0)/prog.length) : null;
+    const enrolledClass = allData.classes.find(c=>(s.enrolledCodes||[]).includes(c.joinCode));
+    const level = xpToLevel(s.xp || 0);
+    return `<tr><td>${escHtml(s.name||'—')}</td><td style="font-size:0.75rem;opacity:0.6">${escHtml(s.className||'—')}</td><td>Lv ${level} · ${(s.xp||0).toLocaleString()} XP</td><td>${prog.length}</td><td>${avgAcc!==null?avgAcc+'%':'—'}</td><td style="font-size:0.8rem">${escHtml(enrolledClass?.name||'—')}</td><td><button class="btn-sm btn-sm-gold" onclick="viewStudentDetail('${s.id}')">Detail</button></td></tr>`;
+  }).join('');
+}
+
+function viewStudentDetail(studentId) {
+  const s = allData.students.find(st=>st.id===studentId);
+  if (!s) return;
+  const prog = allData.progress.filter(p=>p.studentId===studentId);
+  const completed = prog.filter(p=>p.completed);
+  const avgAcc = completed.length ? Math.round(completed.reduce((a,p)=>a+(p.accuracy||0),0)/completed.length) : 0;
+  document.getElementById('student-modal-title').textContent = s.name||'Student Detail';
+  document.getElementById('student-modal-content').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
+      <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem">${s.level||1}</div><div class="stat-label">Level</div></div>
+      <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem">${(s.xp||0).toLocaleString()}</div><div class="stat-label">XP</div></div>
+      <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem">${completed.length}</div><div class="stat-label">Episodes Done</div></div>
+      <div class="stat-card" style="padding:1rem"><div class="stat-value" style="font-size:1.8rem">${avgAcc}%</div><div class="stat-label">Avg Accuracy</div></div>
+    </div>
+    <div style="font-family:'Cinzel',serif;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--gold-dark);margin-bottom:0.75rem">Episode Progress</div>
+    ${prog.length ? prog.map(p=>{ const acc=p.accuracy||0; const ep=allData.episodes.find(e=>e.id===p.episodeId); return `<div style="margin-bottom:0.75rem"><div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.3rem"><span>${escHtml(p.episodeName||ep?.title||p.episodeId)}</span><span style="color:var(--gold)">${acc}% · ${p.completed?'✓ Complete':'In Progress'}</span></div><div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${acc}%"></div></div></div>`; }).join('') : '<div style="opacity:0.5;font-style:italic">No progress recorded yet</div>'}`;
+  document.getElementById('student-modal').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// API KEYS PAGE
+// ══════════════════════════════════════════════════════════════════
+function renderApiKeysPage() {
+  const search = (document.getElementById('apikey-search')?.value||'').toLowerCase();
+  let keys = allData.apiKeys||[];
+  if (search) keys = keys.filter(k=>(k.email||'').toLowerCase().includes(search)||(k.id||'').toLowerCase().includes(search));
+  const tbody = document.getElementById('apikeys-tbody');
+  if (!keys.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">No personal API keys assigned yet.<br><span style="font-size:12px;">Click "+ Assign Key" to get started. Teachers without a personal key use the system default.</span></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = keys.map(k => {
+    const key     = k.apiKey||'';
+    const masked  = key ? key.substring(0,8)+'••••••••••••'+key.slice(-4) : '—';
+    const active  = k.apiKeyActive!==false;
+    const badge   = active ? `<span class="badge badge-approved">Active</span>` : `<span class="badge badge-disabled">Deactivated</span>`;
+    const assigned = k.assignedAt ? formatDate(k.assignedAt) : '—';
+    const uid = escHtml(k.id);
+    return `<tr>
+      <td><div style="font-size:13px;color:#ecf0f1;">${escHtml(k.email||'—')}</div><div style="font-size:10px;opacity:0.35;font-family:monospace;margin-top:2px;">${uid}</div></td>
+      <td style="font-family:monospace;font-size:12px;color:#8892a4;">${masked}</td>
+      <td>${badge}</td>
+      <td style="font-size:12px;color:#6c757d;">${assigned}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${active ? `<button class="btn-sm btn-sm-red" onclick="toggleApiKey('${uid}',false)">Deactivate</button>` : `<button class="btn-sm btn-sm-green" onclick="toggleApiKey('${uid}',true)">Activate</button>`}
+        <button class="btn-sm btn-sm-gold" onclick="openEditKeyModal('${uid}')">Edit</button>
+        <button class="btn-sm btn-sm-red" onclick="deleteApiKey('${uid}','${escHtml(k.email||k.id)}')">Delete</button>
+      </div></td></tr>`;
+  }).join('');
+}
+
+function openAssignKeyModal(prefillUid) {
+  const input = document.getElementById('ak-teacher-input');
+  input.value = prefillUid || '';
+  input.dataset.uid = prefillUid || '';
+  // If prefillUid, look up email to show something friendly
+  if (prefillUid) {
+    const t = allData.teachers.find(t=>t.id===prefillUid);
+    if (t && t.email) { input.value = t.email; }
+  }
+  document.getElementById('ak-key-input').value = '';
+  document.getElementById('ak-active-check').checked = true;
+  document.getElementById('ak-save-btn').dataset.editId = '';
+  document.getElementById('ak-modal-title').textContent = 'Assign API Key';
+  document.getElementById('ak-teacher-matches').innerHTML = '';
+  document.getElementById('assign-key-modal').classList.add('open');
+}
+
+function openEditKeyModal(teacherUid) {
+  const keyData = (allData.apiKeys||[]).find(k=>k.id===teacherUid);
+  if (!keyData) return;
+  const input = document.getElementById('ak-teacher-input');
+  input.value = keyData.email||keyData.id;
+  input.dataset.uid = teacherUid;
+  document.getElementById('ak-key-input').value = keyData.apiKey||'';
+  document.getElementById('ak-active-check').checked = keyData.apiKeyActive!==false;
+  document.getElementById('ak-save-btn').dataset.editId = teacherUid;
+  document.getElementById('ak-modal-title').textContent = 'Edit API Key';
+  document.getElementById('ak-teacher-matches').innerHTML = '';
+  document.getElementById('assign-key-modal').classList.add('open');
+}
+
+function closeAssignKeyModal() {
+  document.getElementById('assign-key-modal').classList.remove('open');
+  document.getElementById('ak-teacher-matches').innerHTML = '';
+}
+
+function akSearchTeachers() {
+  const val = document.getElementById('ak-teacher-input').value.toLowerCase();
+  const box = document.getElementById('ak-teacher-matches');
+  if (!val||val.length<2) { box.innerHTML=''; return; }
+  const matches = (allData.teachers||[]).filter(t=>(t.email||'').toLowerCase().includes(val)||(t.id||'').toLowerCase().includes(val)).slice(0,6);
+  if (!matches.length) { box.innerHTML=''; return; }
+  box.innerHTML = matches.map(t=>
+    `<div onclick="akSelectTeacher('${escHtml(t.id)}','${escHtml(t.email||t.id)}')"
+      style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:4px;cursor:pointer;font-size:13px;margin-top:3px;color:#ecf0f1;border:1px solid rgba(255,255,255,0.06);font-family:'Crimson Pro',serif;">
+      ${escHtml(t.email||t.id)}
+      ${t.displayName?`<span style="opacity:0.5;margin-left:6px;font-size:11px;">${escHtml(t.displayName)}</span>`:''}
+    </div>`
+  ).join('');
+}
+
+function akSelectTeacher(uid, display) {
+  const input = document.getElementById('ak-teacher-input');
+  input.value = display;
+  input.dataset.uid = uid;
+  document.getElementById('ak-teacher-matches').innerHTML = '';
+}
+
+async function saveApiKeyAssignment() {
+  const { doc, setDoc } = window.firebaseAdmin;
+  const btn    = document.getElementById('ak-save-btn');
+  const input  = document.getElementById('ak-teacher-input');
+  const apiKey = document.getElementById('ak-key-input').value.trim();
+  const active = document.getElementById('ak-active-check').checked;
+  const uid    = input.dataset.uid || btn.dataset.editId || input.value.trim();
+  if (!uid)    { alert('Please select a teacher from the list.'); return; }
+  if (!apiKey) { alert('Please enter an API key.'); return; }
+  if (!apiKey.startsWith('AIza')) { alert('That doesn\'t look like a valid Gemini key (should start with "AIza").'); return; }
+  btn.disabled=true; btn.textContent='Saving…';
+  const teacher = (allData.teachers||[]).find(t=>t.id===uid||t.email===input.value.trim());
+  const email   = teacher?.email || input.value.trim();
+  try {
+    await setDoc(doc(db,'teachers',uid),{ apiKey, apiKeyActive:active, email, assignedAt:new Date().toISOString(), assignedBy:'admin' },{ merge:true });
+    allData.apiKeys = allData.apiKeys||[];
+    const existing = allData.apiKeys.findIndex(k=>k.id===uid);
+    const updated  = { id:uid, apiKey, apiKeyActive:active, email, assignedAt:new Date().toISOString() };
+    if (existing>=0) allData.apiKeys[existing]=updated; else allData.apiKeys.push(updated);
+    closeAssignKeyModal();
+    renderApiKeysPage();
+    document.getElementById('apikey-tab-count').textContent = allData.apiKeys.length;
+    showToast('API key saved ✓','success');
+    await logAction('ASSIGN_API_KEY', uid, `Key assigned to ${email}`);
+  } catch(e) { alert('Error saving key: '+e.message); }
+  finally { btn.disabled=false; btn.textContent='Save Key'; }
+}
+
+async function toggleApiKey(teacherUid, active) {
+  const { doc, updateDoc } = window.firebaseAdmin;
+  const label = active?'activate':'deactivate';
+  if (!confirm(`Are you sure you want to ${label} this teacher's API key?`)) return;
+  try {
+    await updateDoc(doc(db,'teachers',teacherUid),{ apiKeyActive:active });
+    const k = (allData.apiKeys||[]).find(k=>k.id===teacherUid);
+    if (k) k.apiKeyActive = active;
+    renderApiKeysPage();
+    showToast(`Key ${active?'activated':'deactivated'} ✓`, active?'success':'');
+    await logAction(active?'ACTIVATE_API_KEY':'DEACTIVATE_API_KEY', teacherUid, `Key ${label}d`);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+async function deleteApiKey(teacherUid, displayName) {
+  const { doc, updateDoc } = window.firebaseAdmin;
+  if (!confirm(`Delete API key for ${displayName}?\n\nThey will fall back to the system default key.`)) return;
+  try {
+    await updateDoc(doc(db,'teachers',teacherUid),{ apiKey:null, apiKeyActive:false });
+    allData.apiKeys = (allData.apiKeys||[]).filter(k=>k.id!==teacherUid);
+    renderApiKeysPage();
+    document.getElementById('apikey-tab-count').textContent = allData.apiKeys.length;
+    showToast('API key deleted ✓');
+    await logAction('DELETE_API_KEY', teacherUid, `Key deleted for ${displayName}`);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AUDIT LOG
+// ══════════════════════════════════════════════════════════════════
+function renderLogPage() {
+  const tbody = document.getElementById('log-tbody');
+  if (!allData.log.length) { tbody.innerHTML=`<tr><td colspan="5"><div class="empty-state">No log entries yet</div></td></tr>`; return; }
+  tbody.innerHTML = allData.log.slice(0,100).map(entry=>`
+    <tr>
+      <td style="font-size:0.8rem;white-space:nowrap">${formatDate(entry.timestamp)}</td>
+      <td><span class="badge badge-${entry.action?.includes('BLOCK')||entry.action?.includes('DISABLE')||entry.action?.includes('DEACTIVATE')||entry.action?.includes('DELETE')?'blocked':'approved'}">${entry.action||'—'}</span></td>
+      <td style="font-size:0.8rem">${escHtml(entry.adminEmail||'—')}</td>
+      <td style="font-size:0.8rem">${escHtml(entry.targetId||'—')}</td>
+      <td style="font-size:0.8rem;opacity:0.7">${escHtml(entry.details||'—')}</td>
+    </tr>`).join('');
+}
+
+async function logAction(action, targetId, details) {
+  const { collection, addDoc, serverTimestamp } = window.firebaseAdmin;
+  try {
+    await addDoc(collection(db,'moderationLog'),{ action, targetId, details, adminEmail:currentAdmin.email, timestamp:serverTimestamp() });
+  } catch(e) { console.warn('Log error:',e); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EMAIL MODAL
+// ══════════════════════════════════════════════════════════════════
+function openEmailModal(teacherEmail, episodeTitle) {
+  document.getElementById('email-to').value = teacherEmail;
+  document.getElementById('email-subject').value = episodeTitle ? `Content Review — "${episodeTitle}"` : 'Test Quest — Account Notice';
+  document.getElementById('email-body').value = episodeTitle
+    ? `Hello,\n\nWe are reaching out regarding content you recently submitted in Test Quest.\n\nThe episode "${episodeTitle}" has been flagged during our content review process. Please review our content guidelines and resubmit with appropriate changes.\n\nIf you have questions, please reply to this email.\n\nTest Quest Administration`
+    : `Hello,\n\nThis is a notice from Test Quest administration regarding your account.\n\nTest Quest Administration`;
+  document.getElementById('email-modal').classList.add('open');
+}
+function sendEmailViaMailto() {
+  const to=document.getElementById('email-to').value, subject=encodeURIComponent(document.getElementById('email-subject').value), body=encodeURIComponent(document.getElementById('email-body').value);
+  window.open(`mailto:${to}?subject=${subject}&body=${body}`);
+  logAction('EMAIL_TEACHER',to,document.getElementById('email-subject').value);
+  closeModal('email-modal');
+}
+function copyEmailToClipboard() {
+  const text=`To: ${document.getElementById('email-to').value}\nSubject: ${document.getElementById('email-subject').value}\n\n${document.getElementById('email-body').value}`;
+  navigator.clipboard.writeText(text).then(()=>showToast('Copied to clipboard','success'));
+}
+
+// ══════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════════════
+document.querySelectorAll('.nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('page-'+tab.dataset.page).classList.add('active');
+    if (tab.dataset.page==='apikeys') renderApiKeysPage();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════════════════════════
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(m => { m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }); });
+document.getElementById('assign-key-modal').addEventListener('click',e=>{ if(e.target===document.getElementById('assign-key-modal')) closeAssignKeyModal(); });
+
+function escHtml(str) { return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function formatDate(val) {
+  if (!val) return '—';
+  try { const d=val?.toDate?val.toDate():new Date(val); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  catch { return '—'; }
+}
+function showToast(msg,type='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast ${type} show`; setTimeout(()=>t.classList.remove('show'),3000); }
+
+
+// ══════════════════════════════════════════════════════════════════
+// SYSTEM HEALTH CHECK
+// ══════════════════════════════════════════════════════════════════
+async function runHealthCheck() {
+  const btn = document.getElementById('health-check-btn');
+  const log = document.getElementById('health-log');
+  btn.disabled = true;
+  btn.textContent = '⟳ Checking…';
+  log.innerHTML = '';
+
+  function addLog(msg, color) {
+    const line = document.createElement('div');
+    line.style.color = color || 'var(--mist)';
+    line.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function setCard(service, status, detail, ok) {
+    const card  = document.getElementById('health-' + service + '-card');
+    const valEl = document.getElementById('health-' + service + '-status');
+    const detEl = document.getElementById('health-' + service + '-detail');
+    valEl.textContent = status;
+    detEl.textContent = detail;
+    valEl.style.color = ok === true ? '#27ae60' : ok === false ? '#e74c3c' : '#e8b84b';
+    if (card) card.style.borderColor = ok === true
+      ? 'rgba(39,174,96,0.4)'
+      : ok === false ? 'rgba(231,76,60,0.4)'
+      : 'rgba(232,184,75,0.4)';
+  }
+
+  addLog('Starting health check…');
+
+  // 1. Firebase
+  addLog('Checking Firebase / Firestore…');
+  try {
+    const { collection, getDocs } = window.firebaseAdmin;
+    const start = Date.now();
+    await getDocs(collection(db, 'episodes'));
+    const ms = Date.now() - start;
+    setCard('firebase', '✅ Online', 'Responded in ' + ms + 'ms', true);
+    addLog('✅ Firebase OK — ' + ms + 'ms', '#27ae60');
+  } catch(e) {
+    setCard('firebase', '❌ Error', e.message.substring(0, 60), false);
+    addLog('❌ Firebase ERROR: ' + e.message, '#e74c3c');
+  }
+
+  // 2. Anthropic (via generateNarrative Cloud Function)
+  addLog('Checking Anthropic AI (generateNarrative)…');
+  try {
+    const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/9.22.1/firebase-functions.js');
+    const fns = getFunctions(db.app);
+    const fn  = httpsCallable(fns, 'generateNarrative');
+    const start = Date.now();
+    const result = await fn({ requestData: { model: 'claude-sonnet-4-5', maxTokens: 10, promptText: 'Reply with the single word: OK' } });
+    const ms = Date.now() - start;
+    if (result.data && result.data.success) {
+      setCard('anthropic', '✅ Online', 'Responded in ' + ms + 'ms', true);
+      addLog('✅ Anthropic OK — ' + ms + 'ms', '#27ae60');
+    } else {
+      setCard('anthropic', '⚠️ Degraded', 'Unexpected response format', null);
+      addLog('⚠️ Anthropic returned unexpected response', '#e8b84b');
+    }
+  } catch(e) {
+    const isBilling = (e.message || '').includes('credit') || (e.message || '').includes('400');
+    setCard('anthropic', '❌ Error',
+      isBilling ? 'Credit balance too low — top up at console.anthropic.com' : e.message.substring(0, 60),
+      false);
+    addLog('❌ Anthropic: ' + (isBilling
+      ? 'Out of credits — visit console.anthropic.com/settings/billing'
+      : e.message), '#e74c3c');
+  }
+
+  // 3. Gemini (via getGeminiKey Cloud Function)
+  addLog('Checking Gemini API key…');
+  try {
+    const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/9.22.1/firebase-functions.js');
+    const fns = getFunctions(db.app);
+    const fn  = httpsCallable(fns, 'getGeminiKey');
+    const start = Date.now();
+    const result = await fn();
+    const ms = Date.now() - start;
+    if (result.data && result.data.key) {
+      setCard('gemini', '✅ Online', 'Key available (' + result.data.source + ') — ' + ms + 'ms', true);
+      addLog('✅ Gemini key OK — source: ' + result.data.source + ' — ' + ms + 'ms', '#27ae60');
+    } else {
+      setCard('gemini', '⚠️ No Key', 'Key not configured in Firebase Secrets', null);
+      addLog('⚠️ Gemini: no key returned', '#e8b84b');
+    }
+  } catch(e) {
+    setCard('gemini', '❌ Error', e.message.substring(0, 60), false);
+    addLog('❌ Gemini ERROR: ' + e.message, '#e74c3c');
+  }
+
+  // 4. Imagen (via generateCutsceneImage — minimal 1:1 test)
+  addLog('Checking Imagen / cutscene image service…');
+  try {
+    const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/9.22.1/firebase-functions.js');
+    const fns = getFunctions(db.app);
+    const fn  = httpsCallable(fns, 'generateCutsceneImage');
+    const start = Date.now();
+    const result = await fn({ imagePrompt: 'A single gold coin on a dark wooden table', aspectRatio: '1:1' });
+    const ms = Date.now() - start;
+    if (result.data && result.data.success) {
+      setCard('imagen', '✅ Online', 'Image generated in ' + ms + 'ms', true);
+      addLog('✅ Imagen OK — ' + ms + 'ms', '#27ae60');
+    } else {
+      setCard('imagen', '⚠️ Degraded', 'No image data returned', null);
+      addLog('⚠️ Imagen returned no image data', '#e8b84b');
+    }
+  } catch(e) {
+    setCard('imagen', '❌ Error', e.message.substring(0, 60), false);
+    addLog('❌ Imagen ERROR: ' + e.message, '#e74c3c');
+  }
+
+  const now = new Date().toLocaleString();
+  document.getElementById('health-last-checked').textContent = 'Last checked: ' + now;
+  addLog('Health check complete — ' + now, 'var(--gold)');
+
+  // Save result to Firestore for audit trail
+  try {
+    const { collection, addDoc, serverTimestamp } = window.firebaseAdmin;
+    await addDoc(collection(db, 'systemHealth'), {
+      checkedBy:  currentAdmin.email,
+      checkedAt:  serverTimestamp(),
+      anthropic:  document.getElementById('health-anthropic-status').textContent,
+      gemini:     document.getElementById('health-gemini-status').textContent,
+      imagen:     document.getElementById('health-imagen-status').textContent,
+      firebase:   document.getElementById('health-firebase-status').textContent,
+    });
+  } catch(e) { /* non-critical — don't block UI */ }
+
+  btn.disabled = false;
+  btn.textContent = '◆ Run Health Check';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════════════════════════════
+if (window.firebaseAdminReady) { init(); }
+else { document.addEventListener('firebaseAdminReady',init); }
+</script>
+</body>
+</html>
