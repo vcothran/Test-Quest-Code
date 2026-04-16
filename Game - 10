@@ -1,0 +1,942 @@
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK INTO EXISTING SYSTEMS via MutationObserver + event listeners
+// ─────────────────────────────────────────────────────────────────────────
+setTimeout(() => {
+  // Hook feedback box for per-answer checks
+  const feedbackBox = document.getElementById('feedback-box');
+  if (feedbackBox) {
+    const observer = new MutationObserver(() => {
+      if (player && sessionStats) window.checkTitleTriggers();
+    });
+    observer.observe(feedbackBox, { childList: true, subtree: false });
+    console.log('✅ Title/badge trigger observer attached');
+  }
+
+  // Hook return-to-episodes for episode completion checks
+  const returnBtn = document.getElementById('return-to-episodes');
+  if (returnBtn) {
+    const origClick = returnBtn.onclick;
+    returnBtn.onclick = (e) => {
+      window.checkEpisodeTitleTriggers();
+      if (origClick) origClick(e);
+    };
+  }
+
+  // Init HUD title display
+  window.updateHUDTitle();
+
+  // Hook level-up check into Section 18's checkForLevelUp
+  const origLevelUp = window.checkForLevelUp;
+  if (origLevelUp && !window._s21LevelHooked) {
+    window._s21LevelHooked = true;
+    window.checkForLevelUp = () => {
+      const levelBefore = window._lastKnownLevel || 1;
+      origLevelUp();
+      const levelAfter = window.getLevelData ? window.getLevelData(player.xp).level : 1;
+      if (levelAfter > levelBefore) {
+        window.checkLevelTitleTriggers(levelAfter);
+        window.updateHUDTitle();
+      }
+    };
+  }
+
+  // Hook loot drop into Section 20
+  const origShowLoot = window.showLootDropOverlay;
+  if (origShowLoot && !window._s21LootHooked) {
+    window._s21LootHooked = true;
+    window.showLootDropOverlay = async (loot, streak) => {
+      window.checkLootTitleTriggers(loot);
+      await origShowLoot(loot, streak);
+    };
+  }
+
+  // Hook portrait confirm into Section 19
+  const origConfirm = window.confirmPortraitAndContinue;
+  if (origConfirm && !window._s21PortraitHooked) {
+    window._s21PortraitHooked = true;
+    window.confirmPortraitAndContinue = async () => {
+      await origConfirm();
+      window.checkPortraitTitleTriggers();
+    };
+  }
+
+  // Load existing titles/badges from player
+  if (player) {
+    if (!player.titles) player.titles = [];
+    if (!player.badges) player.badges = [];
+    window.updateHUDTitle();
+  }
+
+  console.log('✅ Title/badge hooks attached');
+}, 2500);
+
+// ─────────────────────────────────────────────────────────────────────────
+// TITLES & BADGES PANEL
+// Accessible from character stats panel
+// ─────────────────────────────────────────────────────────────────────────
+window.showTitlesBadgesPanel = () => {
+  const existing = document.getElementById('titles-badges-overlay');
+  if (existing) { existing.remove(); return; }
+
+  const owned_titles = window.getPlayerTitles();
+  const owned_badges = window.getPlayerBadges();
+  const equipped = window.getEquippedTitle();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'titles-badges-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.92);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99982;padding:20px;box-sizing:border-box;overflow-y:auto;`;
+
+  const titlesHtml = window.TITLE_DEFINITIONS
+    .filter(t => !t.secret || owned_titles.includes(t.id))
+    .map(t => {
+      const owned = owned_titles.includes(t.id);
+      const isEquipped = equipped === t.id;
+      return `
+        <div style="background:${owned ? 'rgba(201,168,76,0.08)' : 'rgba(255,255,255,0.02)'};
+                    border:1px solid ${owned ? 'rgba(201,168,76,0.3)' : 'rgba(255,255,255,0.06)'};
+                    border-radius:10px;padding:12px 16px;display:flex;
+                    align-items:center;justify-content:space-between;gap:12px;
+                    opacity:${owned ? '1' : '0.4'};">
+          <div>
+            <div style="font-family:'Cinzel',serif;font-size:13px;
+                        color:${owned ? '#c9a84c' : '#4a5568'};font-weight:700;">
+              ${t.name} ${isEquipped ? '<span style="font-size:9px;background:#c9a84c;color:#000;padding:2px 6px;border-radius:4px;margin-left:6px;">EQUIPPED</span>' : ''}
+            </div>
+            <div style="font-size:11px;color:#4a5568;margin-top:3px;">${owned ? t.desc : '???'}</div>
+          </div>
+          ${owned && !isEquipped ? `<button onclick="window.equipTitle('${t.id}')"
+            style="padding:5px 12px;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.3);
+                   border-radius:6px;color:#c9a84c;font-size:11px;cursor:pointer;
+                   font-family:'Cinzel',serif;white-space:nowrap;">Equip</button>` : ''}
+        </div>`;
+    }).join('');
+
+  const badgesHtml = window.BADGE_DEFINITIONS.map(b => {
+    const owned = owned_badges.includes(b.id);
+    return `
+      <div style="text-align:center;opacity:${owned ? '1' : '0.25'};" title="${owned ? b.desc : 'Not yet earned'}">
+        <div style="font-size:32px;filter:${owned ? 'none' : 'grayscale(1)'};">${b.icon}</div>
+        <div style="font-size:9px;color:${owned ? '#c9a84c' : '#4a5568'};
+                    font-family:'Cinzel',serif;margin-top:4px;">${owned ? b.name : '???'}</div>
+      </div>`;
+  }).join('');
+
+  overlay.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:2px solid rgba(201,168,76,0.3);border-radius:24px;
+                padding:36px;max-width:620px;width:100%;
+                box-shadow:0 30px 80px rgba(0,0,0,0.7);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;">
+        <div>
+          <div style="font-family:'Cinzel',serif;font-size:20px;color:#c9a84c;">
+            Titles & Badges
+          </div>
+          <div style="font-size:13px;color:#8892a4;margin-top:4px;">
+            ${owned_titles.length} titles · ${owned_badges.length} badges earned
+          </div>
+        </div>
+        <button onclick="document.getElementById('titles-badges-overlay').remove()"
+          style="background:none;border:none;color:#8892a4;cursor:pointer;font-size:24px;opacity:0.6;">✕</button>
+      </div>
+
+      <div style="font-family:'Cinzel',serif;font-size:11px;text-transform:uppercase;
+                  letter-spacing:1px;color:#667eea;margin-bottom:12px;">Titles</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:28px;">
+        ${titlesHtml || '<div style="color:#4a5568;font-style:italic;font-size:13px;">No titles yet — keep playing!</div>'}
+      </div>
+
+      <div style="font-family:'Cinzel',serif;font-size:11px;text-transform:uppercase;
+                  letter-spacing:1px;color:#667eea;margin-bottom:12px;">Badges</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:16px;">
+        ${badgesHtml}
+      </div>
+    </div>`;
+
+  // Close on backdrop click
+  overlay.onclick = (e) => {
+    if (e.target === overlay) overlay.remove();
+  };
+  // Close on Escape key
+  const escHandler = (e) => {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+  };
+  document.addEventListener('keydown', escHandler);
+
+  document.body.appendChild(overlay);
+};
+
+window.equipTitle = async (titleId) => {
+  if (!player || !window.hasTitle(titleId)) return;
+  player.equippedTitle = titleId;
+  try {
+    await setDoc(doc(db, 'players', player.uid), { equippedTitle: titleId }, { merge: true });
+  } catch(e) { console.warn('Could not save equipped title:', e); }
+  window.updateHUDTitle();
+  // Refresh panel
+  const panel = document.getElementById('titles-badges-overlay');
+  if (panel) { panel.remove(); window.showTitlesBadgesPanel(); }
+};
+
+// Add Titles & Badges button to HUD after init
+setTimeout(() => {
+  const statsEl = document.getElementById('player-stats');
+  if (statsEl && !document.getElementById('hud-titles-btn')) {
+    const btn = document.createElement('button');
+    btn.id = 'hud-titles-btn';
+    btn.className = 'stat-item';
+    btn.style.cssText = 'cursor:pointer;background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);color:#c9a84c;font-size:11px;padding:6px 10px;border-radius:6px;font-family:"Cinzel",serif;';
+    btn.textContent = '🏆 Titles';
+    btn.onclick = () => window.showTitlesBadgesPanel();
+    statsEl.appendChild(btn);
+  }
+}, 3000);
+
+console.log('✅ Section 21 COMPLETE — Titles & Badges system loaded');
+console.log('   Titles:', window.TITLE_DEFINITIONS.length);
+console.log('   Badges:', window.BADGE_DEFINITIONS.length);
+
+/* === SECTION 22: SIGNATURE ABILITIES (Level 15) === */
+/* VKC-TQ-S22 — Volney Cothran / Test Quest / Section 22 */
+console.log('⚡ Loading Section 22: Signature Abilities...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// SIGNATURE ABILITY DEFINITIONS
+// Each class gets one L15 ability chosen at level-up
+// Once per episode, activated via HUD button
+// ─────────────────────────────────────────────────────────────────────────
+window.SIGNATURE_DEFINITIONS = {
+  // Strategist
+  warlordGambit: {
+    name: "Warlord's Gambit",
+    icon: '👑',
+    class: 'Strategist',
+    desc: 'Reveal 2 correct answers highlighted for 1 question.',
+    activate: () => {
+      const q = window._getCurrentQuestion ? window._getCurrentQuestion() : null;
+      if (!q) return false;
+      // Highlight correct answer and one other randomly
+      const buttons = document.querySelectorAll('#answer-options .answer-option');
+      if (buttons[q.correct]) {
+        buttons[q.correct].style.boxShadow = '0 0 16px 4px rgba(201,168,76,0.8)';
+        buttons[q.correct].style.border = '2px solid #c9a84c';
+      }
+      // Also show a second "strong" option as a decoy highlight
+      const decoys = [...buttons].filter((_, i) => i !== q.correct);
+      if (decoys.length) {
+        const decoy = decoys[Math.floor(Math.random() * decoys.length)];
+        decoy.style.boxShadow = '0 0 10px 2px rgba(102,126,234,0.5)';
+        decoy.style.border = '2px solid #667eea';
+      }
+      return "Warlord's Gambit: The correct answer glows gold!";
+    }
+  },
+  tacticalMastery: {
+    name: 'Tactical Mastery',
+    icon: '🏆',
+    class: 'Strategist',
+    desc: 'Use any ability without spending a use charge. One question.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.tacticalMasteryActive = true;
+      return 'Tactical Mastery: Your next ability use costs no charges!';
+    }
+  },
+  fortressStance: {
+    name: 'Fortress Stance',
+    icon: '🏰',
+    class: 'Strategist',
+    desc: 'Next 3 wrong answers cost 0 Focus.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.fortressStanceCount = 3;
+      return 'Fortress Stance: Next 3 wrong answers cost 0 Focus!';
+    }
+  },
+
+  // Arcanist
+  omniscienceSkip: {
+    name: 'Skip & Know',
+    icon: '👑',
+    class: 'Arcanist',
+    desc: 'Skip one question and receive full XP as if correct.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.skipAndKnowActive = true;
+      return 'Skip & Know ready: Use Shadow Step to claim full XP on skip!';
+    }
+  },
+  timeStop: {
+    name: 'Time Stop',
+    icon: '⏱️',
+    class: 'Arcanist',
+    desc: 'Freeze Focus loss for the next 5 questions.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.timeStopCount = 5;
+      return 'Time Stop: Focus loss frozen for 5 questions!';
+    }
+  },
+  arcaneSurge: {
+    name: 'Arcane Surge',
+    icon: '🔥',
+    class: 'Arcanist',
+    desc: 'All abilities fully recharge.',
+    activate: () => {
+      if (!player.abilities) return false;
+      Object.keys(player.abilities).forEach(key => {
+        if (player.abilities[key].maxUses > 0) {
+          player.abilities[key].uses = player.abilities[key].maxUses;
+        }
+      });
+      if (typeof renderClassAbilities === 'function') renderClassAbilities();
+      return 'Arcane Surge: All abilities fully recharged!';
+    }
+  },
+
+  // Infiltrator
+  phantomStrike: {
+    name: 'Phantom Strike',
+    icon: '👑',
+    class: 'Infiltrator',
+    desc: 'Answer secretly — no Focus lost if wrong. One question.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.phantomStrikeActive = true;
+      return 'Phantom Strike: Answer freely — no Focus penalty if wrong!';
+    }
+  },
+  shadowCloak: {
+    name: 'Shadow Cloak',
+    icon: '🌫️',
+    class: 'Infiltrator',
+    desc: 'Immune to Focus loss for one full encounter.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.shadowCloakActive = true;
+      return 'Shadow Cloak: Focus is shielded for this entire encounter!';
+    }
+  },
+  deathMark: {
+    name: 'Death Mark',
+    icon: '💀',
+    class: 'Infiltrator',
+    desc: 'Next correct answer earns 5x XP.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.deathMarkActive = true;
+      return 'Death Mark: Next correct answer earns 5x XP!';
+    }
+  },
+
+  // Empath
+  collectiveWill: {
+    name: 'Collective Will',
+    icon: '👑',
+    class: 'Empath',
+    desc: 'Restore 50 Focus from a streak of 5.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.collectiveWillActive = true;
+      return 'Collective Will: Hit a 5-streak to restore 50 Focus!';
+    }
+  },
+  undying: {
+    name: 'Undying',
+    icon: '🌸',
+    class: 'Empath',
+    desc: 'Survive one exhaustion at 1 Focus instead of 0.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.undyingActive = true;
+      return 'Undying: You will survive the next exhaustion at 1 Focus!';
+    }
+  },
+  resonance: {
+    name: 'Resonance',
+    icon: '💎',
+    class: 'Empath',
+    desc: 'Double all Focus restoration effects for one encounter.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.resonanceActive = true;
+      return 'Resonance: All Focus restoration doubled this encounter!';
+    }
+  },
+
+  // Pathfinder
+  unchartedPath: {
+    name: 'Uncharted Path',
+    icon: '👑',
+    class: 'Pathfinder',
+    desc: 'Reroll the entire question set once with shuffled questions.',
+    activate: () => {
+      if (typeof loadEncounter === 'function') {
+        showNotification('Uncharted Path: Rerolling questions...', 'ability-used');
+        setTimeout(() => loadEncounter(false), 500);
+        return 'Uncharted Path: New questions incoming!';
+      }
+      return false;
+    }
+  },
+  trueNorth: {
+    name: 'True North',
+    icon: '🧿',
+    class: 'Pathfinder',
+    desc: 'The correct answer is subtly highlighted for one question.',
+    activate: () => {
+      const q = window._getCurrentQuestion ? window._getCurrentQuestion() : null;
+      if (!q) return false;
+      const buttons = document.querySelectorAll('#answer-options .answer-option');
+      if (buttons[q.correct]) {
+        buttons[q.correct].style.opacity = '1';
+        buttons[q.correct].style.fontWeight = '700';
+        // Other answers slightly dimmed
+        [...buttons].forEach((b, i) => {
+          if (i !== q.correct) b.style.opacity = '0.65';
+        });
+      }
+      return 'True North: Your compass points to the answer...';
+    }
+  },
+  endurance: {
+    name: 'Endurance',
+    icon: '⛰️',
+    class: 'Pathfinder',
+    desc: 'Focus cannot drop below 10 for the rest of the episode.',
+    activate: () => {
+      if (!player.activeEffects) player.activeEffects = {};
+      player.activeEffects.enduranceActive = true;
+      return 'Endurance: Focus locked above 10 for the rest of this episode!';
+    }
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// GET PLAYER'S SIGNATURE ABILITY
+// Returns the definition for the player's chosen L15 upgrade
+// ─────────────────────────────────────────────────────────────────────────
+window.getPlayerSignature = () => {
+  if (!player || !player.abilityUpgrades) return null;
+  const sigId = player.abilityUpgrades.tier3;
+  if (!sigId) return null;
+  return window.SIGNATURE_DEFINITIONS[sigId] || null;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// SHOW SIGNATURE BUTTON IN HUD
+// Called after level 15 upgrade is chosen and on each episode start
+// ─────────────────────────────────────────────────────────────────────────
+window.updateSignatureHUD = () => {
+  const existing = document.getElementById('hud-signature-btn');
+  if (existing) existing.remove();
+
+  const sig = window.getPlayerSignature();
+  if (!sig) return;
+
+  const statsEl = document.getElementById('player-stats');
+  if (!statsEl) return;
+
+  const used = player.activeEffects && player.activeEffects.signatureUsedThisEpisode;
+
+  const btn = document.createElement('button');
+  btn.id = 'hud-signature-btn';
+  btn.style.cssText = `
+    cursor:${used ? 'not-allowed' : 'pointer'};
+    background:${used ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg,rgba(201,168,76,0.2),rgba(160,112,48,0.3))'};
+    border:1px solid ${used ? 'rgba(255,255,255,0.1)' : 'rgba(201,168,76,0.5)'};
+    color:${used ? '#3a4456' : '#c9a84c'};
+    font-size:11px;padding:6px 10px;border-radius:6px;
+    font-family:'Cinzel',serif;
+    opacity:${used ? '0.5' : '1'};
+    transition:all 0.2s;
+    margin-left:6px;`;
+  btn.innerHTML = `${sig.icon} ${sig.name}`;
+  btn.title = used ? 'Already used this episode' : sig.desc;
+  btn.disabled = used;
+
+  if (!used) {
+    btn.onclick = () => window.activateSignature();
+    btn.onmouseenter = () => { if (!used) btn.style.background = 'linear-gradient(135deg,rgba(201,168,76,0.35),rgba(160,112,48,0.45))'; };
+    btn.onmouseleave = () => { if (!used) btn.style.background = 'linear-gradient(135deg,rgba(201,168,76,0.2),rgba(160,112,48,0.3))'; };
+  }
+
+  statsEl.appendChild(btn);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// ACTIVATE SIGNATURE ABILITY
+// ─────────────────────────────────────────────────────────────────────────
+window.activateSignature = () => {
+  const sig = window.getPlayerSignature();
+  if (!sig) return;
+  if (player.activeEffects && player.activeEffects.signatureUsedThisEpisode) {
+    if (window._safeNotify) window._safeNotify('Signature already used this episode!', 'focus-loss');
+    return;
+  }
+
+  const result = sig.activate();
+  if (result === false) {
+    if (window._safeNotify) window._safeNotify('Cannot use that right now.', 'focus-loss');
+    return;
+  }
+
+  // Mark as used
+  if (!player.activeEffects) player.activeEffects = {};
+  player.activeEffects.signatureUsedThisEpisode = true;
+
+  // Show dramatic overlay
+  window.showSignatureActivationOverlay(sig, result);
+
+  // Update HUD button to greyed out
+  window.updateSignatureHUD();
+
+  if (typeof savePlayerProgress === 'function') savePlayerProgress();
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// DRAMATIC ACTIVATION OVERLAY
+// ─────────────────────────────────────────────────────────────────────────
+window.showSignatureActivationOverlay = (sig, message) => {
+  const existing = document.getElementById('signature-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'signature-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.7);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99990;pointer-events:none;
+    animation:sigFadeIn 0.3s ease-out;`;
+
+  overlay.innerHTML = `
+    <div style="text-align:center;max-width:400px;padding:20px;
+                animation:sigBounce 0.5s ease-out;">
+      <div style="font-size:72px;margin-bottom:12px;
+                  filter:drop-shadow(0 0 30px rgba(201,168,76,0.9));
+                  animation:sigPulse 1s ease-in-out infinite alternate;">
+        ${sig.icon}
+      </div>
+      <div style="font-family:'Cinzel',serif;font-size:11px;text-transform:uppercase;
+                  letter-spacing:4px;color:#c9a84c;margin-bottom:8px;">
+        Signature Ability
+      </div>
+      <div style="font-family:'Cinzel',serif;font-size:24px;font-weight:900;
+                  color:white;margin-bottom:12px;
+                  text-shadow:0 0 30px rgba(201,168,76,0.8);">
+        ${sig.name}
+      </div>
+      <div style="font-size:14px;color:#ecf0f1;font-style:italic;line-height:1.6;">
+        ${message || sig.desc}
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  setTimeout(() => {
+    overlay.style.transition = 'opacity 0.5s';
+    overlay.style.opacity = '0';
+    setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 500);
+  }, 2500);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// INJECT STYLES
+// ─────────────────────────────────────────────────────────────────────────
+if (!document.getElementById('signature-styles')) {
+  const s = document.createElement('style');
+  s.id = 'signature-styles';
+  s.textContent = `
+    @keyframes sigFadeIn  { from{opacity:0} to{opacity:1} }
+    @keyframes sigBounce  {
+      0%  { transform:scale(0.7) translateY(20px); opacity:0; }
+      60% { transform:scale(1.05) translateY(-5px); opacity:1; }
+      100%{ transform:scale(1) translateY(0); }
+    }
+    @keyframes sigPulse   { from{transform:scale(1)} to{transform:scale(1.1)} }`;
+  document.head.appendChild(s);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK INTO EPISODE/ENCOUNTER LIFECYCLE
+// ─────────────────────────────────────────────────────────────────────────
+setTimeout(() => {
+  // Expose current question getter for signature abilities that need it
+  window._getCurrentQuestion = () => {
+    if (typeof currentQuestionSet !== 'undefined' && typeof currentQuestionIndex !== 'undefined') {
+      return currentQuestionSet[currentQuestionIndex] || null;
+    }
+    return null;
+  };
+
+  // Show signature button if player already has L15 upgrade
+  if (player && player.abilityUpgrades && player.abilityUpgrades.tier3) {
+    window.updateSignatureHUD();
+  }
+
+  // Hook level-up to show button when L15 is reached
+  const origLevelUp = window.checkForLevelUp;
+  if (origLevelUp && !window._s22LevelHooked) {
+    window._s22LevelHooked = true;
+    window.checkForLevelUp = () => {
+      origLevelUp();
+      if (player && player.abilityUpgrades && player.abilityUpgrades.tier3) {
+        window.updateSignatureHUD();
+      }
+    };
+  }
+
+  // Reset signature use at episode start by patching csEnterGame
+  // We do this via a MutationObserver on the episode screen becoming active
+  const episodeScreen = document.getElementById('episodeSelection');
+  if (episodeScreen) {
+    new MutationObserver(() => {
+      if (episodeScreen.classList.contains('active')) {
+        // Player is back at episode select — next episode start will reset
+        if (player && player.activeEffects) {
+          player.activeEffects.signatureUsedThisEpisode = false;
+          player.activeEffects.fortressStanceCount      = 0;
+          player.activeEffects.timeStopCount            = 0;
+          player.activeEffects.shadowCloakActive        = false;
+          player.activeEffects.phantomStrikeActive      = false;
+          player.activeEffects.deathMarkActive          = false;
+          player.activeEffects.collectiveWillActive     = false;
+          player.activeEffects.undyingActive            = false;
+          player.activeEffects.resonanceActive          = false;
+          player.activeEffects.enduranceActive          = false;
+          player.activeEffects.skipAndKnowActive        = false;
+          player.activeEffects.tacticalMasteryActive    = false;
+        }
+        window.updateSignatureHUD();
+      }
+    }).observe(episodeScreen, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  console.log('✅ Signature ability hooks attached');
+}, 3000);
+
+console.log('✅ Section 22 COMPLETE — Signature Abilities loaded');
+console.log('   Signatures defined:', Object.keys(window.SIGNATURE_DEFINITIONS).length);
+
+/* === SECTION 23: DAILY LOGIN BONUS === */
+/* VKC-TQ-S23 — Volney Cothran / Test Quest / Section 23 */
+console.log('📅 Loading Section 23: Daily Login Bonus...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────
+window.LOGIN_BONUS_CONFIG = {
+  baseXP:       25,   // Day 1
+  incrementXP:  10,   // +10 per consecutive day
+  maxDayBonus:  7,    // Caps at day 7 (25 + 6×10 = 85 XP)
+  streakReset:  2,    // Days of absence before streak resets
+};
+
+// Bonus XP by day (1-7, then repeats at max)
+window.getLoginBonusXP = (streak) => {
+  const day = Math.min(streak, window.LOGIN_BONUS_CONFIG.maxDayBonus);
+  return window.LOGIN_BONUS_CONFIG.baseXP + (day - 1) * window.LOGIN_BONUS_CONFIG.incrementXP;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// CHECK AND AWARD LOGIN BONUS
+// Called once on game load after player data is available
+// ─────────────────────────────────────────────────────────────────────────
+window.checkDailyLoginBonus = async () => {
+  if (!player || !player.uid) return;
+
+  const now      = new Date();
+  const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  const lastLogin  = player.lastLoginDate  || null;
+  const streak     = player.loginStreak    || 0;
+  const longestStr = player.longestStreak  || 0;
+
+  // Already claimed today
+  if (lastLogin === todayStr) return;
+
+  // Calculate new streak
+  let newStreak = 1;
+  if (lastLogin) {
+    const last     = new Date(lastLogin);
+    const diffDays = Math.floor((now - last) / (1000 * 60 * 60 * 24));
+    if (diffDays === 1) {
+      newStreak = streak + 1; // consecutive day
+    } else if (diffDays < window.LOGIN_BONUS_CONFIG.streakReset) {
+      newStreak = streak;     // missed one day — hold streak
+    } else {
+      newStreak = 1;          // streak broken
+    }
+  }
+
+  const bonusXP       = window.getLoginBonusXP(newStreak);
+  const newLongest    = Math.max(longestStr, newStreak);
+  const streakBroken  = lastLogin && newStreak === 1 && streak > 1;
+
+  // Award XP
+  player.xp           = (player.xp || 0) + bonusXP;
+  player.lastLoginDate = todayStr;
+  player.loginStreak   = newStreak;
+  player.longestStreak = newLongest;
+
+  // Save to Firestore
+  try {
+    await setDoc(doc(db, 'players', player.uid), {
+      xp:            player.xp,
+      lastLoginDate: todayStr,
+      loginStreak:   newStreak,
+      longestStreak: newLongest,
+    }, { merge: true });
+    if (player.activeCharacterId) {
+      await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId), {
+        xp: player.xp,
+      }, { merge: true });
+    }
+  } catch(e) { console.warn('Could not save login bonus:', e); }
+
+  if (window._safeUpdateStats) window._safeUpdateStats();
+  if (window.checkForLevelUp)  window.checkForLevelUp();
+
+  // Show overlay
+  window.showLoginBonusOverlay(newStreak, bonusXP, streakBroken);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// OVERLAY
+// ─────────────────────────────────────────────────────────────────────────
+window.showLoginBonusOverlay = (streak, bonusXP, streakBroken) => {
+  const existing = document.getElementById('login-bonus-overlay');
+  if (existing) existing.remove();
+
+  // Day indicator dots (7 days)
+  const dots = Array.from({ length: 7 }, (_, i) => {
+    const day     = i + 1;
+    const earned  = day <= streak;
+    const isToday = day === Math.min(streak, 7);
+    return `<div style="
+      width:36px;height:36px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-size:11px;font-family:'Cinzel',serif;font-weight:700;
+      background:${isToday ? 'linear-gradient(135deg,#c9a84c,#a07030)' : earned ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.04)'};
+      border:2px solid ${isToday ? '#c9a84c' : earned ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.08)'};
+      color:${earned ? '#c9a84c' : '#3a4456'};
+      box-shadow:${isToday ? '0 0 12px rgba(201,168,76,0.6)' : 'none'};
+      transition:all 0.3s;">
+      ${isToday ? '★' : day}
+    </div>`;
+  }).join('');
+
+  const nextStreakXP = window.getLoginBonusXP(Math.min(streak + 1, 7));
+
+  const overlay = document.createElement('div');
+  overlay.id = 'login-bonus-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.88);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99981;padding:20px;box-sizing:border-box;
+    animation:loginFadeIn 0.4s ease-out;`;
+
+  overlay.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:2px solid rgba(201,168,76,0.4);border-radius:24px;
+                padding:40px;max-width:420px;width:100%;text-align:center;
+                box-shadow:0 0 60px rgba(201,168,76,0.15);">
+
+      <div style="font-size:48px;margin-bottom:8px;">🌅</div>
+      <div style="font-family:'Cinzel',serif;font-size:11px;text-transform:uppercase;
+                  letter-spacing:3px;color:#8892a4;margin-bottom:6px;">
+        ${streakBroken ? 'Streak Reset' : 'Welcome Back'}
+      </div>
+      <div style="font-family:'Cinzel',serif;font-size:22px;color:#c9a84c;
+                  margin-bottom:4px;font-weight:700;">
+        Day ${Math.min(streak, 7)} Login Bonus
+      </div>
+      <div style="font-size:13px;color:#8892a4;margin-bottom:24px;">
+        ${streak > 1 ? `${streak}-day streak!` : 'Start your streak today!'}
+        ${streakBroken ? ' <span style="color:#e74c3c;">(streak broken)</span>' : ''}
+      </div>
+
+      <!-- Day dots -->
+      <div style="display:flex;justify-content:center;gap:8px;margin-bottom:24px;">
+        ${dots}
+      </div>
+
+      <!-- XP reward -->
+      <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.2);
+                  border-radius:12px;padding:16px;margin-bottom:20px;">
+        <div style="font-family:'Cinzel',serif;font-size:32px;font-weight:900;
+                    color:#c9a84c;text-shadow:0 0 20px rgba(201,168,76,0.5);">
+          +${bonusXP} XP
+        </div>
+        <div style="font-size:12px;color:#8892a4;margin-top:4px;">
+          ${streak < 7 ? `Come back tomorrow for +${nextStreakXP} XP` : 'Maximum streak bonus reached!'}
+        </div>
+      </div>
+
+      <button onclick="document.getElementById('login-bonus-overlay').remove()"
+        style="padding:12px 36px;background:linear-gradient(135deg,#c9a84c,#a07030);
+               border:none;border-radius:10px;color:white;font-size:14px;
+               font-weight:700;cursor:pointer;font-family:'Cinzel',serif;">
+        Begin Adventure!
+      </button>
+    </div>`;
+
+  // Close on backdrop click
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  document.body.appendChild(overlay);
+
+  // Auto-dismiss after 12 seconds
+  setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 12000);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// INJECT STYLES
+// ─────────────────────────────────────────────────────────────────────────
+if (!document.getElementById('login-bonus-styles')) {
+  const s = document.createElement('style');
+  s.id = 'login-bonus-styles';
+  s.textContent = `@keyframes loginFadeIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:scale(1)} }`;
+  document.head.appendChild(s);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK — fire after player data loads
+// Poll until player.uid is available, then check
+// ─────────────────────────────────────────────────────────────────────────
+setTimeout(() => {
+  let attempts = 0;
+  const poll = setInterval(() => {
+    attempts++;
+    if (player && player.uid && player.xp != null) {
+      clearInterval(poll);
+      // Small delay so the character select screen is fully rendered
+      setTimeout(() => window.checkDailyLoginBonus(), 1500);
+    } else if (attempts > 30) {
+      clearInterval(poll);
+      console.warn('Login bonus: player not ready after 15s');
+    }
+  }, 500);
+}, 2000);
+
+console.log('✅ Section 23 COMPLETE — Daily Login Bonus loaded');
+
+/* === SECTION 24: LEVEL 20 PRESTIGE & LEGACY SYSTEM === */
+/* VKC-TQ-S24 — Volney Cothran / Test Quest / Section 24 */
+console.log('👑 Loading Section 24: Prestige & Legacy System...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// PRESTIGE CONFIG
+// ─────────────────────────────────────────────────────────────────────────
+window.PRESTIGE_LEVEL          = 20;
+window.UNDYING_WILL_FOCUS_BONUS = 15;   // Permanent Focus max increase
+window.UNDYING_WILL_XP_BONUS    = 0.05; // +5% XP multiplier
+window.LEGACY_XP_BONUS          = 0.05; // +5% XP on new characters
+window.LEGACY_CALL_ABILITY      = 'championsCall'; // once-per-episode ability id
+
+// ─────────────────────────────────────────────────────────────────────────
+// CHECK IF PLAYER IS PRESTIGE
+// ─────────────────────────────────────────────────────────────────────────
+window.isPrestige = () => {
+  if (!player) return false;
+  const level = window.getLevelData ? window.getLevelData(player.xp || 0).level : 1;
+  return level >= window.PRESTIGE_LEVEL;
+};
+
+window.hasLegacy = () => {
+  return player && player.accountPrestige === true;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// APPLY PRESTIGE VISUALS
+// Gold borders, shimmer, LEGEND badge — called on game enter if prestige
+// ─────────────────────────────────────────────────────────────────────────
+window.applyPrestigeVisuals = () => {
+  if (!window.isPrestige()) return;
+
+  // Gold border on game container
+  const container = document.getElementById('game-container');
+  if (container) {
+    container.style.borderColor = '#c9a84c';
+    container.style.boxShadow   = '0 0 40px rgba(201,168,76,0.25), 0 20px 40px rgba(0,0,0,0.4)';
+  }
+
+  // Animated shimmer style
+  if (!document.getElementById('prestige-styles')) {
+    const s = document.createElement('style');
+    s.id = 'prestige-styles';
+    s.textContent = `
+      @keyframes prestigeShimmer {
+        0%   { background-position: -200% center; }
+        100% { background-position:  200% center; }
+      }
+      @keyframes legendPulse {
+        0%,100% { opacity:1; text-shadow:0 0 8px rgba(201,168,76,0.6); }
+        50%      { opacity:0.85; text-shadow:0 0 20px rgba(201,168,76,1); }
+      }
+      .prestige-name {
+        background: linear-gradient(90deg, #c9a84c, #fff8e7, #c9a84c, #a07030, #c9a84c);
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: prestigeShimmer 3s linear infinite;
+      }
+      .legend-badge {
+        display:inline-block;
+        background:linear-gradient(135deg,#c9a84c,#a07030);
+        color:#000;font-size:8px;font-weight:900;
+        padding:2px 6px;border-radius:4px;
+        font-family:'Cinzel',serif;letter-spacing:1px;
+        margin-left:4px;vertical-align:middle;
+        animation:legendPulse 2s ease-in-out infinite;
+      }`;
+    document.head.appendChild(s);
+  }
+
+  // Gold player name in HUD
+  const nameEl = document.getElementById('player-name') ||
+                 document.querySelector('#player-info .player-name');
+  if (nameEl && !nameEl.classList.contains('prestige-name')) {
+    nameEl.classList.add('prestige-name');
+  }
+
+  // LEGEND badge next to level
+  const levelEl = document.getElementById('hud-level');
+  if (levelEl && !levelEl.querySelector('.legend-badge')) {
+    const badge = document.createElement('span');
+    badge.className = 'legend-badge';
+    badge.textContent = 'LEGEND';
+    levelEl.appendChild(badge);
+  }
+
+  console.log('👑 Prestige visuals applied');
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// UNDYING WILL — Legendary passive ability
+// Applied automatically, no button needed
+// Effects: survive exhaustion once, +15 Focus max, +5% XP
+// ─────────────────────────────────────────────────────────────────────────
+window.applyUndyingWill = () => {
+  if (!window.isPrestige() || !player) return;
+
+  // Mark on player so Section 12 can read it
+  player.undyingWillActive = true;
+
+  // +5% XP is read at award time in Section 12
+  // +15 Focus max is applied via getMaxFocus override below
+  console.log('⚡ Undying Will active');
+};
+
+// Override getMaxFocus to include Undying Will bonus
+const _origGetMaxFocus = window.getMaxFocus;
+if (_origGetMaxFocus && !window._s24FocusPatched) {
+  window._s24FocusPatched = true;
+  window.getMaxFocus = (level) => {
+    const base = _origGetMaxFocus(level);
+    return window.isPrestige() ? base + window.UNDYING_WILL_FOCUS_BONUS : base;
+  };
+}
