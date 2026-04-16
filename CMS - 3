@@ -1,0 +1,974 @@
+
+<!-- FRAMEWORK MODE + CUTSCENE JS -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Framework mode toggle
+  const frameworkCheckbox = document.getElementById('framework-mode-enable');
+  const frameworkBenefits = document.getElementById('framework-benefits');
+  const frameworkAdvanced = document.getElementById('framework-advanced');
+  const submitBtn         = document.getElementById('ai-import-submit-btn');
+  const submitBtnText     = document.getElementById('submit-btn-text');
+  const advancedToggle    = document.getElementById('advanced-settings-toggle');
+
+  if (frameworkCheckbox) {
+    frameworkCheckbox.addEventListener('change', function() {
+      const on = this.checked;
+      if (frameworkBenefits) frameworkBenefits.style.display = on ? 'block' : 'none';
+      if (submitBtnText) {
+        submitBtnText.textContent = on ? '🔒 Generate Framework Questions' : '🚀 Start Ultimate Extraction';
+        if (submitBtn) submitBtn.style.background = on ? 'linear-gradient(135deg,#28a745,#20c997)' : '';
+      }
+      if (frameworkAdvanced && advancedToggle) {
+        frameworkAdvanced.style.display = (on && advancedToggle.checked) ? 'block' : 'none';
+      }
+    });
+  }
+  if (advancedToggle) {
+    advancedToggle.addEventListener('change', function() {
+      if (frameworkAdvanced && frameworkCheckbox) {
+        frameworkAdvanced.style.display = (this.checked && frameworkCheckbox.checked) ? 'block' : 'none';
+      }
+    });
+  }
+
+  // Cutscene radio card highlighting
+  function updateRadioCards(name) {
+    document.querySelectorAll(`input[name="${name}"]`).forEach(radio => {
+      const label = radio.closest('label');
+      if (!label) return;
+      label.style.borderColor = radio.checked ? '#667eea' : '#dee2e6';
+      label.style.background  = radio.checked ? 'rgba(102,126,234,0.06)' : '#fff';
+    });
+  }
+  ['encounter-cutscene-style','completion-cutscene-style'].forEach(name => {
+    document.querySelectorAll(`input[name="${name}"]`).forEach(radio => {
+      radio.addEventListener('change', () => updateRadioCards(name));
+    });
+    updateRadioCards(name);
+  });
+
+  // Cutscene toggle → dim style row when disabled
+  const encToggle    = document.getElementById('cutscene-encounters-enabled');
+  const encStyleRow  = document.getElementById('encounter-cutscene-style-row');
+  const compToggle   = document.getElementById('cutscene-completion-enabled');
+  const compStyleRow = document.getElementById('completion-cutscene-style-row');
+  if (encToggle && encStyleRow) {
+    encToggle.addEventListener('change', function() {
+      encStyleRow.style.opacity      = this.checked ? '1' : '0.4';
+      encStyleRow.style.pointerEvents = this.checked ? 'auto' : 'none';
+    });
+  }
+  if (compToggle && compStyleRow) {
+    compToggle.addEventListener('change', function() {
+      compStyleRow.style.opacity      = this.checked ? '1' : '0.4';
+      compStyleRow.style.pointerEvents = this.checked ? 'auto' : 'none';
+    });
+  }
+});
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 6: JAVASCRIPT INITIALIZATION    -->
+<!-- APPLICATION: CMS (teacher-cms)          -->
+<!-- FIREBASE V9 COMPATIBLE — FIXED v4       -->
+<!-- Changes from v3:                        -->
+<!--   1. fetchTeacherApiKey now accepts     -->
+<!--      user as a parameter passed         -->
+<!--      directly from onAuthStateChanged   -->
+<!--      — eliminates getAuth() re-call     -->
+<!--      and auth instance mismatch         -->
+<!-- ========================================= -->
+<script>
+const ULTIMATE_CMS_CONFIG = {
+  VERSION: '2.1.0',
+  FEATURES: {
+    ULTIMATE_PARSER: true,
+    FRAMEWORK_MODE: true,
+    DYNAMIC_IMAGES: true,
+    QUESTION_BANK_SLIDERS: true
+  }
+};
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyB3lavJoSXk7CL3bTE62kOao4y9I3MRvJc",
+  authDomain: "act-quest-beta-43760.firebaseapp.com",
+  projectId: "act-quest-beta-43760",
+  storageBucket: "act-quest-beta-43760.firebasestorage.app",
+  messagingSenderId: "270361313231",
+  appId: "1:270361313231:web:de8531f8d35296397c1cba",
+  measurementId: "G-RV33D64RKJ"
+};
+
+window.FIREBASE_CONFIG = FIREBASE_CONFIG;
+
+console.log('\u{1F680} Ultimate CMS Configuration loaded:', ULTIMATE_CMS_CONFIG.VERSION);
+console.log('\u{1F525} Firebase config prepared:', FIREBASE_CONFIG.projectId);
+
+function CMSApp() {
+  console.log('\u{1F3AF} Initializing Enhanced CMS with Ultimate Parser (Firebase v9)...');
+  this.state = {
+    questionBanks: [],
+    episodes: [],
+    genres: [],
+    editingBankId: null,
+    editingEpisodeId: null,
+    editingGenreId: null,
+    currentViewingBankId: null,
+    isProcessingImport: false,
+    contentFile: null,
+    answerFile: null,
+    currentImportedDocument: null,
+    currentUser: null,
+    parserStats: {
+      successCount: 0,
+      failureCount: 0,
+      processedDocuments: 0,
+      extractedQuestions: 0,
+      successRate: 0
+    }
+  };
+  this.elements = {};
+  this.parserReady = false;
+  this.currentModel = null;
+  this.firebaseReady = false;
+  this.firebaseAuth = null;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => this.init());
+  } else {
+    setTimeout(() => this.init(), 100);
+  }
+}
+
+CMSApp.prototype.init = function() {
+  console.log('\u{1F504} Starting Enhanced CMS initialization (Firebase v9)...');
+  try {
+    this.checkDependencies();
+    this.initializeFirebaseV9();
+    this.initializeElements();
+    this.setupApiKey();
+    this.initializeUltimateParser();
+    this.setupEventListeners();
+    this.setupFileUploadListeners();
+    this.setupDragAndDrop();
+    this.loadInitialData();
+    console.log('\u2705 Enhanced CMS initialization complete (Firebase v9)');
+  } catch (error) {
+    console.error('\u274C CMS initialization failed:', error);
+    this.handleInitializationError(error);
+  }
+};
+
+CMSApp.prototype.checkDependencies = function() {
+  console.log('\u{1F50D} Checking dependencies (Firebase v9 mode)...');
+  let firebaseAvailable = false;
+  try {
+    firebaseAvailable = (
+      typeof window.firebaseV9 !== 'undefined' &&
+      typeof window.firebaseV9.initializeApp !== 'undefined'
+    );
+  } catch (e) { console.warn('Firebase v9 detection error:', e); }
+  let geminiAvailable = false;
+  try {
+    geminiAvailable = (typeof window.GoogleGenerativeAI !== 'undefined');
+  } catch (e) { console.warn('Gemini detection error:', e); }
+  console.log('\u{1F4E6} Firebase v9 available:', firebaseAvailable);
+  console.log('\u{1F916} Gemini AI available:', geminiAvailable);
+  if (!firebaseAvailable) console.warn('\u26A0\uFE0F Firebase v9 not detected, but continuing...');
+  if (!geminiAvailable) console.warn('\u26A0\uFE0F Gemini AI not detected, parser features may be limited');
+  console.log('\u2705 Dependency check completed (non-blocking)');
+};
+
+CMSApp.prototype.initializeFirebaseV9 = function() {
+  console.log('\u{1F525} Initializing Firebase v9 with modular SDK...');
+  try {
+    if (!window.firebaseV9) throw new Error('Firebase v9 SDK not loaded. Check your imports.');
+    const { initializeApp, getFirestore, getStorage, getAuth, onAuthStateChanged } = window.firebaseV9;
+    this.firebaseApp = initializeApp(FIREBASE_CONFIG);
+    console.log('\u2705 Firebase v9 app initialized');
+    this.db = getFirestore(this.firebaseApp);
+    console.log('\u2705 Firestore v9 initialized');
+    this.storage = getStorage(this.firebaseApp);
+    console.log('\u2705 Storage v9 initialized');
+    try {
+      const auth = getAuth(this.firebaseApp);
+      this.firebaseAuth = auth;
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          this.state.currentUser = {
+            uid: user.uid,
+            name: user.displayName || '',
+            displayName: user.displayName || '',
+            email: user.email || ''
+          };
+          console.log('\u2705 CMS teacher identified:', user.displayName || user.email);
+
+          // FIX v4: Pass user object directly — no getAuth() re-call inside fetchTeacherApiKey
+          // The user object from this callback is the live, authenticated user
+          setTimeout(() => {
+            this.fetchTeacherApiKey(user).then(key => {
+              if (key) {
+                window.GEMINI_API_KEY = key;
+                console.log('\u2705 Gemini API key upgraded from Cloud Function');
+                if (this.geminiModel) {
+                  try {
+                    const genAI = new window.GoogleGenerativeAI(key);
+                    this.geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                    console.log('\u2705 Gemini model re-initialized with Cloud Function key');
+                  } catch(e) {
+                    console.warn('Could not re-initialize model with new key:', e);
+                  }
+                }
+              }
+            }).catch(e => console.warn('Could not upgrade to Cloud Function key:', e));
+          }, 2500);
+
+        } else {
+          this.state.currentUser = null;
+          console.log('\u2139\uFE0F No auth user in CMS');
+        }
+      });
+    } catch (authError) {
+      console.warn('\u26A0\uFE0F Auth state listener failed (non-blocking):', authError);
+    }
+    this.setupFirebaseV9Utils();
+    this.firebaseReady = true;
+    console.log('\u2705 Firebase v9 initialization complete');
+  } catch (error) {
+    console.error('\u274C Firebase v9 initialization failed:', error);
+    this.firebaseReady = false;
+    throw new Error(`Firebase v9 initialization failed: ${error.message}`);
+  }
+};
+
+CMSApp.prototype.setupFirebaseV9Utils = function() {
+  console.log('\u{1F6E0}\uFE0F Setting up Firebase v9 utilities...');
+  const {
+    doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
+    serverTimestamp, collection, query, where, orderBy, limit,
+    ref, uploadBytes, getDownloadURL
+  } = window.firebaseV9;
+  this._v9Functions = {
+    doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
+    serverTimestamp, collection, query, where, orderBy, limit,
+    ref, uploadBytes, getDownloadURL
+  };
+  this.setupUtilityWrappers();
+  console.log('\u2705 Firebase v9 utilities configured');
+};
+
+CMSApp.prototype.setupUtilityWrappers = function() {
+  console.log('\u{1F527} Setting up utility wrappers...');
+  this.collection = (pathOrDb, collectionPath) => {
+    if (typeof pathOrDb === 'string') return this._v9Functions.collection(this.db, pathOrDb);
+    else if (collectionPath && typeof collectionPath === 'string') return this._v9Functions.collection(pathOrDb, collectionPath);
+    else throw new Error('Collection requires a string path');
+  };
+  this.doc = (dbOrPath, pathOrId, docId) => {
+    if (typeof dbOrPath === 'string' && pathOrId && typeof pathOrId === 'string') return this._v9Functions.doc(this.db, dbOrPath, pathOrId);
+    else if (typeof dbOrPath === 'string' && !pathOrId) return this._v9Functions.doc(this.db, dbOrPath);
+    else if (pathOrId && typeof pathOrId === 'string' && docId && typeof docId === 'string') return this._v9Functions.doc(dbOrPath, pathOrId, docId);
+    else if (pathOrId && typeof pathOrId === 'string' && !docId) return this._v9Functions.doc(dbOrPath, pathOrId);
+    else throw new Error('Document requires valid path parameters');
+  };
+  this.addDoc         = (ref, data)           => this._v9Functions.addDoc(ref, data);
+  this.updateDoc      = (ref, data)           => this._v9Functions.updateDoc(ref, data);
+  this.deleteDoc      = (ref)                 => this._v9Functions.deleteDoc(ref);
+  this.getDocs        = (ref)                 => this._v9Functions.getDocs(ref);
+  this.getDoc         = (ref)                 => this._v9Functions.getDoc(ref);
+  this.query          = (ref, ...constraints) => this._v9Functions.query(ref, ...constraints);
+  this.where          = (f, op, val)          => this._v9Functions.where(f, op, val);
+  this.orderBy        = (f, dir)              => this._v9Functions.orderBy(f, dir);
+  this.limit          = (n)                   => this._v9Functions.limit(n);
+  this.serverTimestamp = ()                   => this._v9Functions.serverTimestamp();
+  this.ref            = (path)                => this._v9Functions.ref(this.storage, path);
+  this.uploadBytes    = (ref, bytes)          => this._v9Functions.uploadBytes(ref, bytes);
+  this.getDownloadURL = (ref)                 => this._v9Functions.getDownloadURL(ref);
+  console.log('\u2705 Utility wrappers configured');
+};
+
+// ================================================
+// API KEY
+// FIX v4: fetchTeacherApiKey accepts user directly
+// from onAuthStateChanged — no getAuth() re-call,
+// no auth instance mismatch possible
+// ================================================
+
+CMSApp.prototype.setupApiKey = async function() {
+  console.log('\u{1F511} Setting up API key...');
+
+  if (window.ULTIMATE_PARSER_CONFIG && window.ULTIMATE_PARSER_CONFIG.GEMINI_API_KEY) {
+    window.GEMINI_API_KEY = window.ULTIMATE_PARSER_CONFIG.GEMINI_API_KEY;
+    console.log('\u2705 Gemini API key loaded from ULTIMATE_PARSER_CONFIG');
+    return;
+  }
+
+  const storedKey = this.getStoredApiKey();
+  if (storedKey) {
+    window.GEMINI_API_KEY = storedKey;
+    window._localStorageKey = storedKey;
+    console.log('\u2705 Gemini API key loaded from localStorage (will upgrade via Cloud Function when auth ready)');
+    return;
+  }
+
+  console.warn('\u26A0\uFE0F No Gemini API key found in localStorage. Parser will be limited until auth completes.');
+};
+
+CMSApp.prototype.fetchTeacherApiKey = async function(user) {
+  try {
+    const { httpsCallable, getFunctions } = window.firebaseV9;
+
+    // FIX v4: user is passed directly from onAuthStateChanged callback
+    // No getAuth() re-call — eliminates auth instance mismatch
+    if (!user) {
+      console.warn('CMS: Not authenticated, cannot fetch API key');
+      return null;
+    }
+
+    console.log('CMS: Fetching API key for user:', user.uid);
+
+    // Force token refresh to ensure the credential is fresh
+    await user.getIdToken(true);
+
+    const functions = getFunctions(this.firebaseApp);
+    const getGeminiKey = httpsCallable(functions, 'getGeminiKey');
+    const result = await getGeminiKey();
+
+    if (result.data && result.data.key) {
+      console.log('CMS: API key loaded (source: ' + result.data.source + ')');
+      return result.data.key;
+    }
+    throw new Error('No key returned from function');
+
+  } catch (error) {
+    if (error.code === 'functions/permission-denied') {
+      alert('Your API key access has been deactivated.\n\nPlease contact your administrator to restore access.');
+      return null;
+    }
+    if (error.code === 'functions/unauthenticated') {
+      console.warn('CMS: Not authenticated, cannot fetch API key');
+      return null;
+    }
+    console.warn('CMS: Cloud Function unavailable:', error.message);
+    return null;
+  }
+};
+
+// ================================================
+// DOM ELEMENTS
+// ================================================
+
+CMSApp.prototype.initializeElements = function() {
+  console.log('\u{1F3AF} Initializing DOM elements...');
+  this.elements.navTabs             = document.querySelectorAll('.cms-nav-tab');
+  this.elements.pages               = document.querySelectorAll('.cms-page');
+  this.elements.qBankList           = document.getElementById('q-bank-list');
+  this.elements.episodeList         = document.getElementById('episode-list');
+  this.elements.allEpisodesList     = document.getElementById('all-episodes-list');
+  this.elements.genreList           = document.getElementById('genre-list');
+  this.elements.aiSaveBankSelect    = document.getElementById('ai-save-bank-select');
+  this.elements.contentFileInput    = document.getElementById('content-file-input');
+  this.elements.answerFileInput     = document.getElementById('answer-file-input');
+  this.elements.contentUploadArea   = document.getElementById('content-upload-area');
+  this.elements.answerUploadArea    = document.getElementById('answer-upload-area');
+  this.elements.contentPasteArea    = document.getElementById('content-paste-area');
+  this.elements.aiProgressContainer = document.getElementById('ai-progress-container');
+  this.elements.aiProgressFill      = document.getElementById('ai-progress-fill');
+  this.elements.aiProcessingStatus  = document.getElementById('ai-processing-status');
+  this.elements.dashStats = {
+    totalQBanks:    document.getElementById('total-question-banks'),
+    totalEpisodes:  document.getElementById('total-episodes'),
+    activeEpisodes: document.getElementById('active-episodes')
+  };
+  this.elements.banksCount    = document.getElementById('banks-count');
+  this.elements.episodesCount = document.getElementById('episodes-count');
+  console.log('\u2705 DOM elements initialized');
+};
+
+// ================================================
+// EVENT LISTENERS
+// ================================================
+
+CMSApp.prototype.setupEventListeners = function() {
+  console.log('\u{1F4E1} Setting up enhanced event listeners...');
+  this.elements.navTabs.forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      e.preventDefault();
+      const pageId = tab.getAttribute('data-page');
+      if (pageId) this.switchPage(pageId);
+    });
+  });
+  const createButtons = [
+    { id: 'dash-quick-import-btn', action: () => this.showQuickImport() },
+    { id: 'dash-new-episode-btn',  action: () => this.showEpisodeModal() },
+    { id: 'dash-new-qbank-btn',    action: () => this.showQuestionBankModal() },
+    { id: 'dash-new-genre-btn',    action: () => this.showGenreModal() },
+    { id: 'new-q-bank-btn',        action: () => this.showQuestionBankModal() },
+    { id: 'quick-import-btn',      action: () => this.showQuickImport() },
+    { id: 'new-episode-btn',       action: () => this.showEpisodeModal() },
+    { id: 'grid-new-episode-btn',  action: () => this.showEpisodeModal() },
+    { id: 'new-genre-btn',         action: () => this.showGenreModal() }
+  ];
+  createButtons.forEach(({ id, action }) => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', action);
+      console.log(`\u2705 Button listener attached: ${id}`);
+    }
+  });
+ 
+  const advancedToggle   = document.getElementById('advanced-settings-toggle');
+  const advancedSettings = document.getElementById('advanced-settings');
+  if (advancedToggle && advancedSettings) {
+    advancedToggle.addEventListener('change', (e) => {
+      advancedSettings.style.display = e.target.checked ? 'block' : 'none';
+    });
+  }
+  this.attachFormEventListeners();
+  this.attachCancelButtonListeners();
+  this.setupModalCloseButtons();
+  console.log('\u2705 Event listeners configured');
+};
+
+CMSApp.prototype.attachFormEventListeners = function() {
+  console.log('\u{1F4DD} Attaching form event listeners...');
+  const qBankForm = document.getElementById('question-bank-form');
+  if (qBankForm) qBankForm.addEventListener('submit', (e) => { e.preventDefault(); this.saveQuestionBank(); });
+  const episodeForm = document.getElementById('episode-form');
+  if (episodeForm) episodeForm.addEventListener('submit', (e) => { e.preventDefault(); this.saveEpisode(); });
+  const genreForm = document.getElementById('genre-form');
+  if (genreForm) genreForm.addEventListener('submit', (e) => { e.preventDefault(); this.saveGenre(); });
+  console.log('\u2705 Form event listeners attached');
+};
+
+CMSApp.prototype.attachCancelButtonListeners = function() {
+  const cancelButtons = [
+    { id: 'cancel-qbank-btn',     action: () => this.closeModal('question-bank-modal') },
+    { id: 'cancel-episode-btn',   action: () => this.closeModal('episode-modal') },
+    { id: 'cancel-genre-btn',     action: () => this.closeModal('genre-modal') },
+    { id: 'cancel-ai-import-btn', action: () => this.closeModal('ai-import-modal') }
+  ];
+  cancelButtons.forEach(({ id, action }) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', action);
+  });
+};
+
+CMSApp.prototype.setupModalCloseButtons = function() {
+  const modals = ['ai-import-modal', 'question-bank-modal', 'episode-modal', 'genre-modal'];
+  modals.forEach(modalId => {
+    const closeBtn = document.getElementById(`close-${modalId.replace('-modal', '')}-modal`);
+    if (closeBtn) closeBtn.addEventListener('click', () => this.closeModal(modalId));
+  });
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('cms-modal')) this.closeModal(e.target.id);
+  });
+};
+
+CMSApp.prototype.switchPage = function(pageId) {
+  console.log('\u{1F4C4} Switched to page:', pageId);
+  document.querySelectorAll('.cms-nav-tab').forEach(tab => {
+    tab.classList.remove('active');
+    if (tab.getAttribute('data-page') === pageId) tab.classList.add('active');
+  });
+  document.querySelectorAll('.cms-page').forEach(page => {
+    page.style.display = 'none';
+    page.classList.remove('active');
+  });
+  const targetPage = document.getElementById('page-' + pageId);
+  if (targetPage) { targetPage.style.display = 'block'; targetPage.classList.add('active'); }
+};
+
+CMSApp.prototype.closeModal = function(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) modal.style.display = 'none';
+};
+
+CMSApp.prototype.showAlert = function(message, type) {
+  type = type || 'info';
+  const colors = {
+    success: { bg: '#d4edda', border: '#c3e6cb', text: '#155724' },
+    error:   { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24' },
+    warning: { bg: '#fff3cd', border: '#ffeeba', text: '#856404' },
+    info:    { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460' }
+  };
+  const c = colors[type] || colors.info;
+  const existing = document.getElementById('cms-alert-toast');
+  if (existing) existing.remove();
+  const alert = document.createElement('div');
+  alert.id = 'cms-alert-toast';
+  alert.style.cssText = `position:fixed;top:20px;right:20px;z-index:9999;padding:14px 20px;border-radius:8px;border:1px solid ${c.border};background:${c.bg};color:${c.text};font-size:14px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,0.15);max-width:400px;`;
+  alert.textContent = message;
+  document.body.appendChild(alert);
+  setTimeout(() => { if (alert.parentNode) alert.remove(); }, 4000);
+};
+
+CMSApp.prototype.setupFileUploadListeners = function() {
+  console.log('\u{1F4C1} Setting up file upload listeners...');
+  const uploadAreas = [
+    { area: this.elements.contentUploadArea, input: this.elements.contentFileInput, type: 'content' },
+    { area: this.elements.answerUploadArea,  input: this.elements.answerFileInput,  type: 'answer' }
+  ];
+  uploadAreas.forEach(({ area, input, type }) => {
+    if (area && input) {
+      area.addEventListener('click', () => input.click());
+      input.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) this.handleFileSelection(e.target.files[0], type);
+      });
+    }
+  });
+  console.log('\u2705 File upload listeners configured');
+};
+
+CMSApp.prototype.setupDragAndDrop = function() {
+  const uploadAreas = [
+    { area: this.elements.contentUploadArea, input: this.elements.contentFileInput, type: 'content' },
+    { area: this.elements.answerUploadArea,  input: this.elements.answerFileInput,  type: 'answer' }
+  ];
+  uploadAreas.forEach(({ area, input, type }) => {
+    if (area && input) {
+      ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+        area.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); });
+      });
+      area.addEventListener('dragover',  () => area.classList.add('dragover'));
+      area.addEventListener('dragleave', () => area.classList.remove('dragover'));
+      area.addEventListener('drop', (e) => {
+        area.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) this.handleFileSelection(e.dataTransfer.files[0], type);
+      });
+    }
+  });
+};
+
+CMSApp.prototype.handleFileSelection = function(file, type) {
+  console.log(`\u{1F4E4} File selected (${type}):`, file.name, file.type, file.size);
+  if (type === 'content') {
+    this.state.contentFile = file;
+    this.state.currentImportedDocument = file;
+    if (this.elements.contentPasteArea) this.elements.contentPasteArea.textContent = '';
+    const fileName = document.getElementById('content-file-name');
+    const preview  = document.getElementById('content-preview');
+    if (fileName) fileName.textContent = file.name;
+    if (preview)  preview.style.display = 'block';
+    this.elements.contentUploadArea.classList.add('has-content');
+  } else if (type === 'answer') {
+    this.state.answerFile = file;
+    const fileName = document.getElementById('answer-file-name');
+    const preview  = document.getElementById('answer-preview');
+    if (fileName) fileName.textContent = file.name;
+    if (preview)  preview.style.display = 'block';
+    this.elements.answerUploadArea.classList.add('has-content');
+  }
+  this.showFileTypeMessage(file);
+};
+
+CMSApp.prototype.showFileTypeMessage = function(file) {
+  const fileName = file.name.toLowerCase();
+  let message = '';
+  if (fileName.endsWith('.pdf')) message = '\u{1F4C4} PDF uploaded - Ultimate Parser will process first 3 pages automatically';
+  else if (fileName.match(/\.(jpg|jpeg|png|gif|webp)$/)) message = '\u{1F5BC}\uFE0F Image uploaded - Ultimate Parser will extract questions using OCR';
+  else if (fileName.endsWith('.txt')) message = '\u{1F4DD} Text file uploaded - Ultimate Parser will analyze content directly';
+  if (message) setTimeout(() => this.showAlert(message, 'info'), 500);
+};
+
+CMSApp.prototype.loadInitialData = function() {
+  console.log('\u{1F4CA} Loading initial data...');
+  if (!this.firebaseReady) { console.warn('\u26A0\uFE0F Firebase not ready, skipping data load'); return; }
+  this.loadAllData().then(() => {
+    console.log('\u2705 Initial data loaded successfully');
+    this.updateNavigationCounts();
+    this.updateDashboardParserStats();
+  }).catch(error => {
+    console.error('\u274C Error loading initial data:', error);
+    this.handleError(error, 'data loading');
+  });
+};
+
+CMSApp.prototype.handleInitializationError = function(error) {
+  console.error('\u{1F6A8} Critical initialization error:', error);
+  const errorContainer = document.createElement('div');
+  errorContainer.innerHTML = `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:30px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center;z-index:10000;max-width:500px;"><h2 style="color:#dc3545;margin-bottom:20px;">\u26A0\uFE0F Initialization Error</h2><p style="margin-bottom:20px;">Failed to initialize the Ultimate Parser CMS.<br><strong>Error:</strong> ${error.message}</p><button onclick="location.reload()" style="background:#007bff;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;">\u{1F504} Refresh Page</button></div>`;
+  document.body.appendChild(errorContainer);
+};
+
+CMSApp.prototype.handleError = function(error, context) {
+  console.error(`\u{1F6A8} Error in ${context}:`, error);
+  let userMessage = `Error in ${context}. `;
+  if (error.code === 'permission-denied') userMessage += 'Permission denied. Please check your access rights.';
+  else if (error.code === 'unavailable') userMessage += 'Service temporarily unavailable. Please try again.';
+  else userMessage += 'Please try again or contact support.';
+  this.showAlert(userMessage, 'error');
+};
+
+CMSApp.prototype.getStoredApiKey = function() {
+  try {
+    return localStorage.getItem('gemini-api-key') ||
+           localStorage.getItem('ai-api-key') ||
+           sessionStorage.getItem('gemini-api-key');
+  } catch (error) { return null; }
+};
+
+CMSApp.prototype.saveApiKey = function(apiKey) {
+  try { localStorage.setItem('gemini-api-key', apiKey); window.GEMINI_API_KEY = apiKey; return true; }
+  catch (error) { return false; }
+};
+
+CMSApp.prototype.getParserSettings = function() {
+  try {
+    const stored = localStorage.getItem('parser-settings');
+    return stored ? JSON.parse(stored) : this.getDefaultSettings();
+  } catch (error) { return this.getDefaultSettings(); }
+};
+
+CMSApp.prototype.saveParserSettings = function(settings) {
+  try { localStorage.setItem('parser-settings', JSON.stringify(settings)); return true; }
+  catch (error) { return false; }
+};
+
+CMSApp.prototype.getDefaultSettings = function() {
+  return { defaultExtractionMode: 'smart', maxPdfPages: 10, enableMultiPass: true, autoDetectTestType: true };
+};
+
+console.log('\u{1F680} Ultimate Parser CMS v2.1 \u2014 Firebase v9 + Auth State + All Methods Present');
+
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('\u{1F4CB} DOM loaded, initializing Enhanced CMS...');
+  setTimeout(() => {
+    try {
+      window.cmsApp = new CMSApp();
+      console.log('\u2705 Enhanced CMS instance created successfully');
+    } catch (error) {
+      console.error('\u274C Failed to create CMS instance:', error);
+      document.body.innerHTML = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial,sans-serif;"><div style="text-align:center;padding:40px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.1);"><h1 style="color:#dc3545;">\u26A0\uFE0F Critical Error</h1><p>Failed to initialize Ultimate Parser CMS</p><p><strong>Error:</strong> ${error.message}</p><button onclick="location.reload()" style="background:#007bff;color:white;border:none;padding:12px 24px;border-radius:6px;cursor:pointer;font-size:16px;">\u{1F504} Refresh Page</button></div></div>`;
+    }
+  }, 300);
+});
+
+console.log('\u{1F6E0}\uFE0F Section 6 COMPLETE \u2014 CMS \u2014 Fixed v4 \u2014 user passed directly to fetchTeacherApiKey');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 7: AI IMPORT HANDLER            -->
+<!-- v2: JSON repair + object extraction     -->
+<!-- ========================================= -->
+<script>
+console.log('🤖 Loading Section 7: AI Import Handler...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// handleAIImportSubmit
+// Called by the Submit button in the AI Import modal (Section 5).
+// Reads file/paste input → calls Gemini → parses questions → saves to bank.
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.handleAIImportSubmit = async function(e) {
+  if (e) e.preventDefault();
+  console.log('🚀 handleAIImportSubmit called');
+
+  // ── 1. Validate bank selection ──────────────────────────────────────
+  const bankSelect   = document.getElementById('ai-save-bank-select');
+  const selectedBank = bankSelect ? bankSelect.value : '';
+
+  if (!selectedBank) {
+    this.showAlert('Please select a question bank before importing.', 'error');
+    return;
+  }
+
+  // ── 2. Get / create the target bank ─────────────────────────────────
+  let targetBankId   = null;
+  let targetBankName = '';
+
+  if (selectedBank === 'CREATE_NEW') {
+    const newName = window.prompt('Enter a name for the new question bank:', 'New Question Bank');
+    if (!newName || !newName.trim()) {
+      this.showAlert('Please enter a name for the new question bank.', 'error');
+      return;
+    }
+    try {
+      const docRef = await this.addDoc(this.collection(this.db, 'questionBanks'), {
+        name:        newName.trim(),
+        approach:    'General',
+        description: 'Created via Ultimate AI Import',
+        questions:   [],
+        createdAt:   this.serverTimestamp(),
+        createdWith: 'Ultimate Parser CMS v2.3'
+      });
+      targetBankId   = docRef.id;
+      targetBankName = newName.trim();
+      this.state.questionBanks.push({
+        id:        targetBankId,
+        name:      targetBankName,
+        approach:  'General',
+        questions: []
+      });
+      console.log('✅ New bank created:', targetBankId);
+    } catch (err) {
+      console.error('❌ Error creating bank:', err);
+      this.showAlert('Error creating question bank. Please try again.', 'error');
+      return;
+    }
+  } else {
+    targetBankId = selectedBank;
+    const bank   = this.state.questionBanks.find(b => b.id === targetBankId);
+    targetBankName = bank ? bank.name : 'Selected Bank';
+  }
+
+  // ── 3. Gather content (file or paste) ───────────────────────────────
+  let contentText = '';
+
+  const pasteArea = document.getElementById('content-paste-area');
+  if (pasteArea) {
+    const pasteText = (pasteArea.textContent || pasteArea.innerText || '').trim();
+    if (pasteText && pasteText !== ' ') contentText = pasteText;
+  }
+
+  const contentFileInput = document.getElementById('content-file-input');
+  const contentFile      = contentFileInput && contentFileInput.files[0]
+                           ? contentFileInput.files[0]
+                           : this.state.contentFile;
+
+  if (!contentText && !contentFile) {
+    this.showAlert('Please upload a file or paste text content before importing.', 'error');
+    return;
+  }
+
+  // ── 4. Check Gemini is ready ─────────────────────────────────────────
+  if (!this.geminiModel && !this.parserReady) {
+    try {
+      await this.fetchTeacherApiKey();
+    } catch(e) {
+      console.warn('Could not fetch API key:', e);
+    }
+  }
+
+  if (!this.geminiModel) {
+    this.showAlert('AI Parser is not ready. Please check your API key in Settings.', 'error');
+    return;
+  }
+
+  // ── 5. Read settings ──────────────────────────────────────────────────
+  const questionCountSelect = document.getElementById('ai-question-count');
+  const difficultySelect    = document.getElementById('ai-difficulty-level');
+  const extractionSelect    = document.getElementById('extraction-mode');
+  const frameworkCheckbox   = document.getElementById('framework-mode-enable');
+
+  const expectedCount  = questionCountSelect ? questionCountSelect.value : 'auto';
+  const difficulty     = difficultySelect    ? difficultySelect.value    : 'auto';
+  const extractionMode = extractionSelect    ? extractionSelect.value    : 'smart';
+  const frameworkMode  = frameworkCheckbox   ? frameworkCheckbox.checked : false;
+
+  // ── 6. Show progress ──────────────────────────────────────────────────
+  this.updateProgress(5, 'Reading content...');
+  const submitBtn = document.getElementById('ai-import-submit-btn');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.style.opacity = '0.6'; }
+
+  try {
+
+    // ── 7. Convert file to text/base64 ──────────────────────────────────
+    let geminiContent = null;
+
+    if (contentFile) {
+      this.updateProgress(15, `Processing ${contentFile.name}...`);
+
+      if (contentFile.type === 'application/pdf') {
+        contentText = await this.extractTextFromPDF(contentFile);
+        geminiContent = [{ text: contentText }];
+
+      } else if (contentFile.type.startsWith('image/')) {
+        const base64 = await this.fileToBase64(contentFile);
+        geminiContent = [
+          {
+            inlineData: {
+              mimeType: contentFile.type,
+              data:     base64
+            }
+          },
+          { text: 'Extract all questions from this image.' }
+        ];
+
+      } else {
+        contentText = await this.readFileAsText(contentFile);
+        geminiContent = [{ text: contentText }];
+      }
+    } else {
+      geminiContent = [{ text: contentText }];
+    }
+
+    // Check answer key file
+    const answerFileInput = document.getElementById('answer-file-input');
+    const answerFile      = answerFileInput && answerFileInput.files[0]
+                            ? answerFileInput.files[0]
+                            : this.state.answerFile;
+
+    let answerKeyText = '';
+    if (answerFile) {
+      this.updateProgress(20, 'Reading answer key...');
+      try {
+        if (answerFile.type === 'application/pdf') {
+          answerKeyText = await this.extractTextFromPDF(answerFile);
+        } else {
+          answerKeyText = await this.readFileAsText(answerFile);
+        }
+      } catch(e) {
+        console.warn('Could not read answer key:', e);
+      }
+    }
+
+    // ── 8. Build the Gemini prompt ────────────────────────────────────────
+    this.updateProgress(30, 'Building extraction prompt...');
+
+    const modeInstructions = frameworkMode
+      ? `Generate COMPLETELY ORIGINAL questions INSPIRED BY the structure and topics of the source material.
+         Do NOT copy any text from the source. Create new scenarios, new numbers, new scenarios.
+         Preserve the same question type, difficulty, and subject area.`
+      : `Extract questions DIRECTLY from the provided content with high accuracy.
+         Preserve original wording, answer choices, and correct answers exactly.`;
+
+    const countInstruction = expectedCount === 'auto'
+      ? 'Extract ALL questions found in the document.'
+      : `Extract exactly ${expectedCount} questions (or as many as are available if fewer exist).`;
+
+    const diffInstruction = difficulty === 'auto'
+      ? ''
+      : `Target difficulty level: ${difficulty}.`;
+
+    const prompt = `You are the Ultimate ACT Question Parser — a specialist in extracting ACT test questions with 98% accuracy.
+
+${modeInstructions}
+
+${countInstruction} ${diffInstruction}
+
+EXTRACTION RULES:
+- Detect test type automatically: Reading (passages + questions), Math (equations, geometry), English (grammar/usage), Science (data interpretation)
+- For Reading: include the FULL passage text in passageContext for EVERY question in that passage set
+- For Math: preserve ALL mathematical notation, equations, and figures in text form
+- Preserve answer choices EXACTLY as labeled: A/B/C/D for Math/Science/English, F/G/H/J for Reading
+- Identify the correct answer from the answer key if provided, or from context clues
+- Write a DETAILED explanation for every question. The explanation must:
+  * State clearly WHY the correct answer is right (not just what it is)
+  * Explain the reasoning process step-by-step as a teacher would
+  * For Math: show the full calculation or algebraic steps
+  * For Reading: cite the specific line or phrase from the passage that supports the answer
+  * For English: name the grammar rule or rhetorical principle being tested
+  * For Science: explain what the data shows and how to interpret it
+  * Point out WHY each wrong answer is wrong if helpful
+  * Be 2-4 sentences minimum — never just one word or the answer letter
+  * Write as if explaining to a 10th grade student who got it wrong
+- IMPORTANT: All string values must use escaped quotes. Do NOT use smart/curly quotes. Do NOT leave unescaped apostrophes inside JSON strings.
+
+${answerKeyText ? `ANSWER KEY PROVIDED:\n${answerKeyText}\n\n` : ''}
+
+OUTPUT FORMAT — respond with ONLY a valid JSON array, no markdown, no explanation:
+[
+  {
+    "questionNumber": 1,
+    "testType": "Math",
+    "text": "What is the value of x if 2x + 3 = 11?",
+    "passageContext": "",
+    "options": {
+      "A": "2",
+      "B": "3",
+      "C": "4",
+      "D": "5"
+    },
+    "correct": "C",
+    "explanation": "To solve 2x + 3 = 11, subtract 3 from both sides to get 2x = 8, then divide both sides by 2 to get x = 4. Answer A (x=2) is wrong because 2(2)+3=7. Answer B (x=3) gives 9. Answer D (x=5) gives 13."
+  }
+]
+
+For Reading questions use F/G/H/J as option keys.
+passageContext should contain the FULL passage text for reading questions, empty string for others.
+correct should be the letter of the correct answer (A, B, C, D, F, G, H, or J).
+
+CONTENT TO PROCESS:
+`;
+
+    // ── 9. Call Gemini ─────────────────────────────────────────────────
+    this.updateProgress(40, '🤖 Sending to Ultimate Parser AI...');
+
+    let geminiParts;
+    if (geminiContent && geminiContent.length > 0 &&
+        geminiContent[0].inlineData) {
+      geminiParts = [
+        { text: prompt + '\n[See attached image above]' },
+        ...geminiContent
+      ];
+    } else {
+      const fullText = (geminiContent || []).map(p => p.text || '').join('\n');
+      geminiParts = [{ text: prompt + '\n' + fullText }];
+    }
+
+    this.updateProgress(55, '🧠 AI extracting questions (this may take 15–30 seconds)...');
+
+    let responseText = '';
+    try {
+      const result = await this.geminiModel.generateContent({
+        contents: [{ role: 'user', parts: geminiParts }],
+        generationConfig: {
+          maxOutputTokens: 8192,
+          temperature: 0.1
+        }
+      });
+      responseText = result.response.text();
+    } catch (apiErr) {
+      console.error('Gemini API error:', apiErr);
+      throw new Error('AI extraction failed: ' + (apiErr.message || 'Unknown error'));
+    }
+
+    this.updateProgress(70, 'Parsing extracted questions...');
+
+    // ── 10. Parse the JSON response ───────────────────────────────────────
+    const questions = this.parseGeminiQuestionResponse(responseText);
+
+    if (!questions || questions.length === 0) {
+      throw new Error('No questions could be extracted from the content. Try a different document or paste the text manually.');
+    }
+
+    console.log(`✅ Extracted ${questions.length} questions`);
+    this.updateProgress(80, `Found ${questions.length} questions — saving to bank...`);
+
+    // ── 11. Save questions to Firestore ───────────────────────────────────
+    const bank = this.state.questionBanks.find(b => b.id === targetBankId);
+    const existingQuestions = bank ? (bank.questions || []) : [];
+    const mergedQuestions   = [...existingQuestions, ...questions];
+
+    const lastExtraction = {
+      testType:    questions[0]?.testType || extractionMode,
+      count:       questions.length,
+      extractedAt: new Date().toISOString(),
+      mode:        frameworkMode ? 'framework' : 'extraction'
+    };
+
+    await this.updateDoc(this.doc(this.db, 'questionBanks', targetBankId), {
+      questions:      mergedQuestions,
+      lastExtraction: lastExtraction,
+      updatedAt:      this.serverTimestamp()
+    });
+
+    if (bank) {
+      bank.questions      = mergedQuestions;
+      bank.lastExtraction = lastExtraction;
+    }
+
+    this.updateProgress(100, '✅ Complete!');
+
+    // ── 12. Success ───────────────────────────────────────────────────────
+    setTimeout(() => {
+      this.closeModal('ai-import-modal');
+      this.hideProgress();
+      this.loadQuestionBanks();
+      this.showAlert(
+        `✅ Successfully ${frameworkMode ? 'generated' : 'extracted'} ${questions.length} question${questions.length !== 1 ? 's' : ''} into "${targetBankName}"!`,
+        'success'
+      );
+    }, 600);
+
+    this.state.parserStats = this.state.parserStats || { processedDocuments: 0, extractedQuestions: 0 };
+    this.state.parserStats.processedDocuments++;
+    this.state.parserStats.extractedQuestions += questions.length;
+
+  } catch (err) {
+    console.error('❌ AI Import error:', err);
+    this.hideProgress();
+    this.showAlert('Import failed: ' + (err.message || 'Unknown error. Please try again.'), 'error');
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = '1'; }
+  }
+};
