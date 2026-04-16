@@ -1,0 +1,1084 @@
+
+      // ─────────────────────────────────────────────────────────────
+      // ENCOUNTER TRANSITION — called between encounters
+      // ─────────────────────────────────────────────────────────────
+      const generateEncounterTransition = async (context) => {
+        const {
+          encounterTitle, encounterIndex, correctAnswers, totalQuestions,
+          accuracy, passed, minAccuracy, minCorrect,
+          isLastEncounter, nextEncounterTitle, nextEncounterDesc
+        } = context;
+
+        // Use pre-captured next encounter data from context — avoids stale index reads
+        const nextDesc = nextEncounterDesc || nextEncounterTitle || '';
+        const encounterNumber = (encounterIndex != null ? encounterIndex : 0) + 1;
+        const totalEncounters = currentEpisode.encounters ? currentEpisode.encounters.length : '?';
+
+        const performanceLabel = accuracy >= 80 ? 'exceptional' :
+                                 accuracy >= 60 ? 'solid'       :
+                                 accuracy >= 40 ? 'struggling'  : 'difficult';
+
+        try {
+          const prompt = `You are the Dungeon Master narrating a transition between story beats in a ${episodeNarrative.genre} adventure.
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+WRITING STYLE: ${episodeNarrative.sessionStyle}
+STORY POSITION: Scene ${encounterNumber} of ${totalEncounters} just completed
+
+JUST COMPLETED: "${encounterTitle}"
+- Result: ${passed ? 'SUCCESS' : 'SETBACK'} (${correctAnswers}/${totalQuestions} correct, ${accuracy}%)
+- Performance: ${performanceLabel}
+
+${nextDesc ? `NEXT SCENE AHEAD: "${nextDesc}"` : 'THIS WAS THE FINAL SCENE — write a closing transition'}
+
+GUIDELINES:
+- Write 2-3 paragraphs
+- Reflect their ${performanceLabel} performance — ${passed
+    ? 'acknowledge their success and build momentum'
+    : 'show consequences of the setback but keep hope alive'}
+- ${passed
+    ? 'They earned this transition — make it feel triumphant'
+    : 'They struggled — show an alternative path, a cost, or a harder road ahead'}
+- Naturally transition into the next challenge using its description
+- Draw from episode-specific details, characters, and setting
+- NO meta-references to "questions", "answers", or "score"
+- Make it feel like a D&D game master reacting to dice rolls
+
+Generate the transition narrative:`;
+
+          const narrative = await callNarrativeFunction(prompt, 500);
+          displayNarrative(narrative, 'transition');
+          return narrative;
+
+        } catch (error) {
+          console.error('Encounter transition generation failed:', error);
+          hideNarrativeLoading();
+
+          const fallback = passed
+            ? `${player.name} presses forward, their recent success giving them confidence. The next challenge awaits.`
+            : `${player.name} regathers themselves after a difficult trial. There is still a path forward — though it may be harder than before.`;
+          displayNarrative(fallback, 'transition');
+          return fallback;
+        }
+      };
+
+      const generateTemplateOpening = (episode) => {
+        const genre   = episode.genre || episode.theme || 'Fantasy';
+        const level   = Math.floor((player.xp || 0) / 100) + 1;
+        const desc    = getEpisodeDescription(episode);
+        const preview = desc ? desc.split('.').slice(0, 2).join('.') + '.' : '';
+        const templates = {
+          'Fantasy':          `${player.name}, your ${player.className} training has led you to this moment. ${preview} As a Level ${level} adventurer, ancient magic pulses through the air as you prepare to face the trials ahead.`,
+          'Sci-Fi':           `Captain ${player.name}, your ${player.className} expertise is required for this critical mission. ${preview} Your Level ${level} clearance grants access, but solving this demands sharp analytical thinking.`,
+          'Space/Sci-Fi':     `Captain ${player.name}, your ${player.className} expertise is required for this critical mission. ${preview} Your Level ${level} clearance grants access, but solving this demands sharp analytical thinking.`,
+          'Mystery':          `Detective ${player.name}, your reputation as a Level ${level} ${player.className} precedes you. ${preview} Time to put your analytical mind to work.`,
+          'Historical':       `${player.name}, history remembers those who rise to meet great challenges. ${preview} As a Level ${level} ${player.className}, the echoes of history call to you.`,
+          'Medieval Fantasy': `${player.name}, your ${player.className} training has led you to this moment. ${preview} As a Level ${level} adventurer, the fate of the realm rests in your hands.`
+        };
+        return templates[genre] || templates['Fantasy'];
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // QUESTION RESPONSE
+      // ─────────────────────────────────────────────────────────────
+      const generateQuestionResponse = async (questionResult) => {
+        try {
+          const { isCorrect, questionNumber, totalQuestions, abilityUsed, streak, currentFocus } = questionResult;
+          const prompt = `You are the Dungeon Master narrating an ongoing ${episodeNarrative.genre} adventure. React to the player's action in 1-2 sentences.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Current Scene: "${episodeNarrative.currentEncounterTitle}"
+- Scene Description: "${episodeNarrative.currentEncounterNarrative}"
+- Player: ${player.name} (${player.className})
+- Question ${questionNumber} of ${totalQuestions}
+- Result: ${isCorrect ? 'SUCCESS' : 'FAILURE'}
+${abilityUsed && abilityUsed !== 'none' ? `- Ability Used: ${abilityUsed}` : ''}
+- Focus: ${currentFocus}
+${streak >= 3 ? `- Current Streak: ${streak} (impressive!)` : ''}
+- Tone: ${episodeNarrative.tonalShift}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+GUIDELINES:
+- Write 1-2 sentences ONLY
+- React to their ${isCorrect ? 'success' : 'setback'} in context of this specific episode
+- Reference elements from the episode description when possible
+${streak >= 3 ? '- Note their impressive streak!' : ''}
+- NO meta-references to "questions"
+
+Generate response:`;
+
+          const narrative = await callNarrativeFunction(prompt, 150);
+          episodeNarrative.questionNarratives.push(narrative);
+          return narrative;
+        } catch (error) {
+          console.error('Question response generation failed:', error);
+          return null;
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // EPISODE ENDING
+      // ─────────────────────────────────────────────────────────────
+      const generateEpisodeEnding = async (endingContext) => {
+        try {
+          const { tier, percentage, totalQuestions, correctAnswers, bestStreak, tonalShift } = endingContext;
+          const prompt = `You are the Dungeon Master concluding a ${episodeNarrative.genre} adventure. Write a 2-3 paragraph ending.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name}, Level ${Math.floor((player.xp || 0) / 100) + 1} ${player.className}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+PERFORMANCE:
+- Result: ${tier.toUpperCase()} (${percentage}% accuracy)
+- Completed: ${correctAnswers}/${totalQuestions} challenges
+- Best Streak: ${bestStreak}
+- Overall Tone: ${tonalShift}
+
+GUIDELINES:
+- Write 2-3 paragraphs concluding the story
+- Draw from the episode description — resolve its specific plot elements
+- Reference their ${tier} performance naturally
+- ${percentage >= 90 ? 'Celebrate their excellence' : percentage >= 75 ? 'Acknowledge solid performance' : percentage >= 60 ? 'Note progress while encouraging improvement' : 'Acknowledge difficulty while highlighting lessons learned'}
+- NO meta-references to "questions" or "tests"
+
+Generate the ending:`;
+
+          return await callNarrativeFunction(prompt, 600);
+        } catch (error) {
+          console.error('Episode ending generation failed:', error);
+          return '';
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // FOCUS EXHAUSTION
+      // ─────────────────────────────────────────────────────────────
+      const generateFocusExhaustionMoment = async (context) => {
+        try {
+          const { questionsCompleted, questionsRemaining, recentFailures } = context;
+          const prompt = `You are the Dungeon Master narrating a critical moment in a ${episodeNarrative.genre} adventure. The player has exhausted their focus.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Completed: ${questionsCompleted} challenges, ${questionsRemaining} remaining
+- Recent failures: ${recentFailures}
+- Tone: ${episodeNarrative.tonalShift}
+
+GUIDELINES:
+- Write 2-3 sentences capturing this CRITICAL moment
+- Tie exhaustion to something specific in the episode's setting or plot
+- Show the physical/mental toll on the player
+- Create dramatic tension
+- NO meta-references to "focus" or "game mechanics"
+
+Generate the exhaustion moment:`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Focus exhaustion narrative failed:', error);
+          return '';
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // STREAK MILESTONE
+      // ─────────────────────────────────────────────────────────────
+      const generateStreakMilestone = async (streak) => {
+        try {
+          const prompt = `You are the Dungeon Master celebrating a ${streak}-challenge streak in a ${episodeNarrative.genre} adventure!
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+
+Write 1-2 sentences celebrating their momentum, tied to the episode's world.
+${streak === 3  ? 'Acknowledge they found their rhythm.' : ''}
+${streak === 5  ? 'Show impressive sustained excellence.' : ''}
+${streak >= 10  ? 'Treat this as legendary performance.' : ''}
+NO meta-references to "streak" or "score".`;
+
+          return await callNarrativeFunction(prompt, 150);
+        } catch (error) {
+          console.error('Streak milestone generation failed:', error);
+          return '';
+        }
+      };
+
+      const showStreakMilestone = (streak, narrative) => {
+        const existing = document.getElementById('streak-milestone-overlay');
+        if (existing) existing.remove();
+
+        const el = document.createElement('div');
+        el.id = 'streak-milestone-overlay';
+        el.style.cssText = `
+          position:fixed; top:20%; left:50%; transform:translateX(-50%);
+          background:linear-gradient(145deg,rgba(46,204,113,0.95),rgba(39,174,96,0.95));
+          border:3px solid #f39c12; border-radius:15px; padding:25px;
+          max-width:500px; z-index:9999;
+          box-shadow:0 10px 40px rgba(0,0,0,0.5);
+          animation:slideDown 0.3s ease-out;
+        `;
+
+        const dismiss = () => {
+          const overlay = document.getElementById('streak-milestone-overlay');
+          if (overlay) {
+            overlay.style.animation = 'slideUp 0.3s ease-in';
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+          }
+        };
+
+        el.innerHTML = `
+          <div style="position:relative;">
+            <button id="streak-close-btn"
+                    style="position:absolute;top:-10px;right:-10px;
+                           background:rgba(255,255,255,0.9);border:none;border-radius:50%;
+                           width:30px;height:30px;font-size:18px;cursor:pointer;
+                           box-shadow:0 2px 8px rgba(0,0,0,0.3);
+                           display:flex;align-items:center;justify-content:center;">x</button>
+            <h3 style="color:#fff;margin:0 0 15px 0;font-family:'Cinzel',serif;font-size:24px;text-align:center;">
+              🔥 ${streak}-Challenge Streak! 🔥
+            </h3>
+            <p style="color:#fff;margin:0 0 15px 0;font-size:16px;line-height:1.7;text-align:center;">
+              ${narrative}
+            </p>
+            <button id="streak-continue-btn"
+                    style="display:block;width:100%;padding:10px;
+                           background:rgba(255,255,255,0.2);border:2px solid rgba(255,255,255,0.5);
+                           border-radius:8px;color:white;font-size:14px;font-weight:600;cursor:pointer;">
+              Continue
+            </button>
+          </div>
+        `;
+        document.body.appendChild(el);
+
+        document.getElementById('streak-close-btn').onclick    = dismiss;
+        document.getElementById('streak-continue-btn').onclick = dismiss;
+
+        setTimeout(() => dismiss(), 12000);
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // HALFWAY POINT
+      // ─────────────────────────────────────────────────────────────
+      const generateHalfwayPoint = async (context) => {
+        try {
+          const { questionsCompleted, questionsRemaining, accuracy } = context;
+          const prompt = `You are the Dungeon Master narrating the halfway point in a ${episodeNarrative.genre} adventure.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Completed: ${questionsCompleted}, Remaining: ${questionsRemaining}
+- Performance: ${accuracy}% accuracy
+- Tone: ${episodeNarrative.tonalShift}
+
+Write 2-3 sentences marking this turning point. Reference the episode's specific setting or stakes.
+${accuracy >= 75 ? 'Hint at greater challenges ahead.' : accuracy >= 50 ? 'Encourage continued effort.' : 'Offer hope for the second half.'}
+NO meta-references to "halfway" or "questions".`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Halfway point generation failed:', error);
+          return '';
+        }
+      };
+
+      const showHalfwayMoment = (narrative) => {
+        const el = document.createElement('div');
+        el.style.cssText = `
+          position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+          background:linear-gradient(145deg,rgba(52,73,94,0.98),rgba(44,62,80,0.98));
+          border:3px solid #f39c12; border-radius:15px; padding:30px;
+          max-width:600px; z-index:9999;
+          box-shadow:0 20px 60px rgba(0,0,0,0.8);
+        `;
+        el.innerHTML = `
+          <h3 style="color:#f39c12;margin:0 0 15px 0;font-family:'Cinzel',serif;font-size:24px;text-align:center;">
+            ⚡ Turning Point ⚡
+          </h3>
+          <p style="color:#ecf0f1;margin:0 0 20px 0;font-size:15px;line-height:1.8;">
+            ${narrative}
+          </p>
+          <button id="halfway-continue"
+                  style="width:100%;padding:12px;
+                         background:linear-gradient(145deg,#f39c12,#e67e22);
+                         border:none;border-radius:8px;color:white;
+                         font-size:16px;font-weight:bold;cursor:pointer;">
+            ✦ Continue the Journey ✦
+          </button>
+        `;
+        document.body.appendChild(el);
+        document.getElementById('halfway-continue').onclick = () => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        };
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // TEACHING MOMENTS — full overlay, persistent until clicked
+      // ─────────────────────────────────────────────────────────────
+      const generateStruggleHint = async (context) => {
+        try {
+          const { consecutiveFailures, availableAbilities } = context;
+          const abilityList = availableAbilities && availableAbilities.length > 0
+            ? availableAbilities.join(', ') : 'none';
+          const prompt = `You are the Dungeon Master providing gentle guidance to a struggling player in a ${episodeNarrative.genre} adventure.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode: "${episodeNarrative.episodeTitle}"
+- Description: "${episodeNarrative.episodeDescription}"
+- Player: ${player.name} (${player.className})
+- Consecutive failures: ${consecutiveFailures}
+- Available abilities: ${abilityList}
+
+Write 2-3 ENCOURAGING sentences framed through the episode's world.
+${abilityList !== 'none' ? `Gently remind them of available abilities: ${abilityList}` : ''}
+End on a hopeful note tied to the episode's stakes.
+NO meta-references to "wrong answers" or "game".`;
+
+          return await callNarrativeFunction(prompt, 200);
+        } catch (error) {
+          console.error('Struggle hint generation failed:', error);
+          return '';
+        }
+      };
+
+      const generateComebackCoaching = async (previousFailures) => {
+        try {
+          const lastQ       = currentQuestionSet ? currentQuestionSet[currentQuestionIndex] : null;
+          const explanation = lastQ ? (lastQ.explanation || '') : '';
+          const prompt = `You are the Dungeon Master teaching a concept in a ${episodeNarrative.genre} adventure. The player just answered correctly after ${previousFailures} failures.
+
+EPISODE: "${episodeNarrative.episodeTitle}"
+PLAYER: ${player.name} (${player.className})
+${explanation ? `Explanation: ${explanation}` : ''}
+
+Write 2-3 sentences that TEACH why the answer was correct. Frame the lesson through the episode's world — make it feel like wisdom earned in this adventure.
+NO meta-references to "questions" or "game".`;
+
+          return await callNarrativeFunction(prompt, 250);
+        } catch (error) {
+          console.error('Comeback coaching generation failed:', error);
+          return '';
+        }
+      };
+
+      const showTeachingMoment = (message, type) => {
+        const styles = {
+          struggle: {
+            bg:    'linear-gradient(145deg,rgba(230,126,34,0.97),rgba(211,84,0,0.97))',
+            border: '#e67e22', icon: '💡', title: 'Insight'
+          },
+          success: {
+            bg:    'linear-gradient(145deg,rgba(52,152,219,0.97),rgba(41,128,185,0.97))',
+            border: '#3498db', icon: '📚', title: 'Wisdom Gained'
+          }
+        };
+        const s = styles[type] || styles.struggle;
+
+        const existing = document.getElementById('teaching-moment-overlay');
+        if (existing) existing.remove();
+
+        const el = document.createElement('div');
+        el.id = 'teaching-moment-overlay';
+        el.style.cssText = `
+          position:fixed; top:0; left:0; right:0; bottom:0;
+          background:rgba(0,0,0,0.55);
+          display:flex; align-items:center; justify-content:center;
+          z-index:10000; padding:20px;
+        `;
+        el.innerHTML = `
+          <div style="
+            background:${s.bg};
+            border:3px solid ${s.border};
+            border-radius:16px; padding:30px;
+            max-width:560px; width:100%;
+            box-shadow:0 20px 60px rgba(0,0,0,0.6);
+          ">
+            <h3 style="
+              color:#fff; margin:0 0 16px 0;
+              font-family:'Cinzel',serif; font-size:22px;
+              text-align:center; letter-spacing:0.05em;
+            ">${s.icon} ${s.title} ${s.icon}</h3>
+            <p style="
+              color:#fff; margin:0 0 24px 0;
+              font-size:16px; line-height:1.8; font-style:normal;
+            ">${message}</p>
+            <button onclick="document.getElementById('teaching-moment-overlay').remove()"
+                    style="
+                      display:block; width:100%; padding:14px;
+                      background:rgba(255,255,255,0.2);
+                      border:2px solid rgba(255,255,255,0.6);
+                      border-radius:10px; color:white;
+                      font-size:16px; font-weight:700; cursor:pointer;
+                      letter-spacing:0.05em;
+                    "
+                    onmouseover="this.style.background='rgba(255,255,255,0.35)'"
+                    onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+              ✦ Got it — Continue ✦
+            </button>
+          </div>
+        `;
+        el.addEventListener('click', (e) => { if (e.target === el) el.remove(); });
+        document.body.appendChild(el);
+      };
+
+      // ═══════════════════════════════════════════════════════════════
+      // CUTSCENE SYSTEM v1
+      // Cinematic (single image + typewriter text) and
+      // Graphic Novel (3-panel comic layout) modes.
+      // Called from Section 12 (encounter transitions) and
+      // Section 15 (episode completion).
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── Generate one image via Cloud Function ─────────────────────
+      const generateCutsceneImage = async (imagePrompt, aspectRatio = '16:9') => {
+        const fn = httpsCallable(functions, 'generateCutsceneImage');
+        const result = await fn({ imagePrompt, aspectRatio });
+        if (result.data && result.data.success && result.data.imageData) {
+          return `data:${result.data.mimeType || 'image/png'};base64,${result.data.imageData}`;
+        }
+        throw new Error('No image data returned from generateCutsceneImage');
+      };
+
+      // ── Build image prompt from episode/encounter context ─────────
+      const buildCutsceneImagePrompt = (context) => {
+        const { genre, episodeTitle, encounterTitle, encounterNarrative, passed, isCompletion, performanceLabel } = context;
+        const outcomeDesc = isCompletion
+          ? (performanceLabel === 'exceptional' || performanceLabel === 'solid'
+              ? 'triumphant hero celebrating victory, golden light'
+              : 'weary but determined hero, hard-won wisdom, reflective')
+          : (passed
+              ? 'hero moving forward confidently after a victory'
+              : 'hero regrouping after a setback, determined expression');
+
+        // Build character descriptor from saved portrait fields — "VKC-TQ-S17"
+        // Build character descriptor — lead the prompt so Imagen prioritizes it
+        // "VKC-TQ-S17" — Volney Cothran / Test Quest / Section 17
+        let characterDesc = '';
+        if (player) {
+          const cv  = window.CLASS_VISUALS ? (window.CLASS_VISUALS[player.className] || {}) : {};
+          const pf  = player.portraitEditedFields || {};
+
+          // Physical fields — from saved portrait data
+          const hair   = player.portraitHair || pf.hair || '';
+          const eyes   = player.portraitEyes || pf.eyes || '';
+          const skin   = player.portraitSkin || pf.skin || '';
+          const extras = player.portraitDescription || '';
+          const style  = pf.style || cv.style || '';
+          const gear   = pf.gear  || cv.gear  || '';
+
+          // Check if we have real portrait data
+          const hasPortraitData = hair || eyes || skin || extras ||
+            (pf.style && pf.style !== cv.style) ||
+            (pf.gear  && pf.gear  !== cv.gear);
+
+          if (hasPortraitData) {
+            // Build very explicit physical description — Imagen needs this level of detail
+            const physParts = [
+              hair  && `${hair}`,
+              eyes  && `${eyes}`,
+              skin  && `${skin} skin`,
+            ].filter(Boolean);
+            const gearPart = gear && !gear.toLowerCase().includes('none') ? `wearing ${gear}` : '';
+            const allParts = [
+              style,
+              gearPart,
+              physParts.join(', '),
+              extras
+            ].filter(Boolean);
+            characterDesc = allParts.join(', ');
+          } else {
+            // No portrait data — use rich class fallbacks
+            const classFallbacks = {
+              Strategist:  'battle-hardened commander, intense focused eyes, scarred plate armor',
+              Arcanist:    'mysterious robed scholar, glowing arcane eyes, flowing magical robes',
+              Infiltrator: 'hooded shadowy rogue, concealed face, dark leather armor, twin daggers',
+              Empath:      'compassionate healer, warm glowing hands, flowing ceremonial white robes',
+              Pathfinder:  'weather-worn explorer, determined eyes, long travel cloak, quiver',
+            };
+            characterDesc = classFallbacks[player.className] || `${player.className} hero`;
+            console.log('🎬 No portrait data — using class fallback for:', player.className);
+          }
+        }
+
+        // Structure: SCENE is the subject — produces action scenes not portrait close-ups
+        // Strip Director's Briefing prefix from encounter narrative for cleaner scene description
+        let sceneContext = '';
+        if (encounterNarrative) {
+          sceneContext = encounterNarrative
+            .replace(/Director.s Briefing:?\s*/i, '')
+            .replace(/[^a-zA-Z0-9\s,.'!?-]/g, '')
+            .substring(0, 120)
+            .trim();
+        }
+        if (!sceneContext) sceneContext = encounterTitle || episodeTitle || 'epic quest';
+
+        const genreStr = genre || 'fantasy';
+
+        // Short character reference — just enough to anchor the figure in the scene
+        const charRef = characterDesc
+          ? characterDesc.split(',').slice(0, 2).join(',').trim()
+          : (player ? player.className + ' hero' : 'hero');
+
+        const prompt = genreStr + ' action scene: ' + sceneContext + '. ' + outcomeDesc + '. A ' + charRef + ' shown in the scene. Cinematic digital art, dramatic lighting, wide establishing shot, no text, no UI.';
+
+        console.log('🎬 Cutscene prompt:', prompt);
+        return prompt;
+      };
+
+      // ── CINEMATIC MODE: single image + typewriter narrative ───────
+      const showCinematicCutscene = (narrative, imageSrc, onComplete) => {
+        const screen    = document.getElementById('cutscene-screen');
+        const cinematic = document.getElementById('cutscene-cinematic');
+        const novel     = document.getElementById('cutscene-graphic-novel');
+        const loading   = document.getElementById('cutscene-loading');
+        const bg        = document.getElementById('cutscene-bg');
+        const bgImg     = document.getElementById('cutscene-bg-img');
+        const textWrap  = document.getElementById('cutscene-text-wrap');
+        const textEl    = document.getElementById('cutscene-narrative-text');
+        const contBtn   = document.getElementById('cutscene-continue-btn');
+        const skipBtn   = document.getElementById('cutscene-skip-btn');
+        if (!screen || !cinematic) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display    = 'flex';
+        cinematic.style.display = 'block';
+        novel.style.display     = 'none';
+        loading.style.display   = 'none';
+        bg.style.opacity        = '0';
+        textWrap.style.opacity  = '0';
+        textEl.textContent      = '';
+        contBtn.style.display   = 'none';
+
+        const finish = () => {
+          screen.style.display    = 'none';
+          cinematic.style.display = 'none';
+          if (typeof onComplete === 'function') onComplete();
+        };
+        skipBtn.onclick = finish;
+        contBtn.onclick = finish;
+
+        const stripMarkdown = (text) => {
+          return text
+            .replace(/^#{1,6}\s+/gm, '')   // Remove # heading markers
+            .replace(/\*\*(.*?)\*\*/g, '$1') // Remove **bold**
+            .replace(/\*(.*?)\*/g, '$1')     // Remove *italic*
+            .replace(/_{1,2}(.*?)_{1,2}/g, '$1') // Remove _underline_
+            .replace(/`(.*?)`/g, '$1')       // Remove `code`
+            .replace(/^\s*[-*+]\s+/gm, '')   // Remove bullet points
+            .replace(/[\r\n]{3,}/g, '\n\n')  // Collapse excess newlines
+            .trim();
+        };
+
+        const startText = () => {
+          textWrap.style.opacity = '1';
+          const cleanNarrative = stripMarkdown(narrative);
+          let i = 0;
+          const type = () => {
+            if (i < cleanNarrative.length) { textEl.textContent += cleanNarrative[i++]; setTimeout(type, 8); }
+            else { contBtn.style.display = 'inline-block'; }
+          };
+          type();
+        };
+
+        if (imageSrc) {
+          bgImg.src = imageSrc;
+          bgImg.onload = () => {
+            setTimeout(() => { bg.style.opacity = '1'; setTimeout(startText, 800); }, 100);
+          };
+          bgImg.onerror = () => {
+            bgImg.style.display = 'none';
+            bg.style.backgroundColor = '#1a1a2e';
+            bg.style.opacity = '1';
+            setTimeout(startText, 400);
+          };
+        } else {
+          bg.style.backgroundColor = '#1a1a2e';
+          bg.style.opacity = '1';
+          setTimeout(startText, 400);
+        }
+      };
+
+      // ── GRAPHIC NOVEL MODE: 3 panels, staggered reveal ────────────
+      const showGraphicNovelCutscene = (panels, title, onComplete) => {
+        const screen  = document.getElementById('cutscene-screen');
+        const novel   = document.getElementById('cutscene-graphic-novel');
+        const cinema  = document.getElementById('cutscene-cinematic');
+        const loading = document.getElementById('cutscene-loading');
+        const gnTitle = document.getElementById('gn-title');
+        const titleEl = document.getElementById('gn-title-text');
+        const grid    = document.getElementById('gn-panels');
+        const contBtn = document.getElementById('gn-continue-btn');
+        if (!screen || !novel) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display  = 'flex';
+        novel.style.display   = 'block';
+        cinema.style.display  = 'none';
+        loading.style.display = 'none';
+        grid.innerHTML        = '';
+        contBtn.style.display = 'none';
+        gnTitle.style.opacity = '0';
+
+        if (title) { titleEl.textContent = title; setTimeout(() => { gnTitle.style.opacity = '1'; }, 200); }
+
+        const finish = () => {
+          screen.style.display = 'none';
+          novel.style.display  = 'none';
+          if (typeof onComplete === 'function') onComplete();
+        };
+        contBtn.onclick = finish;
+
+        let loadedCount = 0;
+        const checkAllLoaded = () => {
+          loadedCount++;
+          if (loadedCount === panels.length) {
+            setTimeout(() => { contBtn.style.display = 'inline-block'; }, 400);
+          }
+        };
+
+        panels.forEach((panel, i) => {
+          const panelEl = document.createElement('div');
+          panelEl.className = 'gn-panel';
+
+          const img = document.createElement('img');
+          img.alt = `Panel ${i + 1}`;
+
+          const caption = document.createElement('div');
+          caption.className = 'gn-panel-caption';
+          caption.textContent = panel.caption || '';
+
+          panelEl.appendChild(img);
+          panelEl.appendChild(caption);
+          grid.appendChild(panelEl);
+
+          const reveal = () => setTimeout(() => { panelEl.classList.add('revealed'); checkAllLoaded(); }, i * 350);
+
+          img.onload  = reveal;
+          img.onerror = () => {
+            img.style.display = 'none';
+            panelEl.style.minHeight = '140px';
+            panelEl.style.display = 'flex';
+            panelEl.style.alignItems = 'center';
+            panelEl.style.justifyContent = 'center';
+            reveal();
+          };
+          img.src = panel.imageSrc;
+        });
+      };
+
+      // ── ORCHESTRATOR: cinematic (generates image then shows) ──────
+      const playCinematicCutscene = async (transitionContext, narrative, onComplete) => {
+        const screen  = document.getElementById('cutscene-screen');
+        const loading = document.getElementById('cutscene-loading');
+        const loadTxt = document.getElementById('cutscene-loading-text');
+        if (!screen) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display = 'flex';
+        loading.style.display = 'flex';
+        document.getElementById('cutscene-cinematic').style.display    = 'none';
+        document.getElementById('cutscene-graphic-novel').style.display = 'none';
+        if (loadTxt) loadTxt.textContent = '♦ Painting your world… ♦';
+
+        try {
+          const imagePrompt = buildCutsceneImagePrompt({
+            genre:             episodeNarrative.genre,
+            episodeTitle:      episodeNarrative.episodeTitle,
+            encounterTitle:    transitionContext.nextEncounterTitle || transitionContext.encounterTitle || '',
+            encounterNarrative:transitionContext.nextEncounterDesc || '',
+            passed:            transitionContext.passed,
+            isCompletion:      transitionContext.isCompletion || false,
+            performanceLabel:  transitionContext.performanceLabel || 'solid'
+          });
+          const imageSrc = await generateCutsceneImage(imagePrompt, '16:9');
+          showCinematicCutscene(narrative, imageSrc, onComplete);
+        } catch (err) {
+          console.error('Cinematic cutscene image failed:', err);
+          showCinematicCutscene(narrative, '', onComplete);
+        }
+      };
+
+      // ── ORCHESTRATOR: graphic novel (3 parallel images) ──────────
+      const playGraphicNovelCutscene = async (episode, endingContext, narrative, onComplete) => {
+        const screen  = document.getElementById('cutscene-screen');
+        const loading = document.getElementById('cutscene-loading');
+        const loadTxt = document.getElementById('cutscene-loading-text');
+        if (!screen) { if (typeof onComplete === 'function') onComplete(); return; }
+
+        screen.style.display = 'flex';
+        loading.style.display = 'flex';
+        document.getElementById('cutscene-cinematic').style.display    = 'none';
+        document.getElementById('cutscene-graphic-novel').style.display = 'none';
+        if (loadTxt) loadTxt.textContent = '♦ Illustrating your legend… ♦';
+
+        const { percentage } = endingContext;
+        const performanceLabel = percentage >= 80 ? 'exceptional' :
+                                 percentage >= 60 ? 'solid'       :
+                                 percentage >= 40 ? 'struggling'  : 'difficult';
+        const desc  = episodeNarrative.episodeDescription || episodeNarrative.episodeTitle || episode.title || 'epic quest';
+        const genre = episodeNarrative.genre || 'fantasy';
+
+        // Split narrative into 3 captions
+        const sentences = narrative ? narrative.split(/(?<=[.!?])\s+/).filter(s => s.trim()) : [];
+        const third = Math.ceil(sentences.length / 3);
+        const caps = [
+          sentences.slice(0, third).join(' ') || `${player.name} sets forth.`,
+          sentences.slice(third, third * 2).join(' ') || 'The greatest trial is met.',
+          sentences.slice(third * 2).join(' ') || `${player.name}'s legend grows.`
+        ];
+
+        const panelPrompts = [
+          { prompt: `${genre} adventure opening scene. ${desc}. ${player.name} the hero arrives, establishing shot, dramatic sky.`, caption: caps[0] },
+          { prompt: `${genre} adventure climax. ${player.name} the ${player.className} faces the ultimate challenge. Intense action, dramatic lighting.`, caption: caps[1] },
+          { prompt: `${genre} adventure resolution. ${player.name} ${performanceLabel === 'exceptional' || performanceLabel === 'solid' ? 'triumphant, victorious, golden light' : 'determined, hard-won wisdom, sunset'}. Epic final scene.`, caption: caps[2] }
+        ];
+
+        const gnTitle = `${episode.title || episodeNarrative.episodeTitle} — ${
+          performanceLabel === 'exceptional' ? 'A Legend is Born'        :
+          performanceLabel === 'solid'       ? 'Victory Earned'          :
+          performanceLabel === 'struggling'  ? 'Lessons of the Trial'    : 'The Journey Continues'
+        }`;
+
+        try {
+          // Stagger panel requests and retry once on 429
+          const panelResults = [];
+          for (let pi = 0; pi < panelPrompts.length; pi++) {
+            if (pi > 0) await new Promise(r => setTimeout(r, 1000));
+            let attempt = 0;
+            let success = false;
+            while (attempt < 2 && !success) {
+              try {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 2500));
+                const img = await generateCutsceneImage(panelPrompts[pi].prompt, '4:3');
+                panelResults.push({ status: 'fulfilled', value: img });
+                success = true;
+              } catch (e) {
+                attempt++;
+                if (attempt >= 2) {
+                  console.warn(`Panel ${pi + 1} image failed after retry:`, e.message);
+                  panelResults.push({ status: 'rejected', reason: e });
+                } else {
+                  console.warn(`Panel ${pi + 1} attempt ${attempt} failed, retrying...`, e.message);
+                }
+              }
+            }
+          }
+          const panels = panelPrompts.map((p, i) => ({
+            imageSrc: panelResults[i].status === 'fulfilled' ? panelResults[i].value : '',
+            caption:  p.caption
+          }));
+          showGraphicNovelCutscene(panels, gnTitle, onComplete);
+        } catch (err) {
+          console.error('Graphic novel cutscene failed:', err);
+          // Fallback to cinematic
+          await playCinematicCutscene(
+            { passed: true, isCompletion: true, performanceLabel },
+            narrative,
+            onComplete
+          );
+        }
+      };
+
+      // Exposed so Section 12 can update current encounter context on each new encounter
+      window.updateNarrativeEncounter = (encounterIndex, encounterTitle, encounterNarrative) => {
+        if (!episodeNarrative) { console.warn('updateNarrativeEncounter: episodeNarrative not ready'); return; }
+        episodeNarrative.currentEncounterIndex    = encounterIndex;
+        episodeNarrative.currentEncounterTitle    = encounterTitle || '';
+        episodeNarrative.currentEncounterNarrative = encounterNarrative || '';
+        console.log('📖 Narrative context updated to encounter', encounterIndex, ':', encounterTitle);
+        console.log('📖 Scene narrative set to:', (encounterNarrative || '').substring(0, 80));
+      };
+
+      // Debug helper — call window._debugNarrative() in console to inspect state
+      window._debugNarrative = () => {
+        if (!episodeNarrative) { console.log('episodeNarrative: not initialized'); return; }
+        console.log('currentEncounterIndex:', episodeNarrative.currentEncounterIndex);
+        console.log('currentEncounterTitle:', episodeNarrative.currentEncounterTitle);
+        console.log('currentEncounterNarrative:', (episodeNarrative.currentEncounterNarrative || '').substring(0, 100));
+        console.log('episodeDescription:', (episodeNarrative.episodeDescription || '').substring(0, 100));
+      };
+
+      console.log('🎬 Cutscene system loaded — cinematic + graphic novel modes ready');
+
+      console.log('✅ Section 17 v5: AI Narrative Generation + Cutscene System loaded');
+      console.log('♦ Diamond loader: ENABLED (uses #narrative-loader — narrative-text untouched)');
+      console.log('✦ Teaching moments: persistent until clicked');
+      console.log('🔥 Streak milestone: clickable close + 12s auto-dismiss');
+      console.log('⚔️ Encounter transition: generateEncounterTransition ENABLED');
+	
+// ─────────────────────────────────────────────────────────────────────────
+// GLOBAL PORTRAIT URL SANITIZER — catches raw base64 set as img.src anywhere
+// "VKC-TQ-S18" — prevents 414 URI Too Long from old Firestore records
+// ─────────────────────────────────────────────────────────────────────────
+(function() {
+  const _origSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  if (_origSrcDesc && _origSrcDesc.set) {
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      set: function(val) {
+        if (typeof val === 'string' && val.length > 100 &&
+            !val.startsWith('data:') && !val.startsWith('http') &&
+            !val.startsWith('blob:') && !val.startsWith('/') && !val.startsWith('.')) {
+          val = 'data:image/jpeg;base64,' + val;
+        }
+        _origSrcDesc.set.call(this, val);
+      },
+      get: function() { return _origSrcDesc.get.call(this); },
+      configurable: true
+    });
+    console.log('✅ Portrait URL sanitizer active');
+  }
+})();
+
+// ─────────────────────────────────────────────────────────────────────────
+// GLOBAL PORTRAIT URL SANITIZER — catches raw base64 set as img.src anywhere
+// "VKC-TQ-S18" — prevents 414 URI Too Long from old Firestore records
+// ─────────────────────────────────────────────────────────────────────────
+(function() {
+  const _origSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  if (_origSrcDesc && _origSrcDesc.set) {
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      set: function(val) {
+        if (typeof val === 'string' && val.length > 100 &&
+            !val.startsWith('data:') && !val.startsWith('http') &&
+            !val.startsWith('blob:') && !val.startsWith('/') && !val.startsWith('.')) {
+          val = 'data:image/jpeg;base64,' + val;
+        }
+        _origSrcDesc.set.call(this, val);
+      },
+      get: function() { return _origSrcDesc.get.call(this); },
+      configurable: true
+    });
+    console.log('✅ Portrait URL sanitizer active');
+  }
+})();
+
+// ─────────────────────────────────────────────────────────────────────────
+// GLOBAL PORTRAIT URL SANITIZER — catches raw base64 set as img.src anywhere
+// "VKC-TQ-S18" — prevents 414 URI Too Long from old Firestore records
+// ─────────────────────────────────────────────────────────────────────────
+(function() {
+  const _origSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+  if (_origSrcDesc && _origSrcDesc.set) {
+    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+      set: function(val) {
+        if (typeof val === 'string' && val.length > 100 &&
+            !val.startsWith('data:') && !val.startsWith('http') &&
+            !val.startsWith('blob:') && !val.startsWith('/') && !val.startsWith('.')) {
+          val = 'data:image/jpeg;base64,' + val;
+        }
+        _origSrcDesc.set.call(this, val);
+      },
+      get: function() { return _origSrcDesc.get.call(this); },
+      configurable: true
+    });
+    console.log('✅ Portrait URL sanitizer active');
+  }
+})();
+
+/* === SECTION 18 v5: XP CURVE, LEVEL SYSTEM, FOCUS SCALING & ABILITY UPGRADES === */
+console.log('⚡ Loading Section 18: XP Curve + Level System + Ability Upgrades...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEVEL TABLE
+// ─────────────────────────────────────────────────────────────────────────
+window.LEVEL_TABLE = [
+  { level: 1,  title: 'Initiate',     xpRequired: 0     },
+  { level: 2,  title: 'Apprentice',   xpRequired: 100   },
+  { level: 3,  title: 'Seeker',       xpRequired: 250   },
+  { level: 4,  title: 'Adept',        xpRequired: 450   },
+  { level: 5,  title: 'Journeyman',   xpRequired: 700   },
+  { level: 6,  title: 'Scholar',      xpRequired: 1000  },
+  { level: 7,  title: 'Veteran',      xpRequired: 1400  },
+  { level: 8,  title: 'Champion',     xpRequired: 1900  },
+  { level: 9,  title: 'Specialist',   xpRequired: 2500  },
+  { level: 10, title: 'Expert',       xpRequired: 3200  },
+  { level: 11, title: 'Elite',        xpRequired: 4100  },
+  { level: 12, title: 'Master',       xpRequired: 5100  },
+  { level: 13, title: 'Archon',       xpRequired: 6300  },
+  { level: 14, title: 'Warlord',      xpRequired: 7700  },
+  { level: 15, title: 'Grandmaster',  xpRequired: 9300  },
+  { level: 16, title: 'Mythic',       xpRequired: 11200 },
+  { level: 17, title: 'Legendary',    xpRequired: 13400 },
+  { level: 18, title: 'Immortal',     xpRequired: 15900 },
+  { level: 19, title: 'Transcendent', xpRequired: 18700 },
+  { level: 20, title: 'Legend',       xpRequired: 22000 },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// ABILITY UPGRADE POOLS — per class, per tier
+// Each tier has 3 choices, student picks 1
+// ─────────────────────────────────────────────────────────────────────────
+window.ABILITY_UPGRADES = {
+  Strategist: {
+    5: [
+      { id: 'powerStrike2',      name: 'Power Strike II',     desc: 'Power Strike now grants triple XP instead of double.',       icon: '⚔️' },
+      { id: 'tacticalReload',    name: 'Tactical Reload',     desc: 'Gain +1 extra use of Tactical Analysis per episode.',         icon: '🔄' },
+      { id: 'ironWill',          name: 'Iron Will',           desc: 'Reduce Focus loss from wrong answers by 5.',                  icon: '🛡️' },
+    ],
+    10: [
+      { id: 'doubleStrike',      name: 'Double Strike',       desc: 'Power Strike can now be used twice in a row on the same question.', icon: '⚡' },
+      { id: 'warCouncil',        name: 'War Council',         desc: 'Tactical Analysis now eliminates 3 wrong answers instead of 2.',    icon: '🗺️' },
+      { id: 'battleHardened',    name: 'Battle Hardened',     desc: 'Gain +20 bonus Focus at the start of each encounter.',               icon: '💪' },
+    ],
+    15: [
+      { id: 'warlordGambit',     name: "Warlord's Gambit",    desc: 'SIGNATURE: Reveal 2 correct answers highlighted for 1 question. Once per episode.', icon: '👑' },
+      { id: 'tacticalMastery',   name: 'Tactical Mastery',    desc: 'SIGNATURE: Use any ability without spending a use charge. Once per episode.',       icon: '🏆' },
+      { id: 'fortressStance',    name: 'Fortress Stance',     desc: 'SIGNATURE: Next 3 wrong answers cost 0 Focus. Once per episode.',                   icon: '🏰' },
+    ],
+  },
+  Arcanist: {
+    5: [
+      { id: 'arcaneBoost',       name: 'Arcane Boost',        desc: 'Empowered Spell now works on any question type with 1 charge.', icon: '🔮' },
+      { id: 'knowledgeExpanded', name: 'Knowledge Expanded',  desc: 'Arcane Knowledge reveals 2 wrong answers instead of hinting.', icon: '📖' },
+      { id: 'manaRegen',         name: 'Mana Regen',          desc: 'Restore 1 ability use after every 3 correct answers in a row.', icon: '✨' },
+    ],
+    10: [
+      { id: 'overcharge',        name: 'Overcharge',          desc: 'Empowered Spell can be stacked — double XP persists for 2 questions.', icon: '⚡' },
+      { id: 'omniscience',       name: 'Omniscience',         desc: 'Arcane Knowledge now reveals the correct answer directly.',             icon: '🌟' },
+      { id: 'arcaneShield',      name: 'Arcane Shield',       desc: 'Wrong answers restore 3 Focus instead of costing it once per encounter.', icon: '🛡️' },
+    ],
+    15: [
+      { id: 'omniscienceSkip',   name: 'Skip & Know',         desc: 'SIGNATURE: Skip one question and receive full XP as if correct. Once per episode.', icon: '👑' },
+      { id: 'timeStop',          name: 'Time Stop',           desc: 'SIGNATURE: Freeze Focus loss for the next 5 questions. Once per episode.',          icon: '⏱️' },
+      { id: 'arcaneSurge',       name: 'Arcane Surge',        desc: 'SIGNATURE: All abilities fully recharge. Once per episode.',                        icon: '🔥' },
+    ],
+  },
+  Infiltrator: {
+    5: [
+      { id: 'shadowStrike',      name: 'Shadow Strike',       desc: 'Eliminate now removes 2 wrong answers instead of 1.',             icon: '🗡️' },
+      { id: 'ghostStep',         name: 'Ghost Step',          desc: 'Shadow Step now grants +15 XP bonus when used.',                  icon: '👻' },
+      { id: 'poisonBlade',       name: 'Poison Blade',        desc: 'Wrong answers only cost half Focus when below 40 Focus.',         icon: '☠️' },
+    ],
+    10: [
+      { id: 'assassinate',       name: 'Assassinate',         desc: 'Eliminate can now target the correct answer to reveal it.',       icon: '🎯' },
+      { id: 'phantomMove',       name: 'Phantom Move',        desc: 'Shadow Step can skip 2 questions in a row.',                      icon: '💨' },
+      { id: 'darkResilience',    name: 'Dark Resilience',     desc: 'Survive one Focus exhaustion per episode without penalty.',       icon: '🌑' },
+    ],
+    15: [
+      { id: 'phantomStrike',     name: 'Phantom Strike',      desc: 'SIGNATURE: Answer secretly — no Focus lost if wrong. Once per episode.', icon: '👑' },
+      { id: 'shadowCloak',       name: 'Shadow Cloak',        desc: 'SIGNATURE: Become immune to Focus loss for one full encounter. Once per episode.', icon: '🌫️' },
+      { id: 'deathMark',         name: 'Death Mark',          desc: 'SIGNATURE: Next correct answer earns 5x XP. Once per episode.',           icon: '💀' },
+    ],
+  },
+  Empath: {
+    5: [
+      { id: 'secondChance',      name: 'Second Chance',       desc: 'Second Look now resets the question twice instead of once.',     icon: '❤️' },
+      { id: 'empathyWave',       name: 'Empathy Wave',        desc: 'Emotional Insight reveals 2 wrong answers instead of 1.',        icon: '💫' },
+      { id: 'healingTouch',      name: 'Healing Touch',       desc: 'Restore 10 Focus on correct answers instead of 5.',              icon: '💚' },
+    ],
+    10: [
+      { id: 'boundlessHeart',    name: 'Boundless Heart',     desc: 'Second Look now works even after seeing the result.',            icon: '💖' },
+      { id: 'trueSight',         name: 'True Sight',          desc: 'Emotional Insight now reveals the explanation AND removes a wrong answer.', icon: '👁️' },
+      { id: 'groupHealing',      name: 'Group Healing',       desc: 'Restore 5 Focus for every question in a 3+ streak.',            icon: '🌿' },
+    ],
+    15: [
+      { id: 'collectiveWill',    name: 'Collective Will',     desc: 'SIGNATURE: Restore 50 Focus from a streak of 5. Once per episode.',     icon: '👑' },
+      { id: 'undying',           name: 'Undying',             desc: 'SIGNATURE: Survive one exhaustion at 1 Focus instead of 0. Once per episode.', icon: '🌸' },
+      { id: 'resonance',         name: 'Resonance',           desc: 'SIGNATURE: Double all Focus restoration effects for one encounter. Once per episode.', icon: '💎' },
+    ],
+  },
+  Pathfinder: {
+    5: [
+      { id: 'sharpEye',          name: 'Sharp Eye',           desc: 'Keen Eye now also highlights the most important word in the question.', icon: '🧭' },
+      { id: 'trailblazerBoost',  name: 'Trailblazer Boost',  desc: 'Trail Blazer now removes 3 wrong answers instead of 2.',              icon: '🌿' },
+      { id: 'expeditionReady',   name: 'Expedition Ready',   desc: 'Start each encounter with +10 Focus above your max.',                 icon: '🎒' },
+    ],
+    10: [
+      { id: 'eagleVision',       name: 'Eagle Vision',        desc: 'Keen Eye reveals difficulty rating and the approach type needed.',    icon: '🦅' },
+      { id: 'pathMastery',       name: 'Path Mastery',        desc: 'Trail Blazer also restores 10 Focus when used.',                     icon: '🗺️' },
+      { id: 'survivalInstinct',  name: 'Survival Instinct',  desc: 'Automatically gain 5 Focus when dropping below 30.',                 icon: '🌲' },
+    ],
+    15: [
+      { id: 'unchartedPath',     name: 'Uncharted Path',      desc: 'SIGNATURE: Reroll the entire question set once per episode with easier questions.', icon: '👑' },
+      { id: 'trueNorth',         name: 'True North',          desc: 'SIGNATURE: Always know which answer is correct (shown subtly). One question per episode.', icon: '🧿' },
+      { id: 'endurance',         name: 'Endurance',           desc: 'SIGNATURE: Focus cannot drop below 10 for the rest of the episode. Once per episode.', icon: '⛰️' },
+    ],
+  },
+};
+
+// Tier thresholds
+window.UPGRADE_TIERS = { 1: 5, 2: 10, 3: 15 };
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEVEL HELPERS
+// ─────────────────────────────────────────────────────────────────────────
+window.getLevelData = (xp) => {
+  const totalXP = xp || 0;
+  let current = window.LEVEL_TABLE[0];
+  for (let i = window.LEVEL_TABLE.length - 1; i >= 0; i--) {
+    if (totalXP >= window.LEVEL_TABLE[i].xpRequired) { current = window.LEVEL_TABLE[i]; break; }
+  }
+  const next = window.LEVEL_TABLE.find(l => l.xpRequired > totalXP) || null;
+  const progressToNext = next
+    ? Math.round(((totalXP - current.xpRequired) / (next.xpRequired - current.xpRequired)) * 100)
+    : 100;
+  return { level: current.level, title: current.title, next, progressToNext };
+};
+
+window.getMaxFocus    = (level) => 100 + ((level - 1) * 10);
+window.getPlayerLevel = () => window.getLevelData(player ? player.xp : 0).level;
+
+// ─────────────────────────────────────────────────────────────────────────
+// ABILITY UPGRADE CHOICE SCREEN
+// ─────────────────────────────────────────────────────────────────────────
+window.showAbilityUpgradeChoice = (level, className) => {
+  const tier = level === 5 ? 1 : level === 10 ? 2 : level === 15 ? 3 : null;
+  if (!tier) return;
+
+  const upgrades = (window.ABILITY_UPGRADES[className] || {})[level] || [];
+  if (!upgrades.length) return;
+
+  const existing = document.getElementById('ability-upgrade-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ability-upgrade-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.92);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99995;animation:abilityUpgradeFadeIn 0.4s ease-out;
+    padding:20px;box-sizing:border-box;`;
+
+  overlay.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:3px solid #c9a84c;border-radius:24px;
+                padding:40px;max-width:680px;width:100%;
+                box-shadow:0 0 80px rgba(201,168,76,0.3);text-align:center;">
+      <div style="font-size:48px;margin-bottom:12px;">⚡</div>
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:3px;
+                  color:#c9a84c;margin-bottom:8px;font-family:'Cinzel',serif;">
+        Tier ${tier} Upgrade Unlocked
+      </div>
+      <div style="font-size:28px;font-weight:900;color:#ffffff;
+                  font-family:'Cinzel',serif;margin-bottom:8px;">
+        Choose Your Power
+      </div>
+      <div style="font-size:14px;color:#8892a4;margin-bottom:32px;font-style:italic;">
+        This choice is permanent. Choose wisely, ${player.name}.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:28px;" id="upgrade-choices">
+        ${upgrades.map(u => `
+          <div class="upgrade-choice-card" data-upgrade-id="${u.id}"
+            onclick="window.selectAbilityUpgrade('${u.id}','${level}','${className}')"
+            style="background:rgba(255,255,255,0.04);border:2px solid rgba(201,168,76,0.25);
+                   border-radius:16px;padding:24px 16px;cursor:pointer;
+                   transition:all 0.2s;text-align:center;">
+            <div style="font-size:40px;margin-bottom:12px;">${u.icon}</div>
+            <div style="font-family:'Cinzel',serif;font-size:14px;font-weight:700;
+                        color:#c9a84c;margin-bottom:10px;">${u.name}</div>
+            <div style="font-size:12px;color:#8892a4;line-height:1.6;">${u.desc}</div>
+          </div>`).join('')}
+      </div>
+      <div style="font-size:11px;color:#3a4456;font-style:italic;">
+        Your other abilities are unchanged. This upgrade is saved to your character permanently.
+      </div>
+    </div>`;
