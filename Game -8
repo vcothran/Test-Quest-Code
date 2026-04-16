@@ -1,0 +1,954 @@
+
+  // Hover effects
+  overlay.addEventListener('mouseover', e => {
+    const card = e.target.closest('.upgrade-choice-card');
+    if (card) { card.style.borderColor = '#c9a84c'; card.style.background = 'rgba(201,168,76,0.08)'; card.style.transform = 'translateY(-4px)'; }
+  });
+  overlay.addEventListener('mouseout', e => {
+    const card = e.target.closest('.upgrade-choice-card');
+    if (card) { card.style.borderColor = 'rgba(201,168,76,0.25)'; card.style.background = 'rgba(255,255,255,0.04)'; card.style.transform = ''; }
+  });
+
+  document.body.appendChild(overlay);
+};
+
+window.selectAbilityUpgrade = async (upgradeId, level, className) => {
+  const lvl   = parseInt(level, 10); // ensure numeric — HTML onclick passes strings
+  const tier  = lvl === 5 ? 1 : lvl === 10 ? 2 : 3;
+  const pool  = (window.ABILITY_UPGRADES[className] || {})[lvl] || [];
+  const chosen = pool.find(u => u.id === upgradeId);
+  if (!chosen) return;
+
+  // Save to player object and Firestore
+  // Only save the specific tier key — never the whole object, which may contain stale data
+  if (!player.abilityUpgrades) player.abilityUpgrades = {};
+  player.abilityUpgrades[`tier${tier}`] = upgradeId;
+
+  // Save as proper nested map — dot notation creates flat fields in Firestore
+  // Build the full abilityUpgrades map each time to ensure correct structure
+  const upgradesMap = { abilityUpgrades: { ...player.abilityUpgrades } };
+
+  try {
+    if (player.uid && player.activeCharacterId) {
+      await setDoc(
+        doc(db, 'players', player.uid, 'characters', player.activeCharacterId),
+        upgradesMap,
+        { merge: true }
+      );
+      await setDoc(doc(db, 'players', player.uid), upgradesMap, { merge: true });
+      console.log('✅ Ability upgrade saved: tier' + tier + ' =', upgradeId);
+    } else {
+      // activeCharacterId not ready yet — retry after short delay
+      console.warn('⚠️ activeCharacterId missing on upgrade save — retrying in 2s...');
+      setTimeout(async () => {
+        try {
+          if (player.uid && player.activeCharacterId) {
+            const retryMap = { abilityUpgrades: { ...player.abilityUpgrades } };
+            await setDoc(
+              doc(db, 'players', player.uid, 'characters', player.activeCharacterId),
+              retryMap, { merge: true }
+            );
+            await setDoc(doc(db, 'players', player.uid), retryMap, { merge: true });
+            console.log('✅ Ability upgrade saved on retry: tier' + tier + ' =', upgradeId);
+          } else {
+            console.error('❌ Ability upgrade could not be saved — player not fully loaded');
+          }
+        } catch(e) { console.warn('Retry save failed:', e); }
+      }, 2000);
+    }
+  } catch(e) { console.warn('Could not save ability upgrade:', e); }
+
+  // Remove choice overlay and show confirmation
+  const overlay = document.getElementById('ability-upgrade-overlay');
+  if (overlay) overlay.remove();
+
+  window.showUpgradeConfirmation(chosen);
+};
+
+window.showUpgradeConfirmation = (upgrade) => {
+  const conf = document.createElement('div');
+  conf.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.88);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99996;animation:abilityUpgradeFadeIn 0.3s ease-out;`;
+  conf.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:3px solid #27ae60;border-radius:24px;
+                padding:48px 40px;max-width:420px;width:90%;
+                text-align:center;box-shadow:0 0 60px rgba(39,174,96,0.3);">
+      <div style="font-size:64px;margin-bottom:16px;">${upgrade.icon}</div>
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:3px;
+                  color:#27ae60;margin-bottom:8px;font-family:'Cinzel',serif;">Power Unlocked</div>
+      <div style="font-size:26px;font-weight:900;color:#ffffff;
+                  font-family:'Cinzel',serif;margin-bottom:16px;">${upgrade.name}</div>
+      <div style="font-size:14px;color:#8892a4;line-height:1.7;margin-bottom:28px;">${upgrade.desc}</div>
+      <button id="upgrade-confirm-btn"
+        style="padding:14px 40px;background:linear-gradient(135deg,#27ae60,#1e8449);
+               border:none;border-radius:12px;color:white;font-size:16px;
+               font-weight:700;cursor:pointer;font-family:'Cinzel',serif;">
+        Wield This Power
+      </button>
+    </div>`;
+  document.body.appendChild(conf);
+  document.getElementById('upgrade-confirm-btn').onclick = () => conf.remove();
+  setTimeout(() => { if (conf.parentNode) conf.remove(); }, 10000);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEVEL-UP TRACKER & OVERLAY
+// ─────────────────────────────────────────────────────────────────────────
+window._lastKnownLevel = null;
+
+window._safeUpdateStats = () => {
+  if (typeof updatePlayerStats === 'function') updatePlayerStats();
+  window.updateHUDLevel();
+  window.updateHUDPortrait();
+};
+
+window.checkForLevelUp = () => {
+  if (!player) return;
+  const { level, title } = window.getLevelData(player.xp);
+  if (window._lastKnownLevel === null) { window._lastKnownLevel = level; return; }
+  if (level > window._lastKnownLevel) {
+    const oldLevel = window._lastKnownLevel;
+    window._lastKnownLevel = level;
+    window.showLevelUpOverlay(level, title);
+    // Raise Focus if player was at old max
+    const newMax = window.getMaxFocus(level);
+    const oldMax = window.getMaxFocus(oldLevel);
+    if (player.focus >= oldMax) player.focus = newMax;
+    window._safeUpdateStats();
+    // Show ability upgrade choice at milestone levels
+    if ([5, 10, 15].includes(level)) {
+      setTimeout(() => window.showAbilityUpgradeChoice(level, player.className), 3500);
+    }
+  }
+};
+
+window.showLevelUpOverlay = (level, title) => {
+  const existing = document.getElementById('levelup-overlay');
+  if (existing) existing.remove();
+  const maxFocus = window.getMaxFocus(level);
+  const isMilestone = [5, 10, 15, 20].includes(level);
+  const overlay = document.createElement('div');
+  overlay.id = 'levelup-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.85);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99990;animation:levelupFadeIn 0.4s ease-out;`;
+  overlay.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:3px solid ${isMilestone ? '#e67e22' : '#c9a84c'};border-radius:24px;
+                padding:48px 40px;max-width:460px;width:90%;
+                text-align:center;box-shadow:0 0 60px rgba(201,168,76,0.4);
+                animation:levelupBounce 0.5s ease-out;">
+      <div style="font-size:56px;margin-bottom:12px;">${isMilestone ? '🌟' : '⚔️'}</div>
+      <div style="font-size:13px;text-transform:uppercase;letter-spacing:3px;
+                  color:#c9a84c;margin-bottom:8px;font-family:'Cinzel',serif;">Level Up!</div>
+      <div style="font-size:52px;font-weight:900;color:#c9a84c;
+                  font-family:'Cinzel',serif;margin-bottom:4px;
+                  text-shadow:0 0 30px rgba(201,168,76,0.6);">Level ${level}</div>
+      <div style="font-size:22px;color:#fff;font-family:'Cinzel',serif;
+                  margin-bottom:${isMilestone ? 12 : 24}px;opacity:0.9;">${title}</div>
+      ${isMilestone ? `<div style="background:rgba(230,126,34,0.15);border:1px solid rgba(230,126,34,0.4);border-radius:10px;padding:10px 16px;margin-bottom:20px;font-size:13px;color:#e67e22;">⚡ Ability upgrade available — choose your power!</div>` : ''}
+      <div style="background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);
+                  border-radius:12px;padding:14px 20px;margin-bottom:28px;">
+        <div style="font-size:14px;color:#8892a4;font-family:'Segoe UI',sans-serif;">Max Focus increased to</div>
+        <div style="font-size:28px;font-weight:700;color:#2ecc71;margin-top:4px;">${maxFocus}</div>
+      </div>
+      <button id="levelup-continue-btn"
+        style="padding:14px 40px;background:linear-gradient(135deg,#c9a84c,#a07030);
+               border:none;border-radius:12px;color:white;font-size:16px;
+               font-weight:700;cursor:pointer;font-family:'Cinzel',serif;">
+        Continue Adventure
+      </button>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('levelup-continue-btn').onclick = () => overlay.remove();
+  setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 8000);
+};
+
+// Inject animation styles
+if (!document.getElementById('levelup-styles')) {
+  const s = document.createElement('style');
+  s.id = 'levelup-styles';
+  s.textContent = `
+    @keyframes levelupFadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes levelupBounce{0%{transform:scale(0.8);opacity:0}60%{transform:scale(1.05);opacity:1}100%{transform:scale(1)}}
+    @keyframes abilityUpgradeFadeIn{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}`;
+  document.head.appendChild(s);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HUD LEVEL DISPLAY
+// ─────────────────────────────────────────────────────────────────────────
+window.updateHUDLevel = () => {
+  if (!player) return;
+  const { level } = window.getLevelData(player.xp);
+  const maxFocus  = window.getMaxFocus(level);
+  if (!document.getElementById('hud-level')) {
+    const statsEl = document.getElementById('player-stats');
+    if (statsEl) {
+      const levelItem = document.createElement('div');
+      levelItem.className = 'stat-item';
+      levelItem.innerHTML = `Lvl: <span id="hud-level" style="color:#c9a84c;font-weight:700;">${level}</span>`;
+      statsEl.insertBefore(levelItem, statsEl.firstChild);
+    }
+  } else {
+    document.getElementById('hud-level').textContent = level;
+  }
+  const focusEl = document.getElementById('hud-focus');
+  if (focusEl && player.focus !== undefined) {
+    focusEl.textContent = `${Math.max(0, player.focus)}/${maxFocus}`;
+  }
+};
+
+// ── PORTRAIT IN HUD ──────────────────────────────────────────────────────
+window.updateHUDPortrait = () => {
+  if (!player) return;
+  const avatarEl = document.getElementById('player-avatar');
+  if (!avatarEl) return;
+
+  // Sanitize — ensure data: prefix is present; raw base64 causes 414 URL errors
+  let portraitUrl = player.currentPortraitUrl || null;
+  if (portraitUrl && !portraitUrl.startsWith('data:') && !portraitUrl.startsWith('http')) {
+    portraitUrl = `data:image/jpeg;base64,${portraitUrl}`;
+    player.currentPortraitUrl = portraitUrl; // fix in memory so it doesn't repeat
+  }
+
+  if (portraitUrl) {
+    // Replace emoji with circular portrait thumbnail
+    // Check for existing portrait img specifically — ignore WordPress emoji imgs (s.w.org)
+    const existingPortrait = Array.from(avatarEl.querySelectorAll('img'))
+      .find(img => !img.src.includes('s.w.org') && !img.classList.contains('emoji'));
+    if (!existingPortrait) {
+      avatarEl.innerHTML = '';
+      avatarEl.style.cssText = `
+        width:46px;height:46px;border-radius:50%;overflow:hidden;
+        border:2px solid #e67e22;flex-shrink:0;cursor:pointer;
+        box-shadow:0 2px 8px rgba(0,0,0,0.4);display:inline-block;`;
+      const img = document.createElement('img');
+      img.src = portraitUrl;
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;border-radius:50%;';
+      img.onclick = () => window.showPortraitGallery && window.showPortraitGallery();
+      img.title = 'View Portrait Hall';
+      avatarEl.appendChild(img);
+    } else {
+      // Update src if portrait changed — replace img entirely to avoid cached bad src
+      const oldImg = avatarEl.querySelector('img');
+      if (oldImg && oldImg.getAttribute('src') !== portraitUrl) {
+        avatarEl.removeChild(oldImg);
+        const img = document.createElement('img');
+        img.src = portraitUrl;
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;border-radius:50%;';
+        img.onclick = () => window.showPortraitGallery && window.showPortraitGallery();
+        img.title = 'View Portrait Hall';
+        avatarEl.appendChild(img);
+      }
+    }
+  } else if (!portraitUrl && avatarEl.querySelector('img')) {
+    // Restore emoji if portrait removed
+    const classAvatars = {
+      Strategist:'⚔️', Arcanist:'🔮', Infiltrator:'🗡️',
+      Empath:'❤️', Pathfinder:'🧭'
+    };
+    avatarEl.style.cssText = '';
+    avatarEl.innerHTML = classAvatars[player.className] || '⚔️';
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// studentProgress WRITER
+// ─────────────────────────────────────────────────────────────────────────
+window.writeStudentProgress = async () => {
+  if (!player || !player.uid || isTestMode) return;
+  if (!currentEpisode) return;
+  try {
+    const accuracy = sessionStats.calculateAccuracy();
+    // Use setDoc with generated ID — addDoc not in scope outside initializeGame
+    const progressId = player.uid + '_' + (currentEpisode.id || 'ep') + '_' + Date.now();
+    await setDoc(doc(db, 'studentProgress', progressId), {
+      studentId:         player.uid,
+      studentName:       player.name        || 'Unknown',
+      className:         player.className   || 'Unknown',
+      episodeId:         currentEpisode.id,
+      episodeName:       currentEpisode.title || 'Unknown Episode',
+      completed:         true,
+      accuracy:          accuracy / 100,
+      questionsAnswered: sessionStats.totalQuestions,
+      correctAnswers:    sessionStats.correctAnswers,
+      xpEarned:          Math.max(0, (player.xp || 0) - (sessionStats.startXP || 0)),
+      level:             window.getPlayerLevel(),
+      enrolledCodes:     Array.isArray(player.enrolledCodes) ? player.enrolledCodes : [],
+      timestamp:         new Date().toISOString(),
+      createdAt:         new Date().toISOString()
+    });
+    console.log('✅ studentProgress written for:', player.name);
+  } catch(e) { console.warn('⚠️ Could not write studentProgress:', e); }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// FOCUS RESTORE PATCH (level-based max)
+// ─────────────────────────────────────────────────────────────────────────
+window._s18_restoreFocusOnCorrect = () => {
+  const maxFocus = window.getMaxFocus(window.getPlayerLevel());
+  if (player.focus < maxFocus) {
+    player.focus = Math.min(maxFocus, player.focus + 5);
+    showNotification('+5 Focus Restored', 'xp-gain');
+  }
+};
+
+window.restoreFocusPatched      = window._s18_restoreFocusOnCorrect;
+window.writeStudentProgressHook = window.writeStudentProgress;
+
+// ─────────────────────────────────────────────────────────────────────────
+// MUTATION OBSERVER — detects answer submissions, fires level check
+// ─────────────────────────────────────────────────────────────────────────
+// Safe level init — called explicitly once player is loaded
+window.initLevelSystem = () => {
+  if (player && player.xp != null) {
+    window._lastKnownLevel = window.getLevelData(player.xp).level;
+    window.updateHUDLevel();
+    console.log('✅ Level system init: Level', window._lastKnownLevel, 'Focus max', window.getMaxFocus(window._lastKnownLevel));
+  }
+};
+
+setTimeout(() => {
+  // Poll until player object has XP loaded (may take a moment after auth)
+  let attempts = 0;
+  const pollForPlayer = setInterval(() => {
+    attempts++;
+    if (player && player.xp != null) {
+      clearInterval(pollForPlayer);
+      window.initLevelSystem();
+    } else if (attempts > 20) {
+      clearInterval(pollForPlayer);
+      // Fallback — init with whatever we have
+      window._lastKnownLevel = 1;
+      console.warn('Level system init timed out — defaulting to level 1');
+    }
+  }, 300);
+
+  const feedbackBox = document.getElementById('feedback-box');
+  if (feedbackBox) {
+    const observer = new MutationObserver(() => {
+      if (player) { window.checkForLevelUp(); window.updateHUDLevel(); }
+    });
+    observer.observe(feedbackBox, { childList: true, subtree: false });
+    console.log('✅ Level-up observer attached to feedback box');
+  }
+
+  // return-to-episodes button doesn't exist at page load — watch for it appearing
+  const returnBtn = document.getElementById('return-to-episodes');
+  if (returnBtn) {
+    // Already in DOM — attach directly
+    const origClick = returnBtn.onclick;
+    returnBtn.onclick = async (e) => {
+      await window.writeStudentProgress();
+      if (origClick) origClick(e);
+    };
+    console.log('✅ studentProgress hook attached directly');
+  } else {
+    // Watch for button to appear in DOM after episode completes
+    const progressObserver = new MutationObserver(() => {
+      const btn = document.getElementById('return-to-episodes');
+      if (btn && !btn._progressHooked) {
+        btn._progressHooked = true;
+        const origClick = btn.onclick;
+        btn.onclick = async (e) => {
+          await window.writeStudentProgress();
+          if (origClick) origClick(e);
+        };
+        console.log('✅ studentProgress hook attached via MutationObserver');
+      }
+    });
+    progressObserver.observe(document.body, { childList: true, subtree: true });
+    console.log('✅ studentProgress MutationObserver watching for return-to-episodes');
+  }
+}, 1500);
+
+console.log('✅ Section 18 v5 COMPLETE — XP curve, level-up, ability upgrades, Focus scaling, studentProgress');
+	
+/* === SECTION 19: CHARACTER PORTRAIT SYSTEM === */
+/* AI-generated portrait at character creation,   */
+/* milestone evolution, history gallery,          */
+/* rate-limited student regeneration requests.    */
+console.log('🎨 Loading Section 19: Character Portrait System...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// PORTRAIT CONFIG
+// ─────────────────────────────────────────────────────────────────────────
+window.PORTRAIT_MILESTONES  = [1, 5, 10, 15, 20];
+window.PORTRAIT_REGEN_COST  = 25;    // XP cost for manual regen
+window.PORTRAIT_REGEN_DAYS  = 7;     // Days between free regen requests
+window.PORTRAIT_STORAGE_PATH = 'portraits';
+
+// Class visual defaults — editable by student, adapted by genre
+window.CLASS_VISUALS = {
+  Strategist:  { style: 'tactical commander', gear: 'battle-worn armor', weapon: 'sword and shield', aura: 'calculating and fierce' },
+  Arcanist:    { style: 'mystical scholar', gear: 'flowing robes', weapon: 'glowing staff', aura: 'wise and ethereal' },
+  Infiltrator: { style: 'shadowy operative', gear: 'dark hooded outfit', weapon: 'twin blades', aura: 'mysterious and dangerous' },
+  Empath:      { style: 'compassionate leader', gear: 'ceremonial robes', weapon: 'healing orb', aura: 'warm and radiant' },
+  Pathfinder:  { style: 'rugged explorer', gear: 'traveler cloak and gear', weapon: 'longbow', aura: 'adventurous and determined' },
+};
+
+// Genre visual contexts — applied when student selects a genre
+window.GENRE_CONTEXTS = {
+  'Fantasy':        { setting: 'a dramatic fantasy realm with ancient stone and magical lighting', prefix: 'Fantasy RPG digital painting,' },
+  'Sci-Fi':         { setting: 'a sleek futuristic space station with glowing technology', prefix: 'Science fiction concept art,' },
+  'Modern':         { setting: 'a gritty urban cityscape with dramatic shadows', prefix: 'Modern realistic digital art,' },
+  'Historical':     { setting: 'a historically accurate period setting with dramatic natural light', prefix: 'Historical portrait painting,' },
+  'Mystery':        { setting: 'a moody detective-noir environment with fog and dim light', prefix: 'Noir mystery illustration,' },
+  'Post-Apocalyptic': { setting: 'a devastated wasteland with dramatic stormy skies', prefix: 'Post-apocalyptic concept art,' },
+  'Medieval':       { setting: 'a grand medieval castle courtyard with torchlight', prefix: 'Medieval fantasy painting,' },
+  'Western':        { setting: 'a dusty frontier town at golden hour', prefix: 'Western adventure illustration,' },
+};
+
+// Level milestone visual evolution descriptors
+window.MILESTONE_EVOLUTION = {
+  1:  { prefix: 'A fresh-faced young adventurer,',   suffix: 'looking eager but inexperienced, simple basic gear' },
+  5:  { prefix: 'A seasoned young warrior,',          suffix: 'with slight battle scars, upgraded gear with a confident stance' },
+  10: { prefix: 'A battle-hardened veteran,',         suffix: 'with visible scars and commanding presence, powerful upgraded equipment with a glowing aura' },
+  15: { prefix: 'A legendary champion,',              suffix: 'with a powerful mystical aura surrounding them, elite ornate equipment, eyes glowing with inner power' },
+  20: { prefix: 'An immortal legend,',                suffix: 'with gold-trimmed legendary equipment, a powerful divine aura, ancient wisdom in their eyes, clearly at the peak of their power' },
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// BUILD PORTRAIT PROMPT
+// Takes player name, class, level, and optional student description
+// Returns a rich visual prompt for Imagen
+// ─────────────────────────────────────────────────────────────────────────
+window.buildPortraitPrompt = (name, className, level, studentDescription = '', genre = 'Fantasy', editedFields = {}) => {
+  const cv  = window.CLASS_VISUALS[className] || window.CLASS_VISUALS.Strategist;
+  const evo = window.MILESTONE_EVOLUTION[level] || window.MILESTONE_EVOLUTION[1];
+  const gc  = (window.GENRE_CONTEXTS || {})[genre] || {
+    setting: `a ${genre} setting with authentic period details and dramatic lighting`,
+    prefix: `${genre} themed digital painting,`
+  };
+
+  // Student edits take full priority over class defaults
+  const style  = (editedFields.style  || cv.style  || '').trim();
+  const gear   = (editedFields.gear   || cv.gear   || '').trim();
+  const weapon = (editedFields.weapon || cv.weapon || '').trim();
+  const aura   = (editedFields.aura   || cv.aura   || '').trim();
+
+  const noWeapon = !weapon || weapon.toLowerCase().includes('none') || weapon.toLowerCase().includes('no weapon') || weapon.toLowerCase().includes('spell') || weapon.toLowerCase().includes('magic');
+  const noGear   = !gear   || gear.toLowerCase().includes('none')   || gear.toLowerCase().includes('no armor');
+
+  // Build unified character descriptor — same approach as cutscene prompt
+  // Combining everything into one rich anchor string gives Imagen the best result
+  const physParts = studentDescription && studentDescription.trim().length > 5
+    ? studentDescription.trim().split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  const gearPart   = !noGear   ? gear   : 'casual clothing';
+  const weaponPart = !noWeapon ? `holding ${weapon}` : 'hands open or gesturing with magical energy';
+  const charDesc = [
+    style,
+    physParts.join(', '),
+    `wearing ${gearPart}`,
+    weaponPart,
+    `${aura} expression`
+  ].filter(Boolean).join(', ');
+
+  // Lead with character descriptor — Imagen anchors identity from what it reads first
+  let prompt = `${gc.prefix} upper body character portrait, dramatic cinematic lighting, painterly digital art. `;
+  prompt += `${evo.prefix} ${charDesc}, named ${name}. `;
+  prompt += `${evo.suffix}. `;
+  prompt += `Setting: ${gc.setting}. `;
+  prompt += `School appropriate, no gore.`;
+
+  // Bump limit to 500 chars for richer prompts
+  if (prompt.length > 500) prompt = prompt.substring(0, 497) + '...';
+  console.log('🎨 Portrait prompt (' + prompt.length + ' chars):', prompt);
+  return prompt;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// GENERATE PORTRAIT via Cloud Function (Imagen)
+// Returns base64 image data
+// ─────────────────────────────────────────────────────────────────────────
+window.generatePortrait = async (name, className, level, studentDescription = '', genre = 'Fantasy', editedFields = {}) => {
+  const prompt = window.buildPortraitPrompt(name, className, level, studentDescription, genre, editedFields);
+  console.log('🎨 Generating portrait for', name, 'Level', level, '| Prompt length:', prompt.length);
+
+  try {
+    const generateCutsceneImage = httpsCallable(functions, 'generateCutsceneImage');
+    const result = await generateCutsceneImage({
+      imagePrompt: prompt,
+      aspectRatio: '3:4'  // Portrait orientation
+    });
+
+    if (result.data && result.data.success && result.data.imageData) {
+      return result.data.imageData; // base64 string
+    }
+    throw new Error('No image data returned');
+  } catch(e) {
+    console.error('Portrait generation failed:', e);
+    throw e;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// COMPRESS IMAGE — reduces base64 size to fit Firestore 1MB field limit
+// Target: ~600px wide, 0.7 quality JPEG — well under 800KB
+// ─────────────────────────────────────────────────────────────────────────
+window.compressPortraitImage = (base64Data) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Target max 600px wide — portrait ratio 3:4
+      const maxWidth = 600;
+      const scale = Math.min(1, maxWidth / img.width);
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      // Convert to compressed JPEG — 0.72 quality keeps it under 700KB
+      const compressed = canvas.toDataURL('image/jpeg', 0.72);
+      const base64Only = compressed.split(',')[1];
+      console.log('🎨 Portrait compressed:', Math.round(base64Only.length / 1024) + 'KB');
+      resolve(compressed); // resolve with full data: URL, not raw base64
+    };
+    img.onerror = reject;
+    // Handle both raw base64 and full dataUrl inputs
+    img.src = base64Data.startsWith('data:') ? base64Data : `data:image/jpeg;base64,${base64Data}`;
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// SAVE PORTRAIT to Firestore (base64 stored directly — avoids Storage SDK)
+// A Signed URL approach is unnecessary for portraits under ~200KB
+// "VKC-TQ-S19" — Volney Cothran / Test Quest / Section 19
+// ─────────────────────────────────────────────────────────────────────────
+window.savePortraitToStorage = async (uid, characterId, level, base64Data, alreadyCompressed = false) => {
+  try {
+    // Skip compression if already done (avoids double-processing / visual difference)
+    let dataUrl;
+    if (alreadyCompressed) {
+      // base64Data may already be a full dataUrl or just base64
+      dataUrl = base64Data.startsWith('data:') ? base64Data : `data:image/jpeg;base64,${base64Data}`;
+      console.log('🎨 Using pre-compressed portrait');
+    } else {
+      const compressedResult = await window.compressPortraitImage(base64Data);
+      // compressPortraitImage now returns full dataUrl — use directly
+      dataUrl = compressedResult.startsWith('data:') ? compressedResult : `data:image/jpeg;base64,${compressedResult}`;
+    }
+    const path = `portraits/${uid}/${characterId}/level_${String(level).padStart(2,'0')}`;
+
+    // Save compressed base64 to Firestore — "VKC-TQ-S19" Volney Cothran / Test Quest
+    await setDoc(doc(db, 'portraitData', `${uid}_${characterId}_L${level}_${Date.now()}`), {
+      uid, characterId, level, path,
+      dataUrl,
+      createdAt: new Date().toISOString()
+    });
+
+    console.log('✅ Portrait saved to Firestore:', path);
+    // Return dataUrl as the "url" — works directly as img src
+    return { url: dataUrl, path };
+  } catch(e) {
+    console.error('Portrait storage failed:', e);
+    throw e;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// SAVE PORTRAIT RECORD to Firestore
+// Stores URL, level, timestamp in character's portrait history
+// ─────────────────────────────────────────────────────────────────────────
+window.savePortraitRecord = async (uid, characterId, level, url, path, description = '') => {
+  try {
+    // Use setDoc with generated ID — avoids needing addDoc in scope
+    // "VKC-TQ-S19" — Volney Cothran / Test Quest / Section 19
+    const recordId = `${uid}_${characterId}_L${level}_${Date.now()}`;
+    await setDoc(doc(db, 'players', uid, 'characters', characterId, 'portraits', recordId), {
+      level, url, path, description,
+      generatedAt: new Date().toISOString(),
+      milestone: window.PORTRAIT_MILESTONES.includes(level)
+    });
+
+    // Update character's current portrait using setDoc merge — no updateDoc needed
+    await setDoc(doc(db, 'players', uid, 'characters', characterId), {
+      currentPortraitUrl: url,
+      currentPortraitLevel: level,
+      portraitUpdatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    // Also update top-level player doc
+    await setDoc(doc(db, 'players', uid), {
+      currentPortraitUrl: url
+    }, { merge: true });
+
+    console.log('✅ Portrait record saved to Firestore');
+  } catch(e) {
+    console.error('Portrait record save failed:', e);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// FULL PORTRAIT GENERATION FLOW
+// Called from character creation and milestone level-ups
+// ─────────────────────────────────────────────────────────────────────────
+window.generateAndSavePortrait = async (uid, characterId, name, className, level, physicalDetails = '', genre = 'Fantasy', editedFields = {}) => {
+  try {
+    const rawBase64 = await window.generatePortrait(name, className, level, physicalDetails, genre, editedFields);
+    // Compress before storage to ensure we stay under Firestore limits
+    const base64Data = await window.compressPortraitImage(rawBase64);
+    const { url, path } = await window.savePortraitToStorage(uid, characterId, level, base64Data);
+    await window.savePortraitRecord(uid, characterId, level, url, path, physicalDetails);
+
+    // Update local player object
+    if (player) player.currentPortraitUrl = url;
+
+    return { success: true, url, base64: base64Data };
+  } catch(e) {
+    console.error('generateAndSavePortrait failed:', e);
+    return { success: false, error: e.message };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// CHARACTER CREATION PORTRAIT SCREEN
+// Called after character is created — shows AI suggestion UI
+// ─────────────────────────────────────────────────────────────────────────
+window.showPortraitCreationScreen = (characterId, name, className) => {
+  const cv = window.CLASS_VISUALS[className] || window.CLASS_VISUALS.Strategist;
+  const genres = Object.keys(window.GENRE_CONTEXTS || {});
+
+  const existing = document.getElementById('portrait-creation-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'portrait-creation-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.95);
+    display:flex;align-items:flex-start;justify-content:center;
+    z-index:99998;animation:abilityUpgradeFadeIn 0.4s ease-out;
+    padding:20px;box-sizing:border-box;overflow-y:auto;`;
+
+  const fieldStyle = `width:100%;padding:10px 12px;background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:white;
+    font-size:13px;font-family:'Segoe UI',sans-serif;outline:none;box-sizing:border-box;`;
+
+  const labelStyle = `display:block;font-size:10px;text-transform:uppercase;letter-spacing:1px;
+    color:#667eea;margin-bottom:5px;margin-top:12px;font-family:'Cinzel',serif;`;
+
+  overlay.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:2px solid rgba(102,126,234,0.4);border-radius:24px;
+                padding:36px;max-width:580px;width:100%;
+                box-shadow:0 30px 80px rgba(0,0,0,0.7);margin:20px 0;">
+
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="font-size:40px;margin-bottom:8px;">🎨</div>
+        <div style="font-family:'Cinzel',serif;font-size:20px;color:#c9a84c;">Forge Your Legend</div>
+        <div style="font-size:13px;color:#8892a4;margin-top:6px;">
+          Customize how the AI paints you. Edit any field or just add a description.
+        </div>
+      </div>
+
+      <!-- Genre — dropdown with custom write-in -->
+      <label style="${labelStyle}">Genre / Setting</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="portrait-genre-select"
+          style="${fieldStyle}flex:0 0 auto;width:auto;background:rgba(15,20,35,0.9);"
+          onchange="
+            const custom = document.getElementById('portrait-genre-custom');
+            custom.style.display = this.value === 'Custom' ? 'block' : 'none';
+            if (this.value !== 'Custom') custom.value = '';
+          ">
+          ${genres.map(g => `<option value="${g}"${g==='Fantasy'?' selected':''}>${g}</option>`).join('')}
+          <option value="Custom">✏️ Write my own...</option>
+        </select>
+        <input id="portrait-genre-custom" placeholder="e.g. World War I, Ancient Egypt, Cyberpunk..."
+          style="${fieldStyle}display:none;flex:1;">
+      </div>
+
+      <!-- Editable class fields -->
+      <div style="background:rgba(102,126,234,0.06);border:1px solid rgba(102,126,234,0.15);
+                  border-radius:12px;padding:16px;margin-top:16px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;
+                    color:#667eea;margin-bottom:12px;font-family:'Cinzel',serif;">
+          Character Appearance — Edit to Customize
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <label style="${labelStyle}">Style / Role</label>
+            <input id="portrait-field-style" value="${cv.style}" style="${fieldStyle}">
+          </div>
+          <div>
+            <label style="${labelStyle}">Gear / Clothing</label>
+            <input id="portrait-field-gear" value="${cv.gear}" style="${fieldStyle}">
+          </div>
+          <div>
+            <label style="${labelStyle}">Weapon</label>
+            <input id="portrait-field-weapon" value="${cv.weapon}" style="${fieldStyle}">
+          </div>
+          <div>
+            <label style="${labelStyle}">Personality Aura</label>
+            <input id="portrait-field-aura" value="${cv.aura}" style="${fieldStyle}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Physical appearance fields -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px;">
+        <div>
+          <label style="${labelStyle}">Hair</label>
+          <input id="portrait-field-hair" placeholder="e.g. long red hair, short black hair..."
+            style="${fieldStyle}">
+        </div>
+        <div>
+          <label style="${labelStyle}">Eyes</label>
+          <input id="portrait-field-eyes" placeholder="e.g. blue eyes, glowing amber eyes..."
+            style="${fieldStyle}">
+        </div>
+        <div style="grid-column:1/-1;">
+          <label style="${labelStyle}">Skin</label>
+          <input id="portrait-field-skin" placeholder="e.g. dark brown skin, pale skin, green and pink swirled, silver metallic..."
+            style="${fieldStyle}">
+        </div>
+      </div>
+
+      <!-- Free description -->
+      <label style="${labelStyle}">Any Other Details (scars, companions, accessories...)</label>
+      <textarea id="portrait-description-input"
+        placeholder="e.g. a wolf companion, a mysterious scar on her left cheek, a golden necklace..."
+        style="${fieldStyle}resize:vertical;min-height:60px;line-height:1.6;"></textarea>
+
+      <!-- Preview -->
+      <div id="portrait-preview-area" style="display:none;margin-top:20px;text-align:center;">
+        <img id="portrait-preview-img" src=""
+          style="max-width:260px;width:100%;border-radius:12px;
+                 border:3px solid #c9a84c;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+      </div>
+
+      <div id="portrait-status" style="min-height:20px;font-size:13px;color:#8892a4;
+                                        margin-top:12px;text-align:center;font-style:italic;"></div>
+
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:20px;">
+        <button id="portrait-generate-btn"
+          onclick="window.handlePortraitGenerate('${characterId}','${name}','${className}')"
+          style="padding:13px 26px;background:linear-gradient(135deg,#667eea,#764ba2);
+                 border:none;border-radius:12px;color:white;font-size:14px;
+                 font-weight:700;cursor:pointer;font-family:'Cinzel',serif;">
+          🎨 Paint My Portrait
+        </button>
+        <button onclick="window.skipPortraitCreation()"
+          style="padding:13px 22px;background:rgba(255,255,255,0.06);
+                 border:1px solid rgba(255,255,255,0.12);border-radius:12px;
+                 color:#8892a4;font-size:13px;cursor:pointer;font-family:'Cinzel',serif;">
+          Skip for now
+        </button>
+      </div>
+
+      <div id="portrait-save-btn-area" style="display:none;margin-top:14px;">
+        <button onclick="window.confirmPortraitAndContinue()"
+          style="padding:14px 40px;background:linear-gradient(135deg,#c9a84c,#a07030);
+                 border:none;border-radius:12px;color:white;font-size:15px;
+                 font-weight:700;cursor:pointer;font-family:'Cinzel',serif;width:100%;">
+          ✅ This is My Hero — Begin Adventure!
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+};
+
+window.handlePortraitGenerate = async (characterId, name, className) => {
+  const descInput   = document.getElementById('portrait-description-input');
+  const genreSelect = document.getElementById('portrait-genre-select');
+  const statusEl    = document.getElementById('portrait-status');
+  const generateBtn = document.getElementById('portrait-generate-btn');
+  const previewArea = document.getElementById('portrait-preview-area');
+  const previewImg  = document.getElementById('portrait-preview-img');
+  const saveBtnArea = document.getElementById('portrait-save-btn-area');
+
+  const description = descInput ? descInput.value.trim() : '';
+  const hairField = document.getElementById('portrait-field-hair');
+  const eyesField = document.getElementById('portrait-field-eyes');
+  const skinField = document.getElementById('portrait-field-skin');
+  const hairDesc  = hairField && hairField.value.trim() ? hairField.value.trim() : '';
+  const eyesDesc  = eyesField && eyesField.value.trim() ? eyesField.value.trim() : '';
+  const skinDesc  = skinField && skinField.value.trim() ? skinField.value.trim() + ' skin' : '';
+  // Combine physical details — these get explicit placement in the prompt
+  const physicalDetails = [hairDesc, eyesDesc, skinDesc, description].filter(Boolean).join(', ');
+  const genreCustom = document.getElementById('portrait-genre-custom');
+  const genre = (genreSelect && genreSelect.value === 'Custom' && genreCustom && genreCustom.value.trim())
+    ? genreCustom.value.trim()
+    : (genreSelect ? genreSelect.value : 'Fantasy');
+
+  // Collect edited fields
+  const editedFields = {
+    style:  (document.getElementById('portrait-field-style')  || {}).value  || '',
+    gear:   (document.getElementById('portrait-field-gear')   || {}).value  || '',
+    weapon: (document.getElementById('portrait-field-weapon') || {}).value  || '',
+    aura:   (document.getElementById('portrait-field-aura')   || {}).value  || '',
+  };
+
+  // Content safety check — catch inappropriate inputs before sending to Imagen
+  const unsafeTerms = ['nude', 'naked', 'topless', 'explicit', 'sexy', 'nsfw', 'underwear', 'lingerie'];
+  // Note: skin COLOR descriptions are always allowed — only nudity terms are blocked
+  const allInputs = Object.values(editedFields).join(' ').toLowerCase() + ' ' + physicalDetails.toLowerCase();
+  const foundTerm = unsafeTerms.find(t => allInputs.includes(t));
+  if (foundTerm) {
+    statusEl.textContent = '⚠️ That description contains a term not allowed in portraits. Please revise and try again.';
+    statusEl.style.color = '#e74c3c';
+    // Reset the gear field to default if that's where the issue is
+    const gearField = document.getElementById('portrait-field-gear');
+    const cv = window.CLASS_VISUALS[className] || window.CLASS_VISUALS.Strategist;
+    if (gearField && gearField.value.toLowerCase().includes(foundTerm)) {
+      gearField.value = cv.gear;
+      gearField.style.borderColor = '#e74c3c';
+      setTimeout(() => { gearField.style.borderColor = ''; }, 3000);
+    }
+    return;
+  }
+
+  generateBtn.disabled = true;
+  generateBtn.textContent = '⏳ Painting your legend...';
+  statusEl.textContent = 'The AI is crafting your portrait — this takes about 15 seconds...';
+  statusEl.style.color = '#c9a84c';
+
+  try {
+    const level = window.getPlayerLevel ? window.getPlayerLevel() : 1;
+    const rawBase64 = await window.generatePortrait(name, className, level, physicalDetails, genre, editedFields);
+
+    // Compress before preview so what you see is exactly what gets saved
+    statusEl.textContent = 'Finalizing your portrait...';
+    const compressedDataUrl = await window.compressPortraitImage(rawBase64);
+    const base64Data = compressedDataUrl.split(',')[1]; // Strip data: prefix
+
+    previewImg.src = compressedDataUrl; // Show the compressed version
+    previewArea.style.display = 'block';
+    statusEl.textContent = 'Your portrait is ready! Regenerate to try again, or save and begin your adventure.';
+    statusEl.style.color = '#27ae60';
+    generateBtn.textContent = '🔄 Regenerate';
+    generateBtn.disabled = false;
+    saveBtnArea.style.display = 'block';
+
+    // Store compressedDataUrl as base64Data so save uses identical data to preview
+    window._pendingPortrait = { characterId, name, className, level, base64Data: compressedDataUrl, physicalDetails, description, genre, editedFields };
+
+  } catch(e) {
+    statusEl.textContent = 'Portrait generation failed — you can try again or skip for now.';
+    statusEl.style.color = '#e74c3c';
+    generateBtn.textContent = '🎨 Try Again';
+    generateBtn.disabled = false;
+  }
+};
+
+window.confirmPortraitAndContinue = async () => {
+  const statusEl = document.getElementById('portrait-status');
+  const saveBtn  = document.querySelector('#portrait-save-btn-area button');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '💾 Saving...'; }
+  statusEl.textContent = 'Saving your portrait to your character...';
+
+  // Handle regen XP cost and cooldown inline — avoids double-wrapping
+  const isRegen = window._regenMode;
+  if (isRegen) {
+    window._regenMode = false;
+    player.xp = Math.max(0, (player.xp || 0) - window.PORTRAIT_REGEN_COST);
+    window._safeNotify = window._safeNotify || ((msg,type) => { if(typeof showNotification==='function') showNotification(msg,type); else console.log(msg); });
+    window._safeNotify(`-${window.PORTRAIT_REGEN_COST} XP — New portrait incoming...`, 'focus-loss');
+    if (window._safeUpdateStats) window._safeUpdateStats();
+  }
+
+  if (window._pendingPortrait && player && player.uid) {
+    const { characterId, name, className, level, base64Data, physicalDetails, description, genre, editedFields } = window._pendingPortrait;
+    // Save the portrait that was already generated — do NOT call generatePortrait again
+    // This ensures what you see in the preview is exactly what gets saved
+    // base64Data was already compressed during preview generation — skip second compression
+    const { url, path } = await window.savePortraitToStorage(player.uid, characterId, level, base64Data, true);
+    await window.savePortraitRecord(player.uid, characterId, level, url, path, physicalDetails || description || '');
+    if (player) player.currentPortraitUrl = url;
+
+    // Save portrait descriptors to player object for cutscene use
+    if (editedFields) {
+      player.portraitEditedFields  = editedFields;
+    }
+    // Extract hair/eyes/skin from physicalDetails for cutscene prompts
+    if (physicalDetails) {
+      const parts = physicalDetails.split(',').map(s => s.trim()).filter(Boolean);
+      player.portraitDescription = physicalDetails;
+      // Try to find hair/eyes/skin individually
+      const hairPart = parts.find(p => p.toLowerCase().includes('hair'));
+      const eyesPart = parts.find(p => p.toLowerCase().includes('eye'));
+      const skinPart = parts.find(p => p.toLowerCase().includes('skin'));
+      if (hairPart) player.portraitHair = hairPart;
+      if (eyesPart) player.portraitEyes = eyesPart;
+      if (skinPart) player.portraitSkin = skinPart.replace(/ skin$/i, '');
+    }
+
+    // Persist to Firestore so it loads on re-select — include hair/eyes/skin for cutscene
+    try {
+      const portraitFirestoreData = {
+        portraitEditedFields: editedFields || {},
+        portraitDescription:  physicalDetails || '',
+        portraitHair: player.portraitHair || '',
+        portraitEyes: player.portraitEyes || '',
+        portraitSkin: player.portraitSkin || '',
+      };
+      await setDoc(doc(db, 'players', player.uid, 'characters', characterId),
+        portraitFirestoreData, { merge: true });
+      await setDoc(doc(db, 'players', player.uid),
+        portraitFirestoreData, { merge: true });
+    } catch(e) { console.warn('Could not save portrait descriptors:', e); }
+
+    window._pendingPortrait = null;
+
+    // Save regen cooldown if this was a regen request
+    if (isRegen) {
+      try {
+        await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId), {
+          lastPortraitRegen: new Date().toISOString()
+        }, { merge: true });
+      } catch(e) { console.warn('Could not save regen cooldown:', e); }
+    }
+  }
+
+  const overlay = document.getElementById('portrait-creation-overlay');
+  if (overlay) overlay.remove();
+};
+
+window.skipPortraitCreation = () => {
+  window._pendingPortrait = null;
+  const overlay = document.getElementById('portrait-creation-overlay');
+  if (overlay) overlay.remove();
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// MILESTONE PORTRAIT EVOLUTION
+// Called from checkForLevelUp when hitting a milestone
+// ─────────────────────────────────────────────────────────────────────────
+window.triggerMilestonePortrait = async (level) => {
+  if (!window.PORTRAIT_MILESTONES.includes(level) || level === 1) return;
+  if (!player || !player.uid || !player.activeCharacterId) return;
+
+  // Show a brief notification
+  const notif = document.createElement('div');
+  notif.style.cssText = `
+    position:fixed;bottom:100px;right:20px;
+    background:linear-gradient(135deg,#1a2035,#0d1117);
+    border:2px solid #c9a84c;border-radius:12px;
+    padding:14px 20px;z-index:99980;
+    font-family:'Cinzel',serif;font-size:13px;color:#c9a84c;
+    box-shadow:0 8px 32px rgba(0,0,0,0.5);max-width:260px;
+    animation:levelupFadeIn 0.3s ease-out;`;
+  notif.innerHTML = `🎨 <strong>Portrait Evolving...</strong><br><span style="font-size:11px;color:#8892a4;font-family:'Segoe UI',sans-serif;">Your Level ${level} portrait is being painted</span>`;
+  document.body.appendChild(notif);
+  setTimeout(() => { if (notif.parentNode) notif.remove(); }, 5000);
+
+  try {
+    const description = player.portraitDescription || '';
+    await window.generateAndSavePortrait(
+      player.uid, player.activeCharacterId,
+      player.name, player.className, level, description
+    );
+    notif.innerHTML = `🎨 <strong>Portrait Updated!</strong><br><span style="font-size:11px;color:#27ae60;font-family:'Segoe UI',sans-serif;">Your Level ${level} portrait has been saved</span>`;
+    notif.style.borderColor = '#27ae60';
+  } catch(e) {
+    console.warn('Milestone portrait failed silently:', e);
+    if (notif.parentNode) notif.remove();
+  }
+};
