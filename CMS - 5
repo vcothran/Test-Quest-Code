@@ -1,0 +1,1002 @@
+
+// FIX #3: Episode display with hover tooltip showing question bank names
+CMSApp.prototype.displayEpisodes = function() {
+  if (!this.elements.episodeList && !this.elements.allEpisodesList) return;
+  const lists = [this.elements.episodeList, this.elements.allEpisodesList].filter(Boolean);
+  if (this.state.episodes.length === 0) {
+    lists.forEach(list => { list.innerHTML = '<li class="empty-state">No episodes found. Create one!</li>'; });
+    return;
+  }
+  lists.forEach(list => {
+    list.innerHTML = this.state.episodes.map(episode => {
+      const active = episode.active ? '\u{1F7E2} Active' : '\u26AA Inactive';
+      const genre = episode.genre || 'No genre';
+      const approaches = episode.availableApproaches || [];
+      const selectedBanks = episode.selectedQuestionBanks || [];
+      const bankCount = selectedBanks.length;
+
+      // FIX #3: Build tooltip with actual bank names
+      const bankNames = selectedBanks.map(bankId => {
+        const bank = this.state.questionBanks.find(b => b.id === bankId);
+        return bank ? bank.name : bankId;
+      });
+      const tooltipText = bankNames.length > 0 ? bankNames.join('\n') : 'No banks assigned';
+
+      return `
+        <li class="cms-item">
+          <div class="cms-item-content">
+            <div class="cms-item-title">${episode.title || 'Untitled Episode'}</div>
+            <div class="cms-item-meta">
+              <span>${active}</span>
+              <span>\u{1F3AD} ${genre}</span>
+              <span>\u{1F3AF} ${approaches.length} approaches</span>
+              <span class="bank-count-badge" 
+                    title="${tooltipText}"
+                    style="cursor:help; border-bottom: 1px dotted #666; position:relative;"
+                    onmouseenter="window.cmsApp.showBankTooltip(this, '${episode.id}')"
+                    onmouseleave="window.cmsApp.hideBankTooltip()">
+                \u{1F4DA} ${bankCount} banks
+              </span>
+            </div>
+          </div>
+          <div class="cms-item-actions">
+            <button class="edit-episode-btn" data-id="${episode.id}" title="Edit">\u270F\uFE0F</button>
+            <button class="delete-episode-btn" data-id="${episode.id}" title="Delete">\u{1F5D1}\uFE0F</button>
+          </div>
+        </li>
+      `;
+    }).join('');
+    this.attachEpisodeEventListeners(list);
+  });
+  console.log('\u2705 Episodes displayed');
+};
+
+// FIX #3: Tooltip show/hide functions
+CMSApp.prototype.showBankTooltip = function(element, episodeId) {
+  const episode = this.state.episodes.find(e => e.id === episodeId);
+  if (!episode) return;
+  const selectedBanks = episode.selectedQuestionBanks || [];
+  const bankNames = selectedBanks.map(bankId => {
+    const bank = this.state.questionBanks.find(b => b.id === bankId);
+    return bank ? `\u{1F4DA} ${bank.name} (${(bank.questions||[]).length} questions)` : bankId;
+  });
+  const tooltipText = bankNames.length > 0 ? bankNames.join('<br>') : 'No banks assigned';
+
+  // Remove any existing tooltip
+  this.hideBankTooltip();
+
+  const tooltip = document.createElement('div');
+  tooltip.id = 'bank-hover-tooltip';
+  tooltip.style.cssText = `
+    position: absolute;
+    background: rgba(0,0,0,0.85);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.8;
+    z-index: 9999;
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  `;
+  tooltip.innerHTML = `<strong>Question Banks:</strong><br>${tooltipText}`;
+
+  document.body.appendChild(tooltip);
+
+  const rect = element.getBoundingClientRect();
+  tooltip.style.left = (rect.left + window.scrollX) + 'px';
+  tooltip.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+};
+
+CMSApp.prototype.hideBankTooltip = function() {
+  const existing = document.getElementById('bank-hover-tooltip');
+  if (existing) existing.remove();
+};
+
+CMSApp.prototype.attachEpisodeEventListeners = function(list) {
+  list.querySelectorAll('.edit-episode-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const episodeId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (episodeId) this.editEpisode(episodeId);
+    });
+  });
+  list.querySelectorAll('.delete-episode-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const episodeId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (episodeId) this.deleteEpisode(episodeId);
+    });
+  });
+};
+
+CMSApp.prototype.editEpisode = function(episodeId) {
+  const episode = this.state.episodes.find(e => e.id === episodeId);
+  if (!episode) { this.showAlert('Episode not found.', 'error'); return; }
+
+  document.getElementById('episode-title').value = episode.title || '';
+  document.getElementById('episode-description').value = episode.description || '';
+  document.getElementById('episode-active').checked = episode.active || false;
+
+  const genreSelect = document.getElementById('episode-genre');
+  if (genreSelect) {
+    genreSelect.innerHTML = '<option value="">Select genre...</option>';
+    if (this.state.genres && this.state.genres.length > 0) {
+      this.state.genres.forEach(genre => {
+        const option = document.createElement('option');
+        option.value = genre.name;
+        option.textContent = genre.name;
+        genreSelect.appendChild(option);
+      });
+    } else {
+      ['Mystery','Adventure','Science Fiction','Fantasy','Educational'].forEach(genreName => {
+        const option = document.createElement('option');
+        option.value = genreName;
+        option.textContent = genreName;
+        genreSelect.appendChild(option);
+      });
+    }
+    genreSelect.value = episode.genre || '';
+  }
+
+  document.querySelectorAll('.approach-checkbox').forEach(checkbox => {
+    checkbox.checked = (episode.availableApproaches || []).includes(checkbox.value);
+  });
+
+  // FIX #4: Load ALL question banks — no subject filtering that blocks banks
+  const togglesContainer = document.getElementById('question-banks-toggles');
+  if (togglesContainer && this.db) {
+    togglesContainer.innerHTML = '<div class="loading-state" style="text-align:center;color:#6c757d;padding:20px;">Loading question banks...</div>';
+    const { collection, getDocs } = window.firebaseV9;
+    getDocs(collection(this.db, 'questionBanks')).then(snapshot => {
+      if (snapshot.empty) {
+        togglesContainer.innerHTML = '<div style="text-align:center;color:#6c757d;padding:20px;">No question banks found.</div>';
+      } else {
+        togglesContainer.innerHTML = '';
+        snapshot.forEach(doc => {
+          const bank = { id: doc.id, ...doc.data() };
+          const questions = Array.isArray(bank.questions) ? bank.questions : [];
+          const isSelected = (episode.selectedQuestionBanks || []).includes(bank.id);
+
+          const bankItem = document.createElement('div');
+          bankItem.className = 'bank-toggle-item' + (isSelected ? ' enabled' : '');
+          bankItem.dataset.bankId = bank.id;
+          bankItem.innerHTML = `
+            <div class="bank-info">
+              <div class="bank-name">${bank.name || 'Untitled Bank'}</div>
+              <div class="bank-details">${bank.approach || 'General'} \u2022 ${questions.length} questions</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" class="bank-toggle" data-bank-id="${bank.id}" ${isSelected ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          `;
+          const toggle = bankItem.querySelector('.bank-toggle');
+          toggle.addEventListener('change', (e) => {
+            bankItem.classList.toggle('enabled', e.target.checked);
+          });
+          togglesContainer.appendChild(bankItem);
+        });
+      }
+    }).catch(error => {
+      console.error('Error loading question banks:', error);
+      togglesContainer.innerHTML = '<div style="text-align:center;color:#dc3545;padding:20px;">Error loading question banks</div>';
+    });
+  }
+
+  document.getElementById('episode-modal-title').textContent = 'Edit Episode';
+  this.state.editingEpisodeId = episodeId;
+  this.openModal('episode-modal');
+  console.log('\u270F\uFE0F Episode edit modal opened for:', episodeId);
+};
+
+CMSApp.prototype.deleteEpisode = function(episodeId) {
+  const episode = this.state.episodes.find(e => e.id === episodeId);
+  const episodeName = episode ? episode.title : 'this episode';
+  if (!confirm(`Are you sure you want to delete "${episodeName}"?\n\nThis action cannot be undone.`)) return;
+  console.log('\u{1F5D1}\uFE0F Deleting episode:', episodeId);
+  this.showProcessing('Deleting episode...');
+  this.deleteDoc(this.doc(this.db, 'episodes', episodeId))
+    .then(() => {
+      console.log('\u2705 Episode deleted');
+      this.showAlert('Episode deleted successfully!', 'success');
+      this.loadEpisodes();
+    })
+    .catch(error => {
+      console.error('\u274C Error deleting episode:', error);
+      this.showAlert('Error deleting episode. Please try again.', 'error');
+    })
+    .finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.loadGenres = function() {
+  return new Promise((resolve, reject) => {
+    if (!this.elements.genreList) { resolve(); return; }
+    console.log('\u{1F504} Loading genres (Pure Firebase v9)...');
+    const { collection, getDocs } = window.firebaseV9;
+    try {
+      getDocs(collection(this.db, 'genres')).then(querySnapshot => {
+        this.state.genres = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('\u{1F3AD} Found genre:', doc.id, data);
+          this.state.genres.push({ id: doc.id, ...data });
+        });
+        console.log('\u{1F3AD} Total genres loaded:', this.state.genres.length);
+        this.displayGenres();
+        resolve();
+      }).catch(error => {
+        console.error('\u274C Error loading genres:', error);
+        reject(error);
+      });
+    } catch (error) {
+      console.error('\u274C Error creating collection reference:', error);
+      reject(error);
+    }
+  });
+};
+
+CMSApp.prototype.displayGenres = function() {
+  if (!this.elements.genreList) return;
+  if (this.state.genres.length === 0) {
+    this.elements.genreList.innerHTML = '<li class="empty-state">No genres found. Create one!</li>';
+    return;
+  }
+  this.elements.genreList.innerHTML = this.state.genres.map(genre => {
+    const subject = genre.primarySubject || 'Mixed';
+    const subjectEmoji = {'reading':'\u{1F4D6}','math':'\u{1F522}','english':'\u{1F4DD}','science':'\u{1F52C}','mixed':'\u{1F3AF}'}[genre.primarySubject] || '\u{1F3AD}';
+    return `
+      <li class="cms-item">
+        <div class="cms-item-content">
+          <div class="cms-item-title">${genre.name || 'Untitled Genre'}</div>
+          <div class="cms-item-meta">
+            <span>${subjectEmoji} ${subject}</span>
+            ${genre.description ? `<span>${genre.description.substring(0,50)}...</span>` : ''}
+          </div>
+        </div>
+        <div class="cms-item-actions">
+          <button class="edit-genre-btn" data-id="${genre.id}" title="Edit">\u270F\uFE0F</button>
+          <button class="delete-genre-btn" data-id="${genre.id}" title="Delete">\u{1F5D1}\uFE0F</button>
+        </div>
+      </li>
+    `;
+  }).join('');
+  this.attachGenreEventListeners();
+  console.log('\u2705 Genres displayed');
+};
+
+CMSApp.prototype.attachGenreEventListeners = function() {
+  this.elements.genreList.querySelectorAll('.edit-genre-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const genreId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (genreId) this.editGenre(genreId);
+    });
+  });
+  this.elements.genreList.querySelectorAll('.delete-genre-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const genreId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (genreId) this.deleteGenre(genreId);
+    });
+  });
+};
+
+CMSApp.prototype.editGenre = function(genreId) {
+  const genre = this.state.genres.find(g => g.id === genreId);
+  if (!genre) { this.showAlert('Genre not found.', 'error'); return; }
+  document.getElementById('genre-name').value = genre.name || '';
+  document.getElementById('genre-description').value = genre.description || '';
+  document.getElementById('genre-subject').value = genre.primarySubject || '';
+  document.getElementById('genre-modal-title').textContent = 'Edit Genre';
+  this.state.editingGenreId = genreId;
+  this.openModal('genre-modal');
+  console.log('\u270F\uFE0F Genre edit modal opened for:', genreId);
+};
+
+CMSApp.prototype.deleteGenre = function(genreId) {
+  const genre = this.state.genres.find(g => g.id === genreId);
+  const genreName = genre ? genre.name : 'this genre';
+  if (!confirm(`Are you sure you want to delete "${genreName}"?\n\nThis action cannot be undone.`)) return;
+  console.log('\u{1F5D1}\uFE0F Deleting genre:', genreId);
+  this.showProcessing('Deleting genre...');
+  this.deleteDoc(this.doc(this.db, 'genres', genreId))
+    .then(() => {
+      console.log('\u2705 Genre deleted');
+      this.showAlert('Genre deleted successfully!', 'success');
+      this.loadGenres();
+    })
+    .catch(error => {
+      console.error('\u274C Error deleting genre:', error);
+      this.showAlert('Error deleting genre. Please try again.', 'error');
+    })
+    .finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.populateAIImportBankSelect = function() {
+  const select = document.getElementById('ai-save-bank-select');
+  if (!select) { console.warn('\u26A0\uFE0F AI import bank select element not found'); return; }
+  select.innerHTML = '<option value="">Select a question bank...</option>';
+  const createNewOption = document.createElement('option');
+  createNewOption.value = 'CREATE_NEW';
+  createNewOption.textContent = '--- Create New Question Bank ---';
+  select.appendChild(createNewOption);
+  this.state.questionBanks.forEach(bank => {
+    const option = document.createElement('option');
+    option.value = bank.id;
+    const questionCount = (bank.questions || []).length;
+    const lastExtraction = bank.lastExtraction;
+    option.textContent = `${bank.name || 'Untitled Bank'} (${bank.approach || 'General'}) - ${questionCount} questions${lastExtraction ? ` - Last: ${lastExtraction.testType}` : ''}`;
+    select.appendChild(option);
+  });
+  console.log('\u{1F4CB} Populated AI import bank select with', this.state.questionBanks.length, 'banks');
+};
+
+// ─────────────────────────────────────────────────────────────
+// OVERRIDE: editQuestion defined here LAST so it always wins
+// over any older version defined in other sections.
+// Handles both parser format (array) and manual format (object)
+// ─────────────────────────────────────────────────────────────
+CMSApp.prototype.editQuestion = function(bankId, questionIndex) {
+  console.log('✏️ editQuestion v3 - bankId:', bankId, 'index:', questionIndex);
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+
+  const isObjectOptions = question.options && !Array.isArray(question.options);
+  const questionText = (question.text || question.question || '').replace(/</g,'&lt;');
+
+  // Normalize to [{letter, text}] regardless of storage format
+  let optionPairs = [];
+  if (isObjectOptions) {
+    optionPairs = Object.entries(question.options).map(([letter, text]) => ({ letter, text }));
+  } else if (Array.isArray(question.options)) {
+    optionPairs = question.options.map((text, i) => ({ letter: String.fromCharCode(65 + i), text }));
+  }
+
+  // Current correct letter
+  let currentCorrectLetter = '';
+  if (isObjectOptions) {
+    currentCorrectLetter = question.correct || (optionPairs[0] && optionPairs[0].letter) || 'A';
+  } else {
+    const idx = typeof question.correct === 'number' ? question.correct
+              : typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
+    currentCorrectLetter = optionPairs[idx] ? optionPairs[idx].letter : 'A';
+  }
+
+  const passageVal = (question.passageContext || question.passage || '').replace(/</g,'&lt;');
+
+  const existing = document.getElementById('edit-question-modal');
+  if (existing) existing.remove();
+
+  // Build toolbar helper inline
+  const tb = (id) => {
+    const b = (label, title, action) =>
+      `<button type="button" title="${title}" onclick="${action}"
+        style="padding:3px 7px;border:1px solid #ced4da;border-radius:4px;background:#fff;
+               cursor:pointer;font-size:12px;margin:1px;"
+        onmouseover="this.style.background='#e9ecef'"
+        onmouseout="this.style.background='#fff'">${label}</button>`;
+    return `<div style="background:#f8f9fa;border:1px solid #ced4da;border-bottom:none;
+                        border-radius:6px 6px 0 0;padding:5px 7px;display:flex;flex-wrap:wrap;gap:1px;">
+      ${b('<b>B</b>','Bold',`window.cmsApp.wrapSelection('${id}','**','**')`)}
+      ${b('<i>I</i>','Italic',`window.cmsApp.wrapSelection('${id}','_','_')`)}
+      ${b('<u>U</u>','Underline',`window.cmsApp.wrapSelection('${id}','[u]','[/u]')`)}
+      <span style="border-left:1px solid #ced4da;margin:1px 3px;"></span>
+      ${b('√','Square root',`window.cmsApp.insertAtCursor('${id}','√')`)}
+      ${b('x²','Superscript 2',`window.cmsApp.wrapSelection('${id}','','\u00B2')`)}
+      ${b('x³','Superscript 3',`window.cmsApp.wrapSelection('${id}','','\u00B3')`)}
+      ${b('xⁿ','Superscript',`window.cmsApp.wrapSelection('${id}','^{','}')`)}
+      ${b('x₁','Subscript',`window.cmsApp.wrapSelection('${id}','_{','}')`)}
+      <span style="border-left:1px solid #ced4da;margin:1px 3px;"></span>
+      ${b('π','Pi',`window.cmsApp.insertAtCursor('${id}','π')`)}
+      ${b('°','Degree',`window.cmsApp.insertAtCursor('${id}','°')`)}
+      ${b('≠','Not equal',`window.cmsApp.insertAtCursor('${id}','≠')`)}
+      ${b('≤','Less/equal',`window.cmsApp.insertAtCursor('${id}','≤')`)}
+      ${b('≥','Greater/equal',`window.cmsApp.insertAtCursor('${id}','≥')`)}
+      ${b('×','Multiply',`window.cmsApp.insertAtCursor('${id}','×')`)}
+      ${b('÷','Divide',`window.cmsApp.insertAtCursor('${id}','÷')`)}
+      ${b('±','Plus/minus',`window.cmsApp.insertAtCursor('${id}','±')`)}
+    </div>`;
+  };
+
+  const ta = (id, rows, val) =>
+    `<textarea id="${id}" rows="${rows}"
+       style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:0 0 6px 6px;
+              font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit;"
+     >${val}</textarea>`;
+
+  const optionFields = optionPairs.map(({letter, text}) => `
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">${letter}:</label>
+      ${tb(`eq-option-${letter}`)}
+      ${ta(`eq-option-${letter}`, 2, text.replace(/</g,'&lt;'))}
+    </div>
+  `).join('');
+
+  const correctOptions = optionPairs.map(({letter}) =>
+    `<option value="${letter}" ${letter === currentCorrectLetter ? 'selected' : ''}>${letter}</option>`
+  ).join('');
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'edit-question-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99995;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:28px;width:100%;max-width:680px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.35);margin:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:18px;border-bottom:2px solid #e9ecef;padding-bottom:12px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          ✏️ Edit Question ${question.questionNumber || (questionIndex+1)}
+          ${question.addedManually ? '<span style="font-size:11px;background:#fff3cd;color:#856404;padding:2px 7px;border-radius:10px;margin-left:8px;">MANUAL</span>' : ''}
+        </h2>
+        <button onclick="window.cmsApp.closeEditQuestionModal()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;padding:0 4px;">&times;</button>
+      </div>
+      <form onsubmit="window.cmsApp.saveEditedQuestion(event,'${bankId}',${questionIndex})">
+        ${passageVal ? `<div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">📖 Passage:</label>
+          ${tb('eq-passage')}${ta('eq-passage', 4, passageVal)}
+        </div>` : ''}
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">Question Text *</label>
+          ${tb('eq-text')}${ta('eq-text', 4, questionText)}
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-weight:600;color:#495057;margin-bottom:8px;">Answer Options:</div>
+          ${optionFields}
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Correct Answer *</label>
+          <select id="eq-correct" required
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;background:#fff;">
+            ${correctOptions}
+          </select>
+        </div>
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-weight:600;margin-bottom:3px;color:#495057;">
+            Explanation <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          ${tb('eq-explanation')}${ta('eq-explanation', 3, (question.explanation||'').replace(/</g,'&lt;'))}
+        </div>
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            💾 Save Changes
+          </button>
+          <button type="button" onclick="window.cmsApp.closeEditQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeEditQuestionModal(); });
+  modalEl.dataset.isObjectOptions = isObjectOptions ? '1' : '0';
+  modalEl.dataset.optionLetters = optionPairs.map(p => p.letter).join(',');
+};
+
+console.log('\u2705 Section 9: Data Management Methods loaded - with hover tooltips + subject filter fix');
+console.log('\u2705 editQuestion v3 override registered in Section 9 (wins over older versions)');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 10: QUESTION BANK EDITING        -->
+<!-- COMPLETE REWRITE v3                      -->
+<!--   Fixed: options.map error (obj vs arr)  -->
+<!--   Fixed: modals body-appended, z:99999   -->
+<!--   Fixed: Cancel works on all modals      -->
+<!--   Added: Math/formatting toolbar         -->
+<!--     Bold, Italic, Underline              -->
+<!--     √ ² ³ ½ π ≠ ≤ ≥ × ÷ °              -->
+<!--     Subscript/Superscript insert         -->
+<!-- ========================================= -->
+<script>
+console.log('🔧 Loading Section 10: Question Bank Editing v3...');
+
+// ─────────────────────────────────────────────
+// TOOLBAR HELPER
+// Inserts text at cursor position in a textarea
+// ─────────────────────────────────────────────
+CMSApp.prototype.insertAtCursor = function(textareaId, text) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const before = el.value.substring(0, start);
+  const after = el.value.substring(end);
+  el.value = before + text + after;
+  el.selectionStart = el.selectionEnd = start + text.length;
+  el.focus();
+};
+
+CMSApp.prototype.wrapSelection = function(textareaId, prefix, suffix) {
+  const el = document.getElementById(textareaId);
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = el.value.substring(start, end);
+  const before = el.value.substring(0, start);
+  const after = el.value.substring(end);
+  el.value = before + prefix + selected + suffix + after;
+  el.selectionStart = start + prefix.length;
+  el.selectionEnd = start + prefix.length + selected.length;
+  el.focus();
+};
+
+// Build the toolbar HTML for a given textarea ID
+CMSApp.prototype.buildToolbar = function(targetId) {
+  const btn = (label, title, action) =>
+    `<button type="button" title="${title}"
+      onclick="${action}"
+      style="padding:4px 8px;border:1px solid #ced4da;border-radius:4px;background:#fff;
+             cursor:pointer;font-size:13px;margin:2px;min-width:28px;"
+      onmouseover="this.style.background='#e9ecef'"
+      onmouseout="this.style.background='#fff'">${label}</button>`;
+
+  return `<div style="background:#f8f9fa;border:1px solid #ced4da;border-bottom:none;
+                      border-radius:6px 6px 0 0;padding:6px 8px;display:flex;flex-wrap:wrap;gap:2px;">
+    ${btn('<b>B</b>',    'Bold',            `window.cmsApp.wrapSelection('${targetId}','**','**')`)}
+    ${btn('<i>I</i>',    'Italic',          `window.cmsApp.wrapSelection('${targetId}','_','_')`)}
+    ${btn('<u>U</u>',    'Underline',       `window.cmsApp.wrapSelection('${targetId}','[u]','[/u]')`)}
+    <span style="border-left:1px solid #ced4da;margin:2px 4px;"></span>
+    ${btn('√',  'Square root',     `window.cmsApp.insertAtCursor('${targetId}','√')`)}
+    ${btn('x²', 'Superscript 2',   `window.cmsApp.wrapSelection('${targetId}','','²')`)}
+    ${btn('x³', 'Superscript 3',   `window.cmsApp.wrapSelection('${targetId}','','³')`)}
+    ${btn('xⁿ', 'Superscript',     `window.cmsApp.wrapSelection('${targetId}','^{','}')`)}
+    ${btn('x₁', 'Subscript',       `window.cmsApp.wrapSelection('${targetId}','_{','}')`)}
+    <span style="border-left:1px solid #ced4da;margin:2px 4px;"></span>
+    ${btn('½',  'One half',        `window.cmsApp.insertAtCursor('${targetId}','½')`)}
+    ${btn('π',  'Pi',              `window.cmsApp.insertAtCursor('${targetId}','π')`)}
+    ${btn('°',  'Degree',          `window.cmsApp.insertAtCursor('${targetId}','°')`)}
+    ${btn('≠',  'Not equal',       `window.cmsApp.insertAtCursor('${targetId}','≠')`)}
+    ${btn('≤',  'Less or equal',   `window.cmsApp.insertAtCursor('${targetId}','≤')`)}
+    ${btn('≥',  'Greater or equal',`window.cmsApp.insertAtCursor('${targetId}','≥')`)}
+    ${btn('×',  'Multiply',        `window.cmsApp.insertAtCursor('${targetId}','×')`)}
+    ${btn('÷',  'Divide',          `window.cmsApp.insertAtCursor('${targetId}','÷')`)}
+    ${btn('±',  'Plus/minus',      `window.cmsApp.insertAtCursor('${targetId}','±')`)}
+    ${btn('∞',  'Infinity',        `window.cmsApp.insertAtCursor('${targetId}','∞')`)}
+    ${btn('∠',  'Angle',           `window.cmsApp.insertAtCursor('${targetId}','∠')`)}
+    ${btn('△',  'Triangle',        `window.cmsApp.insertAtCursor('${targetId}','△')`)}
+  </div>`;
+};
+
+// Textarea with toolbar above it
+CMSApp.prototype.buildToolbarTextarea = function(id, rows, placeholder, value) {
+  const inputStyle = `width:100%;padding:10px;border:1px solid #ced4da;
+    border-radius:0 0 6px 6px;font-size:14px;box-sizing:border-box;
+    resize:vertical;font-family:inherit;`;
+  return `
+    ${this.buildToolbar(id)}
+    <textarea id="${id}" rows="${rows}" placeholder="${placeholder}"
+              style="${inputStyle}">${value || ''}</textarea>
+  `;
+};
+
+// ─────────────────────────────────────────────
+// VIEW BANK QUESTIONS
+// ─────────────────────────────────────────────
+CMSApp.prototype.viewBankQuestions = function(bankId) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  this.state.currentViewingBankId = bankId;
+  this.showQuestionsViewModal(bank);
+};
+
+CMSApp.prototype.showQuestionsViewModal = function(bank) {
+  const questions = bank.questions || [];
+  const existing = document.getElementById('questions-view-modal');
+  if (existing) existing.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'questions-view-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99990;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:24px;width:100%;max-width:860px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.3);margin:auto;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:16px;padding-bottom:14px;border-bottom:2px solid #e9ecef;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          📚 ${bank.name} — ${questions.length} Question${questions.length !== 1 ? 's' : ''}
+        </h2>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button onclick="window.cmsApp.showAddQuestionModal('${bank.id}')"
+                  style="padding:8px 18px;background:#28a745;color:white;border:none;
+                         border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+            ➕ Add Question
+          </button>
+          <button onclick="window.cmsApp.closeQuestionsViewModal()"
+                  style="background:none;border:none;font-size:26px;cursor:pointer;
+                         color:#6c757d;line-height:1;padding:0 4px;">&times;</button>
+        </div>
+      </div>
+
+      <div style="max-height:72vh;overflow-y:auto;padding-right:4px;">
+        ${questions.length === 0
+          ? `<div style="text-align:center;padding:48px;color:#6c757d;">
+               No questions yet. Click <strong>➕ Add Question</strong> to get started.
+             </div>`
+          : this.renderQuestions(questions, bank.id)
+        }
+      </div>
+
+      <!-- Footer -->
+      <div style="margin-top:16px;padding-top:14px;border-top:2px solid #e9ecef;
+                  display:flex;justify-content:space-between;">
+        <button onclick="window.cmsApp.showAddQuestionModal('${bank.id}')"
+                style="padding:10px 20px;background:#28a745;color:white;border:none;
+                       border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+          ➕ Add Question
+        </button>
+        <button onclick="window.cmsApp.closeQuestionsViewModal()"
+                style="padding:10px 20px;background:#6c757d;color:white;border:none;
+                       border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeQuestionsViewModal(); });
+};
+
+CMSApp.prototype.renderQuestions = function(questions, bankId) {
+  return questions.map((q, index) => {
+    const qNum = q.questionNumber || (index + 1);
+    const questionText = q.text || q.question || 'No question text';
+    const hasPassage = q.passageContext || q.passage;
+
+    // Support both option formats
+    let optionsHTML = '<p style="color:#6c757d;font-style:italic;">No options</p>';
+    let correctDisplay = '?';
+
+    if (Array.isArray(q.options) && q.options.length > 0) {
+      const correctIdx = typeof q.correct === 'number' ? q.correct
+                       : typeof q.correctAnswer === 'number' ? q.correctAnswer : 0;
+      correctDisplay = String.fromCharCode(65 + correctIdx);
+      optionsHTML = q.options.map((opt, i) => {
+        const isCorrect = i === correctIdx;
+        return `<div style="padding:8px 12px;margin:4px 0;border-radius:5px;font-size:13px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  ${opt}${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                </div>`;
+      }).join('');
+    } else if (q.options && typeof q.options === 'object') {
+      correctDisplay = q.correct || '?';
+      optionsHTML = Object.entries(q.options).map(([letter, text]) => {
+        const isCorrect = letter === q.correct;
+        return `<div style="padding:8px 12px;margin:4px 0;border-radius:5px;font-size:13px;
+                            background:${isCorrect ? '#d4edda' : '#f8f9fa'};
+                            border-left:4px solid ${isCorrect ? '#28a745' : '#dee2e6'};">
+                  <strong>${letter}:</strong> ${text}
+                  ${isCorrect ? ' <strong style="color:#28a745;">✓</strong>' : ''}
+                </div>`;
+      }).join('');
+    }
+
+    return `
+      <div style="border:1px solid #dee2e6;border-radius:8px;padding:16px;
+                  margin-bottom:16px;background:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e9ecef;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <strong style="color:#495057;">Q${qNum}</strong>
+            <span style="background:#28a745;color:white;padding:2px 10px;
+                         border-radius:10px;font-size:12px;font-weight:600;">
+              Answer: ${correctDisplay}
+            </span>
+            ${q.testType ? `<span style="background:#6c757d;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">${q.testType}</span>` : ''}
+            ${q.addedManually ? `<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;">✏️ Manual</span>` : ''}
+            ${hasPassage ? `<span style="background:#17a2b8;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">📖 Passage</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="window.cmsApp.editQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#007bff;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">✏️ Edit</button>
+            <button onclick="window.cmsApp.deleteQuestion('${bankId}',${index})"
+                    style="padding:5px 12px;background:#dc3545;color:white;border:none;
+                           border-radius:5px;font-size:12px;cursor:pointer;">🗑️ Delete</button>
+          </div>
+        </div>
+
+        ${hasPassage ? `
+          <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer;color:#007bff;font-size:12px;
+                            padding:4px 8px;background:#e7f3ff;border-radius:4px;">
+              📖 Passage (${(q.passageContext || q.passage).length} chars)
+            </summary>
+            <div style="margin-top:6px;padding:10px;background:#f8f9fa;
+                        border-left:3px solid #007bff;border-radius:4px;
+                        max-height:180px;overflow-y:auto;font-size:13px;
+                        line-height:1.6;white-space:pre-wrap;">${q.passageContext || q.passage}</div>
+          </details>
+        ` : ''}
+
+        <p style="margin:8px 0;font-size:15px;line-height:1.5;"><strong>${questionText}</strong></p>
+        ${optionsHTML}
+
+        ${q.explanation ? `
+          <div style="margin-top:10px;padding:10px 14px;background:#e7f3ff;
+                      border-left:4px solid #007bff;border-radius:4px;font-size:13px;">
+            <strong style="color:#004085;">💡 Explanation:</strong>
+            <span style="color:#004085;"> ${q.explanation}</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+};
+
+CMSApp.prototype.closeQuestionsViewModal = function() {
+  const modal = document.getElementById('questions-view-modal');
+  if (modal) modal.remove();
+  this.state.currentViewingBankId = null;
+  this.loadQuestionBanks();
+};
+
+// ─────────────────────────────────────────────
+// EDIT QUESTION — handles both option formats
+// ─────────────────────────────────────────────
+CMSApp.prototype.editQuestion = function(bankId, questionIndex) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+
+  const isObjectOptions = question.options && !Array.isArray(question.options);
+  const questionText = (question.text || question.question || '').replace(/</g,'&lt;');
+
+  // Normalize to [{letter, text}] pairs
+  let optionPairs = [];
+  if (isObjectOptions) {
+    optionPairs = Object.entries(question.options).map(([letter, text]) => ({ letter, text }));
+  } else if (Array.isArray(question.options)) {
+    optionPairs = question.options.map((text, i) => ({ letter: String.fromCharCode(65 + i), text }));
+  }
+
+  // Current correct letter
+  let currentCorrectLetter = '';
+  if (isObjectOptions) {
+    currentCorrectLetter = question.correct || (optionPairs[0] && optionPairs[0].letter) || 'A';
+  } else {
+    const idx = typeof question.correct === 'number' ? question.correct
+              : typeof question.correctAnswer === 'number' ? question.correctAnswer : 0;
+    currentCorrectLetter = optionPairs[idx] ? optionPairs[idx].letter : 'A';
+  }
+
+  const passageVal = (question.passageContext || question.passage || '').replace(/</g,'&lt;');
+
+  const existing = document.getElementById('edit-question-modal');
+  if (existing) existing.remove();
+
+  const modalEl = document.createElement('div');
+  modalEl.id = 'edit-question-modal';
+  modalEl.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.6);z-index:99995;display:flex;
+    align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;`;
+
+  // Build option fields with toolbars
+  const optionFields = optionPairs.map(({letter, text}) => {
+    const id = `eq-option-${letter}`;
+    return `<div style="margin-bottom:14px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">${letter}:</label>
+      ${this.buildToolbar(id)}
+      <textarea id="${id}" rows="2"
+                style="width:100%;padding:10px;border:1px solid #ced4da;
+                       border-radius:0 0 6px 6px;font-size:14px;
+                       box-sizing:border-box;resize:vertical;font-family:inherit;"
+      >${text.replace(/</g,'&lt;')}</textarea>
+    </div>`;
+  }).join('');
+
+  const correctOptions = optionPairs.map(({letter}) =>
+    `<option value="${letter}" ${letter === currentCorrectLetter ? 'selected' : ''}>${letter}</option>`
+  ).join('');
+
+  modalEl.innerHTML = `
+    <div style="background:#ffffff;border-radius:10px;padding:30px;width:100%;max-width:680px;
+                position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.35);margin:auto;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:20px;border-bottom:2px solid #e9ecef;padding-bottom:14px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">
+          ✏️ Edit Question ${question.questionNumber || (questionIndex + 1)}
+          ${question.addedManually ? '<span style="font-size:12px;background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;margin-left:8px;">MANUAL</span>' : ''}
+        </h2>
+        <button onclick="window.cmsApp.closeEditQuestionModal()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;padding:0 4px;">&times;</button>
+      </div>
+
+      <form onsubmit="window.cmsApp.saveEditedQuestion(event,'${bankId}',${questionIndex})">
+
+        ${passageVal ? `
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">📖 Passage / Context:</label>
+          ${this.buildToolbar('eq-passage')}
+          <textarea id="eq-passage" rows="4"
+                    style="width:100%;padding:10px;border:1px solid #ced4da;
+                           border-radius:0 0 6px 6px;font-size:14px;
+                           box-sizing:border-box;resize:vertical;font-family:inherit;"
+          >${passageVal}</textarea>
+        </div>
+        ` : ''}
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">Question Text: *</label>
+          ${this.buildToolbar('eq-text')}
+          <textarea id="eq-text" rows="4" required
+                    style="width:100%;padding:10px;border:1px solid #ced4da;
+                           border-radius:0 0 6px 6px;font-size:14px;
+                           box-sizing:border-box;resize:vertical;font-family:inherit;"
+          >${questionText}</textarea>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <div style="font-weight:600;color:#495057;margin-bottom:10px;">Answer Options:</div>
+          ${optionFields}
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Correct Answer: *</label>
+          <select id="eq-correct" required
+                  style="width:100%;padding:10px;border:1px solid #ced4da;
+                         border-radius:6px;font-size:14px;background:#fff;">
+            ${correctOptions}
+          </select>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:4px;color:#495057;">
+            Explanation <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          ${this.buildToolbar('eq-explanation')}
+          <textarea id="eq-explanation" rows="3"
+                    style="width:100%;padding:10px;border:1px solid #ced4da;
+                           border-radius:0 0 6px 6px;font-size:14px;
+                           box-sizing:border-box;resize:vertical;font-family:inherit;"
+          >${(question.explanation||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            💾 Save Changes
+          </button>
+          <button type="button" onclick="window.cmsApp.closeEditQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;
+                         border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) window.cmsApp.closeEditQuestionModal(); });
+
+  // Store metadata for save
+  modalEl.dataset.isObjectOptions = isObjectOptions ? '1' : '0';
+  modalEl.dataset.optionLetters = optionPairs.map(p => p.letter).join(',');
+};
+
+CMSApp.prototype.closeEditQuestionModal = function() {
+  const modal = document.getElementById('edit-question-modal');
+  if (modal) modal.remove();
+};
+
+CMSApp.prototype.saveEditedQuestion = function(event, bankId, questionIndex) {
+  event.preventDefault();
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+
+  const modal = document.getElementById('edit-question-modal');
+  const isObjectOptions = modal && modal.dataset.isObjectOptions === '1';
+  const optionLetters = modal ? modal.dataset.optionLetters.split(',') : [];
+
+  const editedText      = document.getElementById('eq-text').value;
+  const editedCorrect   = document.getElementById('eq-correct').value;
+  const editedExplain   = document.getElementById('eq-explanation').value;
+  const passageField    = document.getElementById('eq-passage');
+  const editedPassage   = passageField ? passageField.value : (question.passageContext || question.passage || '');
+
+  let editedOptions;
+  if (isObjectOptions) {
+    editedOptions = {};
+    optionLetters.forEach(letter => {
+      const input = document.getElementById(`eq-option-${letter}`);
+      if (input) editedOptions[letter] = input.value;
+    });
+  } else {
+    editedOptions = optionLetters.map(letter => {
+      const input = document.getElementById(`eq-option-${letter}`);
+      return input ? input.value : '';
+    });
+  }
+
+  // Correct value: letter for object, index for array
+  let correctValue;
+  if (isObjectOptions) {
+    correctValue = editedCorrect;
+  } else {
+    correctValue = optionLetters.indexOf(editedCorrect);
+    if (correctValue === -1) correctValue = 0;
+  }
+
+  questions[questionIndex] = {
+    ...question,
+    text: editedText,
+    question: editedText,
+    options: editedOptions,
+    correct: correctValue,
+    correctAnswer: correctValue,
+    explanation: editedExplain,
+    passageContext: editedPassage,
+    passage: editedPassage
+  };
+
+  this.showProcessing('Saving changes...');
+  this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions,
+    updatedAt: this.serverTimestamp()
+  }).then(() => {
+    bank.questions = questions;
+    this.closeEditQuestionModal();
+    this.showQuestionsViewModal(bank);
+    this.showAlert('Question updated successfully!', 'success');
+  }).catch(error => {
+    console.error('❌ Error updating question:', error);
+    this.showAlert('Error updating question. Please try again.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ─────────────────────────────────────────────
+// DELETE QUESTION
+// ─────────────────────────────────────────────
+CMSApp.prototype.deleteQuestion = function(bankId, questionIndex) {
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  const questions = bank.questions || [];
+  const question = questions[questionIndex];
+  if (!question) { this.showAlert('Question not found.', 'error'); return; }
+  const preview = (question.text || question.question || 'Question ' + (questionIndex+1)).substring(0,60) + '…';
+  if (!confirm(`Delete this question?\n\n"${preview}"\n\nThis cannot be undone.`)) return;
+
+  this.showProcessing('Deleting question...');
+  const updated = questions.filter((_, i) => i !== questionIndex);
+  this.updateDoc(this.doc(this.db, 'questionBanks', bankId), {
+    questions: updated,
+    updatedAt: this.serverTimestamp()
+  }).then(() => {
+    bank.questions = updated;
+    if (updated.length === 0) {
+      this.closeQuestionsViewModal();
+      this.showAlert('All questions deleted. Question bank is now empty.', 'info');
+    } else {
+      this.showQuestionsViewModal(bank);
+      this.showAlert('Question deleted.', 'success');
+    }
+  }).catch(error => {
+    console.error('❌ Error deleting question:', error);
+    this.showAlert('Error deleting question. Please try again.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
