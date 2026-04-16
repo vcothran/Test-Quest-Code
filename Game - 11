@@ -1,0 +1,284 @@
+
+// ─────────────────────────────────────────────────────────────────────────
+// CHAMPION'S CALL — once-per-episode ability for Legacy characters
+// Reveals the correct answer on one question
+// ─────────────────────────────────────────────────────────────────────────
+window.activateChampionsCall = () => {
+  if (!player || !window.hasLegacy()) return;
+  if ((player.activeEffects || {}).championsCallUsed) {
+    if (window._safeNotify) window._safeNotify("Champion's Call already used this episode!", 'focus-loss');
+    return;
+  }
+
+  const q = window._getCurrentQuestion ? window._getCurrentQuestion() : null;
+  if (!q) {
+    if (window._safeNotify) window._safeNotify("No active question.", 'focus-loss');
+    return;
+  }
+
+  // Reveal correct answer
+  if (typeof selectedAnswerIndex !== 'undefined') {
+    window._setSelectedAnswer && window._setSelectedAnswer(q.correct);
+  }
+  const buttons = document.querySelectorAll('#answer-options .answer-option');
+  if (buttons[q.correct]) {
+    buttons[q.correct].style.boxShadow = '0 0 20px 6px rgba(201,168,76,0.9)';
+    buttons[q.correct].style.border    = '3px solid #c9a84c';
+    buttons[q.correct].click();
+  }
+
+  player.activeEffects.championsCallUsed = true;
+  window.updateChampionsCallHUD();
+
+  // Dramatic overlay
+  window.showChampionsCallOverlay();
+
+  if (typeof savePlayerProgress === 'function') savePlayerProgress();
+};
+
+window.showChampionsCallOverlay = () => {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.6);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99989;pointer-events:none;
+    animation:loginFadeIn 0.3s ease-out;`;
+  overlay.innerHTML = `
+    <div style="text-align:center;animation:sigBounce 0.5s ease-out;">
+      <div style="font-size:64px;margin-bottom:8px;
+                  filter:drop-shadow(0 0 30px rgba(201,168,76,1));">👑</div>
+      <div style="font-family:'Cinzel',serif;font-size:11px;text-transform:uppercase;
+                  letter-spacing:4px;color:#c9a84c;margin-bottom:6px;">Legacy Power</div>
+      <div style="font-family:'Cinzel',serif;font-size:22px;color:white;font-weight:900;
+                  text-shadow:0 0 30px rgba(201,168,76,0.8);">Champion's Call</div>
+      <div style="font-size:13px;color:#8892a4;margin-top:8px;font-style:italic;">
+        A past champion guides your hand...
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  setTimeout(() => {
+    overlay.style.transition = 'opacity 0.5s';
+    overlay.style.opacity = '0';
+    setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 500);
+  }, 2000);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// CHAMPION'S CALL HUD BUTTON
+// Shows for Legacy characters (any character on an account with a Level 20)
+// ─────────────────────────────────────────────────────────────────────────
+window.updateChampionsCallHUD = () => {
+  const existing = document.getElementById('hud-champions-call-btn');
+  if (existing) existing.remove();
+
+  if (!window.hasLegacy()) return;
+
+  const statsEl = document.getElementById('player-stats');
+  if (!statsEl) return;
+
+  const used = (player.activeEffects || {}).championsCallUsed;
+
+  const btn = document.createElement('button');
+  btn.id = 'hud-champions-call-btn';
+  btn.style.cssText = `
+    cursor:${used ? 'not-allowed' : 'pointer'};
+    background:${used ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg,rgba(201,168,76,0.15),rgba(160,112,48,0.25))'};
+    border:1px solid ${used ? 'rgba(255,255,255,0.08)' : 'rgba(201,168,76,0.4)'};
+    color:${used ? '#3a4456' : '#c9a84c'};
+    font-size:11px;padding:6px 10px;border-radius:6px;
+    font-family:'Cinzel',serif;
+    opacity:${used ? '0.4' : '1'};
+    margin-left:6px;`;
+  btn.innerHTML = `👑 Champion's Call`;
+  btn.title = used ? 'Already used this episode' : "Reveal the correct answer — once per episode";
+  btn.disabled = used;
+  if (!used) btn.onclick = () => window.activateChampionsCall();
+  statsEl.appendChild(btn);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// PRESTIGE UNLOCK — called when player hits Level 20
+// ─────────────────────────────────────────────────────────────────────────
+window.unlockPrestige = async () => {
+  if (!player || !player.uid) return;
+  if (player.prestigeUnlocked) return; // already done
+
+  player.prestigeUnlocked  = true;
+  player.accountPrestige    = true; // account-level flag — persists to new characters
+  player.undyingWillActive  = true;
+
+  // Save account-level prestige flag
+  try {
+    await setDoc(doc(db, 'players', player.uid), {
+      prestigeUnlocked: true,
+      accountPrestige:  true,
+      undyingWillActive: true,
+    }, { merge: true });
+    if (player.activeCharacterId) {
+      await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId), {
+        prestigeUnlocked: true,
+      }, { merge: true });
+    }
+  } catch(e) { console.warn('Could not save prestige:', e); }
+
+  window.applyPrestigeVisuals();
+  window.applyUndyingWill();
+  window.showPrestigeUnlockOverlay();
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// PRESTIGE UNLOCK OVERLAY — epic moment
+// ─────────────────────────────────────────────────────────────────────────
+window.showPrestigeUnlockOverlay = () => {
+  const overlay = document.createElement('div');
+  overlay.id = 'prestige-unlock-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;
+    background:radial-gradient(ellipse at center, rgba(201,168,76,0.15) 0%, rgba(0,0,0,0.97) 70%);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99988;animation:loginFadeIn 0.6s ease-out;`;
+
+  overlay.innerHTML = `
+    <div style="text-align:center;max-width:500px;width:90%;padding:20px;">
+
+      <div style="font-size:80px;margin-bottom:16px;
+                  filter:drop-shadow(0 0 40px rgba(201,168,76,1));
+                  animation:sigPulse 1.5s ease-in-out infinite alternate;">
+        👑
+      </div>
+
+      <div style="font-family:'Cinzel',serif;font-size:11px;text-transform:uppercase;
+                  letter-spacing:5px;color:#8892a4;margin-bottom:12px;">
+        Maximum Level Achieved
+      </div>
+
+      <div style="font-family:'Cinzel',serif;font-size:36px;font-weight:900;
+                  background:linear-gradient(90deg,#c9a84c,#fff8e7,#c9a84c);
+                  background-size:200% auto;
+                  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+                  background-clip:text;
+                  animation:prestigeShimmer 2s linear infinite;
+                  margin-bottom:8px;">
+        LEGEND
+      </div>
+
+      <div style="font-size:15px;color:#8892a4;margin-bottom:32px;
+                  font-style:italic;line-height:1.8;">
+        ${player ? player.name : 'Hero'} has reached the pinnacle of mastery.
+      </div>
+
+      <!-- Rewards -->
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:32px;">
+        <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.25);
+                    border-radius:12px;padding:14px 20px;text-align:left;display:flex;
+                    align-items:center;gap:14px;">
+          <div style="font-size:28px;">⚡</div>
+          <div>
+            <div style="font-family:'Cinzel',serif;font-size:13px;color:#c9a84c;font-weight:700;">
+              Undying Will
+            </div>
+            <div style="font-size:12px;color:#8892a4;margin-top:2px;">
+              Survive exhaustion once · +${window.UNDYING_WILL_FOCUS_BONUS} Focus max · +${window.UNDYING_WILL_XP_BONUS * 100}% XP
+            </div>
+          </div>
+        </div>
+        <div style="background:rgba(102,126,234,0.08);border:1px solid rgba(102,126,234,0.25);
+                    border-radius:12px;padding:14px 20px;text-align:left;display:flex;
+                    align-items:center;gap:14px;">
+          <div style="font-size:28px;">🏆</div>
+          <div>
+            <div style="font-family:'Cinzel',serif;font-size:13px;color:#667eea;font-weight:700;">
+              Legacy of the Champion
+            </div>
+            <div style="font-size:12px;color:#8892a4;margin-top:2px;">
+              All future characters inherit Champion's Aura (+5% XP) and Champion's Call
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button onclick="document.getElementById('prestige-unlock-overlay').remove()"
+        style="padding:14px 48px;background:linear-gradient(135deg,#c9a84c,#a07030);
+               border:none;border-radius:12px;color:white;font-size:16px;
+               font-weight:700;cursor:pointer;font-family:'Cinzel',serif;
+               box-shadow:0 8px 32px rgba(201,168,76,0.4);">
+        Claim Your Legend
+      </button>
+    </div>`;
+
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK INTO LEVEL-UP SYSTEM
+// ─────────────────────────────────────────────────────────────────────────
+setTimeout(() => {
+
+  // Apply prestige visuals if already level 20
+  if (window.isPrestige()) {
+    window.applyPrestigeVisuals();
+    window.applyUndyingWill();
+  }
+
+  // Show Champion's Call button if account has legacy
+  if (window.hasLegacy()) {
+    window.updateChampionsCallHUD();
+  }
+
+  // Hook level-up to trigger prestige unlock at L20
+  const origLevelUp = window.checkForLevelUp;
+  if (origLevelUp && !window._s24LevelHooked) {
+    window._s24LevelHooked = true;
+    window.checkForLevelUp = () => {
+      const levelBefore = window._lastKnownLevel || 1;
+      origLevelUp();
+      const levelAfter = window.getLevelData ? window.getLevelData(player.xp).level : 1;
+      if (levelAfter >= window.PRESTIGE_LEVEL && levelBefore < window.PRESTIGE_LEVEL) {
+        setTimeout(() => window.unlockPrestige(), 3000); // after level-up overlay
+      }
+    };
+  }
+
+  // Reset Champion's Call at episode start
+  const episodeScreen = document.getElementById('episodeSelection');
+  if (episodeScreen) {
+    new MutationObserver(() => {
+      if (episodeScreen.classList.contains('active')) {
+        if (player && player.activeEffects) {
+          player.activeEffects.championsCallUsed            = false;
+          player.activeEffects.undyingWillUsedThisEpisode   = false;
+        }
+        window.updateChampionsCallHUD();
+      }
+    }).observe(episodeScreen, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  console.log('✅ Prestige hooks attached');
+}, 3500);
+
+// ─────────────────────────────────────────────────────────────────────────
+// WIRE UNDYING WILL + CHAMPION'S AURA INTO SECTION 12 XP PATH
+// These are read by Section 12 via player flags
+// undyingWillActive  → handled in Section 12 focus path (like undyingActive)
+// accountPrestige    → +5% XP multiplier
+// accountPrestige on non-prestige char → +5% legacy XP (championsAura)
+// ─────────────────────────────────────────────────────────────────────────
+// Patch the awardXP flow via window hook
+const _origAwardXP = window.awardXP;
+if (typeof awardXP === 'function' && !window._s24XPPatched) {
+  window._s24XPPatched = true;
+  // We can't reassign closure const — instead we expose a multiplier
+  // that Section 12's awardXP call reads
+  window.getPrestigeXPMultiplier = () => {
+    if (!player) return 1;
+    // Prestige character — Undying Will +5%
+    if (window.isPrestige() && player.undyingWillActive) return 1.05;
+    // Legacy character — Champion's Aura +5%
+    if (window.hasLegacy() && !window.isPrestige()) return 1.05;
+    return 1;
+  };
+}
+
+console.log('✅ Section 24 COMPLETE — Prestige & Legacy System loaded');
+</script></p>
