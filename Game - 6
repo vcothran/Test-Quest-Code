@@ -1,0 +1,945 @@
+
+            <!-- Adaptive Difficulty Update -->
+            <div style="
+              background: rgba(52,73,94,0.6);
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #9b59b6; margin-bottom: 15px;">Next Challenge</h3>
+              <div style="color: #ecf0f1; font-size: 14px; margin-bottom: 10px;">
+                Difficulty Level: <span style="color: white; font-weight: bold;">${adaptiveDifficulty.currentLevel}/10</span>
+                ${consequences.difficultyAdjustment > 0  ? '<span style="color:#2ecc71;"> (+' + consequences.difficultyAdjustment + ' ⬆️)</span>' : ''}
+                ${consequences.difficultyAdjustment < 0  ? '<span style="color:#e74c3c;"> (' + consequences.difficultyAdjustment + ' ⬇️)</span>'  : ''}
+                ${consequences.difficultyAdjustment === 0 ? '<span style="color:#95a5a6;"> (maintained)</span>' : ''}
+              </div>
+              <div style="color: #95a5a6; font-size: 13px; font-style: italic;">
+                ${adaptiveDifficulty.getDifficultyDescriptor()}
+              </div>
+            </div>
+
+            <!-- Continue Button -->
+            <div style="text-align: center;">
+              <button id="return-to-episodes" class="game-btn" style="font-size: 18px; padding: 15px 40px;">
+                Choose Another Adventure
+              </button>
+            </div>
+          </div>
+        `;
+
+        document.getElementById('return-to-episodes').onclick = () => {
+          if (typeof showScreen === 'function') {
+            showScreen('episodeSelection');
+          } else {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            const epScreen = document.getElementById('episode-selection-screen');
+            if (epScreen) epScreen.classList.add('active');
+          }
+        };
+
+        if (typeof showScreen === 'function') {
+          showScreen('results');
+        } else {
+          document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+          const resScreen = document.getElementById('results-screen');
+          if (resScreen) {
+            resScreen.classList.add('active');
+          } else {
+            resultsContainer.style.display = 'block';
+          }
+        }
+      };
+
+      console.log('✅ Section 15 v2: Ending System + Cutscene support loaded');
+	
+/* === SECTION 16 v2: PLAYER PROFILE & CHARACTER STATS === */
+/* VKC-TQ-S16 — Volney Cothran / Test Quest / Section 16  */
+
+      // Create character stats toggle button
+      const createCharacterStatsToggle = () => {
+        if (document.getElementById('char-stats-toggle')) return;
+        
+        const toggleBtn = document.createElement('button');
+        toggleBtn.id = 'char-stats-toggle';
+        toggleBtn.style.cssText = `
+          position: fixed; top: 20px; left: 20px;
+          background: linear-gradient(145deg, #e67e22, #d35400);
+          border: 2px solid #f39c12; color: white;
+          padding: 10px 15px; border-radius: 8px; cursor: pointer;
+          font-family: 'Roboto', sans-serif; font-weight: bold; font-size: 14px;
+          z-index: 10000; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          transition: all 0.3s ease;
+        `;
+        toggleBtn.innerHTML = '📊 Character Stats';
+        toggleBtn.onclick = () => toggleCharacterStatsPanel();
+        document.body.appendChild(toggleBtn);
+      };
+
+      // Toggle character stats panel
+      const toggleCharacterStatsPanel = () => {
+        const panel = document.getElementById('char-stats-panel');
+        if (panel) {
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          if (panel.style.display === 'block') updateCharacterStatsPanel();
+        } else {
+          createCharacterStatsPanel();
+        }
+      };
+
+      // Public refresh hook called by updatePlayerStats
+      const updateCharacterStatsPanel = () => {
+        const panel = document.getElementById('char-stats-panel');
+        if (!panel || panel.style.display === 'none') return;
+        // Re-render the active tab
+        const activeTab = panel.getAttribute('data-active-tab') || 'stats';
+        if (activeTab === 'stats')    updateStatsTab();
+        if (activeTab === 'trophies') updateTrophiesTab();
+        if (activeTab === 'titles')   updateTitlesTab();
+        if (activeTab === 'portrait') updatePortraitTab();
+      };
+
+      // Create character stats panel with tabs
+      const createCharacterStatsPanel = () => {
+        let currentPlayer = player || window.player;
+        if (!currentPlayer || !currentPlayer.name) {
+          alert('Player data not loaded yet.');
+          return;
+        }
+        
+        const panel = document.createElement('div');
+        panel.id = 'char-stats-panel';
+        panel.setAttribute('data-active-tab', 'stats');
+        panel.style.cssText = `
+          position: fixed; top: 80px; left: 20px;
+          background: linear-gradient(145deg,#1a2035,#0d1117);
+          border: 2px solid #e67e22;
+          border-radius: 15px; padding: 20px; width: 300px;
+          max-height: 82vh; overflow-y: auto; z-index: 9999;
+          font-family: 'Roboto', sans-serif;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.6); cursor: move;
+        `;
+        
+        panel.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <h3 style="margin:0;color:#e67e22;font-family:'Cinzel',serif;font-size:15px;">📊 Character</h3>
+            <button id="close-stats" style="background:#e74c3c;color:white;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px;">✕</button>
+          </div>
+          
+          <!-- Tabs -->
+          <div style="display:flex;gap:3px;margin-bottom:14px;border-bottom:1px solid #2c3e50;padding-bottom:10px;">
+            <button id="tab-stats"    class="s16-tab" data-tab="stats"    style="flex:1;">Stats</button>
+            <button id="tab-portrait" class="s16-tab" data-tab="portrait" style="flex:1;">Portrait</button>
+            <button id="tab-titles"   class="s16-tab" data-tab="titles"   style="flex:1;">Titles</button>
+            <button id="tab-trophies" class="s16-tab" data-tab="trophies" style="flex:1;">Trophies</button>
+          </div>
+          
+          <div id="content-stats"></div>
+          <div id="content-portrait" style="display:none;"></div>
+          <div id="content-titles"   style="display:none;"></div>
+          <div id="content-trophies" style="display:none;"></div>
+
+          <style>
+            .s16-tab {
+              background:transparent;color:#95a5a6;border:none;
+              padding:7px 4px;cursor:pointer;border-bottom:3px solid transparent;
+              font-size:11px;font-family:'Cinzel',serif;letter-spacing:0.5px;
+              transition:all 0.2s;
+            }
+            .s16-tab.active {
+              color:#e67e22;border-bottom:3px solid #e67e22;font-weight:bold;
+            }
+            .s16-tab:hover { color:#ecf0f1; }
+          </style>
+        `;
+        
+        document.body.appendChild(panel);
+        
+        // Close button
+        document.getElementById('close-stats').onclick = (e) => {
+          e.stopPropagation();
+          panel.style.display = 'none';
+        };
+        
+        // Tab switching
+        panel.querySelectorAll('.s16-tab').forEach(btn => {
+          btn.onclick = () => switchTab(btn.getAttribute('data-tab'));
+        });
+
+        // Draggable
+        let dragging = false, startX, startY;
+        panel.onmousedown = (e) => {
+          if (e.target.tagName === 'BUTTON' || e.target.tagName === 'IMG') return;
+          dragging = true;
+          startX = e.clientX - panel.offsetLeft;
+          startY = e.clientY - panel.offsetTop;
+        };
+        document.onmousemove = (e) => {
+          if (dragging) {
+            panel.style.left = (e.clientX - startX) + 'px';
+            panel.style.top  = (e.clientY - startY) + 'px';
+          }
+        };
+        document.onmouseup = () => dragging = false;
+        
+        switchTab('stats');
+      };
+
+      // Switch tabs
+      const switchTab = (tab) => {
+        const panel = document.getElementById('char-stats-panel');
+        if (panel) panel.setAttribute('data-active-tab', tab);
+
+        ['stats','portrait','titles','trophies'].forEach(t => {
+          const btn = document.getElementById(`tab-${t}`);
+          const content = document.getElementById(`content-${t}`);
+          if (btn)     btn.classList.toggle('active', t === tab);
+          if (content) content.style.display = t === tab ? 'block' : 'none';
+        });
+
+        if (tab === 'stats')    updateStatsTab();
+        if (tab === 'portrait') updatePortraitTab();
+        if (tab === 'titles')   updateTitlesTab();
+        if (tab === 'trophies') updateTrophiesTab();
+      };
+
+      // ─────────────────────────────────────────────────────────────────────
+      // STATS TAB
+      // ─────────────────────────────────────────────────────────────────────
+      const updateStatsTab = () => {
+        const content = document.getElementById('content-stats');
+        if (!content) return;
+
+        // Use proper level curve from Section 18
+        const levelData   = window.getLevelData ? window.getLevelData(player.xp || 0) : null;
+        const level       = levelData ? levelData.level : Math.floor((player.xp || 0) / 100) + 1;
+        const levelTitle  = levelData ? levelData.title : '';
+        const progress    = levelData ? levelData.progressToNext : 0;
+        const maxFocus    = window.getMaxFocus ? window.getMaxFocus(level) : 100;
+        const isPrestige  = window.isPrestige ? window.isPrestige() : false;
+        const hasLegacy   = window.hasLegacy  ? window.hasLegacy()  : false;
+
+        // Equipped title
+        const equippedTitleId = player.equippedTitle || null;
+        const titleDef = equippedTitleId && window.TITLE_DEFINITIONS
+          ? window.TITLE_DEFINITIONS.find(t => t.id === equippedTitleId)
+          : null;
+
+        // Login streak
+        const loginStreak = player.loginStreak || 0;
+
+        // Ability upgrades summary
+        const upgrades = player.abilityUpgrades || {};
+        const upgradeLines = [upgrades.tier1, upgrades.tier2, upgrades.tier3]
+          .filter(Boolean)
+          .map(id => {
+            const all = window.ABILITY_UPGRADES || {};
+            const className = player.className;
+            if (all[className]) {
+              for (const tier of [5,10,15]) {
+                const found = (all[className][tier] || []).find(u => u.id === id);
+                if (found) return `${found.icon} ${found.name}`;
+              }
+            }
+            return id;
+          });
+
+        let avatar = '⚔️';
+        if (typeof getClassAvatar === 'function') avatar = getClassAvatar(player.className);
+
+        // Difficulty & reputation
+        let diffLevel = 5, diffDesc = 'Standard';
+        if (typeof adaptiveDifficulty !== 'undefined' && adaptiveDifficulty) {
+          diffLevel = adaptiveDifficulty.currentLevel || 5;
+          if (typeof adaptiveDifficulty.getDifficultyDescriptor === 'function')
+            diffDesc = adaptiveDifficulty.getDifficultyDescriptor();
+        }
+        let repValue = 0, repTitle = 'Apprentice';
+        if (typeof reputationSystem !== 'undefined' && reputationSystem) {
+          if (typeof reputationSystem.getReputation === 'function') repValue = reputationSystem.getReputation();
+          if (typeof reputationSystem.getTitle === 'function')      repTitle = reputationSystem.getTitle();
+        }
+        const diffPercent = (diffLevel / 10) * 100;
+        const repPercent  = ((repValue + 100) / 200) * 100;
+
+        content.innerHTML = `
+          <!-- Header with avatar -->
+          <div style="text-align:center;margin-bottom:16px;padding:16px;
+                      background:rgba(52,73,94,0.4);border-radius:12px;
+                      border:1px solid ${isPrestige ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.06)'};">
+            <div style="font-size:36px;margin-bottom:6px;">${avatar}</div>
+            <div style="font-size:17px;font-weight:bold;color:${isPrestige ? '#c9a84c' : '#ecf0f1'};
+                        font-family:'Cinzel',serif;">
+              ${player.name}
+              ${isPrestige ? '<span style="font-size:10px;background:#c9a84c;color:#000;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;">LEGEND</span>' : ''}
+            </div>
+            <div style="font-size:12px;color:#95a5a6;margin-top:2px;">${player.className}</div>
+            ${titleDef ? `<div style="font-size:11px;color:#c9a84c;font-style:italic;margin-top:4px;font-family:'Cinzel',serif;">${titleDef.name}</div>` : ''}
+            ${hasLegacy && !isPrestige ? '<div style="font-size:10px;color:#667eea;margin-top:4px;">👑 Champion\'s Legacy</div>' : ''}
+          </div>
+
+          <!-- Level & XP -->
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <span style="color:#3498db;font-weight:bold;font-size:16px;">Level ${level}</span>
+              <span style="color:#95a5a6;font-size:11px;">${player.xp || 0} XP</span>
+            </div>
+            ${levelTitle ? `<div style="font-size:11px;color:#8892a4;margin-bottom:8px;font-style:italic;">${levelTitle}</div>` : ''}
+            <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-bottom:4px;">
+              <div style="height:100%;background:linear-gradient(90deg,#3498db,#667eea);
+                          width:${progress}%;transition:width 0.3s;border-radius:3px;"></div>
+            </div>
+            <div style="font-size:10px;color:#4a5568;text-align:right;">${progress}% to next level</div>
+          </div>
+
+          <!-- Focus -->
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#2ecc71;font-size:13px;font-weight:bold;">Focus</span>
+              <span style="color:#ecf0f1;font-size:14px;font-weight:bold;">${player.focus || 0} / ${maxFocus}</span>
+            </div>
+            <div style="height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-top:8px;">
+              <div style="height:100%;background:linear-gradient(90deg,#2ecc71,#27ae60);
+                          width:${Math.min(100, ((player.focus || 0) / maxFocus) * 100)}%;
+                          transition:width 0.3s;border-radius:3px;"></div>
+            </div>
+          </div>
+
+          <!-- Ability Upgrades -->
+          ${upgradeLines.length ? `
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="color:#f39c12;font-size:12px;font-weight:bold;margin-bottom:8px;font-family:'Cinzel',serif;">⚡ Ability Upgrades</div>
+            ${upgradeLines.map(u => `<div style="font-size:12px;color:#ecf0f1;padding:3px 0;">${u}</div>`).join('')}
+          </div>` : ''}
+
+          <!-- Login Streak -->
+          ${loginStreak > 0 ? `
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:#c9a84c;font-size:12px;font-weight:bold;">📅 Login Streak</span>
+              <span style="color:#ecf0f1;font-size:13px;font-weight:bold;">${loginStreak} day${loginStreak !== 1 ? 's' : ''}</span>
+            </div>
+            ${player.longestStreak > loginStreak ? `<div style="font-size:10px;color:#4a5568;margin-top:4px;">Best: ${player.longestStreak} days</div>` : ''}
+          </div>` : ''}
+
+          <!-- Adaptive Difficulty -->
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="color:#f39c12;font-size:12px;font-weight:bold;margin-bottom:8px;">⚙️ Adaptive Difficulty</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;">
+                <div style="height:100%;background:linear-gradient(90deg,#2ecc71,#f39c12,#e74c3c);
+                            width:${diffPercent}%;transition:width 0.3s;border-radius:3px;"></div>
+              </div>
+              <span style="color:#f39c12;font-size:13px;font-weight:bold;">${diffLevel}/10</span>
+            </div>
+            <div style="color:#95a5a6;font-size:11px;margin-top:6px;">${diffDesc}</div>
+          </div>
+
+          <!-- Reputation -->
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:14px;">
+            <div style="color:#9b59b6;font-size:12px;font-weight:bold;margin-bottom:8px;">👑 Reputation: ${repTitle}</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;">
+                <div style="height:100%;background:linear-gradient(90deg,#e74c3c,#95a5a6,#2ecc71);
+                            width:${repPercent}%;transition:width 0.3s;border-radius:3px;"></div>
+              </div>
+              <span style="color:#9b59b6;font-size:12px;">${repValue}</span>
+            </div>
+          </div>
+        `;
+      };
+
+      // ─────────────────────────────────────────────────────────────────────
+      // PORTRAIT TAB
+      // ─────────────────────────────────────────────────────────────────────
+      const updatePortraitTab = () => {
+        const content = document.getElementById('content-portrait');
+        if (!content) return;
+
+        const portraitUrl = player.currentPortraitUrl || null;
+        const level = window.getLevelData ? window.getLevelData(player.xp || 0).level : 1;
+
+        content.innerHTML = `
+          <div style="text-align:center;margin-bottom:16px;">
+            ${portraitUrl
+              ? `<img src="${portraitUrl}"
+                   style="width:100%;max-width:220px;border-radius:12px;
+                          border:3px solid #c9a84c;
+                          box-shadow:0 8px 32px rgba(0,0,0,0.5);
+                          cursor:pointer;"
+                   onclick="window.viewPortraitFull && window.viewPortraitFull('${portraitUrl}','${player.name}','Level ${level}')"
+                   title="Click to view full size">`
+              : `<div style="width:160px;height:200px;border-radius:12px;
+                             border:2px dashed rgba(255,255,255,0.12);
+                             display:flex;align-items:center;justify-content:center;
+                             margin:0 auto;color:#4a5568;font-size:13px;
+                             flex-direction:column;gap:8px;">
+                   <div style="font-size:32px;">🎨</div>
+                   <div>No portrait yet</div>
+                 </div>`
+            }
+          </div>
+
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="font-family:'Cinzel',serif;font-size:15px;color:#c9a84c;font-weight:700;">
+              ${player.name}
+            </div>
+            <div style="font-size:11px;color:#8892a4;margin-top:3px;">
+              Level ${level} ${player.className}
+            </div>
+          </div>
+
+          <!-- Portrait details -->
+          ${player.portraitDescription ? `
+          <div style="background:rgba(52,73,94,0.4);border-radius:10px;padding:12px;margin-bottom:12px;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;
+                        color:#667eea;margin-bottom:8px;font-family:'Cinzel',serif;">Portrait Details</div>
+            ${player.portraitHair   ? `<div style="font-size:11px;color:#8892a4;margin-bottom:3px;">💇 ${player.portraitHair}</div>` : ''}
+            ${player.portraitEyes   ? `<div style="font-size:11px;color:#8892a4;margin-bottom:3px;">👁 ${player.portraitEyes}</div>` : ''}
+            ${player.portraitSkin   ? `<div style="font-size:11px;color:#8892a4;margin-bottom:3px;">✨ ${player.portraitSkin} skin</div>` : ''}
+          </div>` : ''}
+
+          <!-- Portrait actions -->
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button onclick="window.showPortraitGallery && window.showPortraitGallery()"
+              style="padding:10px;background:linear-gradient(135deg,#2c3e50,#34495e);
+                     border:1px solid rgba(255,255,255,0.1);border-radius:8px;
+                     color:#ecf0f1;font-size:12px;cursor:pointer;
+                     font-family:'Cinzel',serif;">
+              🖼️ Portrait Hall
+            </button>
+            <button onclick="window.requestPortraitRegen && window.requestPortraitRegen()"
+              style="padding:10px;background:rgba(102,126,234,0.12);
+                     border:1px solid rgba(102,126,234,0.3);border-radius:8px;
+                     color:#667eea;font-size:12px;cursor:pointer;
+                     font-family:'Cinzel',serif;">
+              🔄 Request New Portrait (${window.PORTRAIT_REGEN_COST || 25} XP)
+            </button>
+          </div>
+        `;
+      };
+
+      // ─────────────────────────────────────────────────────────────────────
+      // TITLES TAB
+      // ─────────────────────────────────────────────────────────────────────
+      const updateTitlesTab = () => {
+        const content = document.getElementById('content-titles');
+        if (!content) return;
+
+        const ownedTitles  = (player.titles  || []);
+        const ownedBadges  = (player.badges  || []);
+        const equippedId   = player.equippedTitle || null;
+        const titleDefs    = window.TITLE_DEFINITIONS || [];
+        const badgeDefs    = window.BADGE_DEFINITIONS || [];
+
+        const titlesHtml = titleDefs
+          .filter(t => !t.secret || ownedTitles.includes(t.id))
+          .map(t => {
+            const owned     = ownedTitles.includes(t.id);
+            const isEquipped = equippedId === t.id;
+            return `
+              <div style="background:${owned ? 'rgba(201,168,76,0.06)' : 'rgba(255,255,255,0.02)'};
+                          border:1px solid ${owned ? 'rgba(201,168,76,0.25)' : 'rgba(255,255,255,0.05)'};
+                          border-radius:8px;padding:10px 12px;margin-bottom:6px;
+                          opacity:${owned ? '1' : '0.35'};
+                          display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-family:'Cinzel',serif;font-size:12px;
+                              color:${owned ? '#c9a84c' : '#4a5568'};font-weight:700;">
+                    ${t.name}
+                    ${isEquipped ? '<span style="font-size:9px;background:#c9a84c;color:#000;padding:1px 5px;border-radius:3px;margin-left:4px;">ON</span>' : ''}
+                  </div>
+                  <div style="font-size:10px;color:#4a5568;margin-top:2px;">${owned ? t.desc : '???'}</div>
+                </div>
+                ${owned && !isEquipped
+                  ? `<button onclick="window.equipTitle && window.equipTitle('${t.id}')"
+                       style="padding:4px 10px;background:rgba(201,168,76,0.15);
+                              border:1px solid rgba(201,168,76,0.3);border-radius:5px;
+                              color:#c9a84c;font-size:10px;cursor:pointer;
+                              font-family:'Cinzel',serif;white-space:nowrap;">Equip</button>`
+                  : ''}
+              </div>`;
+          }).join('');
+
+        const badgesHtml = badgeDefs.map(b => {
+          const owned = ownedBadges.includes(b.id);
+          return `
+            <div style="text-align:center;opacity:${owned ? '1' : '0.2'};"
+                 title="${owned ? b.desc : 'Not yet earned'}">
+              <div style="font-size:28px;filter:${owned ? 'none' : 'grayscale(1)'};">${b.icon}</div>
+              <div style="font-size:9px;color:${owned ? '#c9a84c' : '#4a5568'};
+                          font-family:'Cinzel',serif;margin-top:3px;">
+                ${owned ? b.name : '???'}
+              </div>
+            </div>`;
+        }).join('');
+
+        content.innerHTML = `
+          <div style="font-size:11px;color:#8892a4;margin-bottom:10px;">
+            ${ownedTitles.length} titles · ${ownedBadges.length} badges earned
+          </div>
+
+          <div style="font-family:'Cinzel',serif;font-size:10px;text-transform:uppercase;
+                      letter-spacing:1px;color:#667eea;margin-bottom:8px;">Titles</div>
+          <div style="margin-bottom:16px;">
+            ${titlesHtml || '<div style="color:#4a5568;font-size:12px;font-style:italic;">No titles yet</div>'}
+          </div>
+
+          <div style="font-family:'Cinzel',serif;font-size:10px;text-transform:uppercase;
+                      letter-spacing:1px;color:#667eea;margin-bottom:8px;">Badges</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+            ${badgesHtml}
+          </div>
+        `;
+      };
+
+      // ─────────────────────────────────────────────────────────────────────
+      // TROPHIES TAB
+      // ─────────────────────────────────────────────────────────────────────
+      const updateTrophiesTab = () => {
+        const content = document.getElementById('content-trophies');
+        if (!content) return;
+        
+        const trophies = {
+          legLamp:      { icon: '🦵💡', name: 'Leg Lamp',       desc: '+25 Focus, next error forgiven',   color: '#f39c12' },
+          eternalTorch: { icon: '🔥',   name: 'Eternal Torch',  desc: '+25 Focus, 2x XP next question',   color: '#e74c3c' },
+          liquidShadow: { icon: '🗡️',   name: 'Liquid Shadow',  desc: '+25 Focus, auto-correct next',      color: '#9b59b6' },
+          playbook:     { icon: '📖',   name: 'Playbook',       desc: '+25 Focus, eliminate 2, +50% XP',   color: '#3498db' },
+          phoenixTear:  { icon: '🔮',   name: 'Phoenix Tear',   desc: 'Overcharge Focus to 125',           color: '#2ecc71' }
+        };
+        
+        const hasTrophies = player.inventory &&
+          (player.inventory.lastStandTrophy ||
+          (player.inventory.consumables && player.inventory.consumables.length > 0));
+
+        if (!hasTrophies) {
+          content.innerHTML = `
+            <div style="text-align:center;padding:30px 20px;color:#95a5a6;">
+              <div style="font-size:40px;margin-bottom:12px;">🏆</div>
+              <div style="color:#ecf0f1;font-size:14px;margin-bottom:6px;">No Trophies Yet</div>
+              <div style="font-size:12px;">Push through at 0 Focus to earn a Last Stand trophy!</div>
+            </div>`;
+          return;
+        }
+
+        let html = '<div style="font-family:\'Cinzel\',serif;font-size:12px;color:#f39c12;margin-bottom:12px;">🏆 Trophy Collection</div>';
+
+        if (player.inventory.lastStandTrophy) {
+          const trophy = trophies[player.inventory.lastStandTrophy];
+          if (trophy) {
+            html += `
+              <div style="background:rgba(52,73,94,0.5);border:2px solid ${trophy.color};
+                          border-radius:10px;padding:14px;margin-bottom:10px;">
+                <div style="display:flex;gap:12px;margin-bottom:10px;align-items:center;">
+                  <div style="font-size:32px;">${trophy.icon}</div>
+                  <div>
+                    <div style="font-size:14px;font-weight:bold;color:${trophy.color};">${trophy.name}</div>
+                    <div style="font-size:11px;color:#bdc3c7;margin-top:2px;">${trophy.desc}</div>
+                  </div>
+                </div>
+                <button onclick="useTrophy('${player.inventory.lastStandTrophy}', 'lastStandTrophy')"
+                  style="width:100%;padding:8px;background:${trophy.color};border:none;
+                         color:white;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">
+                  ⚡ Use Trophy
+                </button>
+              </div>`;
+          }
+        }
+
+        content.innerHTML = html;
+      };
+
+      // Use trophy
+      const useTrophy = (trophyId, key) => {
+        const challengeBox = document.getElementById('challenge-box');
+        if (!challengeBox || challengeBox.style.display === 'none') {
+          alert('Trophies can only be used during challenges!');
+          return;
+        }
+        
+        switch (trophyId) {
+          case 'legLamp':
+            player.focus += 25;
+            player.activeEffects.forgivenError = true;
+            showNotification('🦵💡 Leg Lamp: Next error forgiven!', 'ability-used');
+            break;
+          case 'eternalTorch':
+            player.focus += 25;
+            player.activeEffects.doubleXPNext = true;
+            showNotification('🔥 Eternal Torch: 2x XP next!', 'ability-used');
+            break;
+          case 'liquidShadow':
+            player.focus += 25;
+            player.activeEffects.autoCorrectNext = true;
+            showNotification('🗡️ Liquid Shadow: Auto-correct next!', 'ability-used');
+            break;
+          case 'playbook':
+            player.focus += 25;
+            player.activeEffects.bonusXP = 1.5;
+            player.activeEffects.bonusXPDuration = 3;
+            const q = currentQuestionSet[currentQuestionIndex];
+            if (q) {
+              const wrong = [];
+              q.options.forEach((opt, i) => {
+                if (i !== q.correct && !player.activeEffects.eliminatedAnswers.includes(i)) wrong.push(i);
+              });
+              wrong.slice(0, 2).forEach(i => player.activeEffects.eliminatedAnswers.push(i));
+              if (typeof applyEliminatedAnswers === 'function') applyEliminatedAnswers();
+            }
+            showNotification('📖 Playbook: +50% XP, 2 eliminated!', 'ability-used');
+            break;
+          case 'phoenixTear':
+            player.focus = 125;
+            player.activeEffects.phoenixTearActive = true;
+            showNotification('🔮 Phoenix Tear: Overcharged!', 'ability-used');
+            break;
+        }
+        
+        if (key === 'lastStandTrophy') player.inventory.lastStandTrophy = null;
+        else if (player.inventory.consumables) {
+          player.inventory.consumables = player.inventory.consumables.filter(c => c !== trophyId);
+        }
+
+        updatePlayerStats();
+        updateTrophiesTab();
+        document.getElementById('char-stats-panel').style.display = 'none';
+        if (typeof savePlayerProgress === 'function') savePlayerProgress();
+      };
+
+      console.log('✅ Section 16 v2: Character Stats loaded');
+
+      // Auto-create toggle button
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createCharacterStatsToggle);
+      } else {
+        setTimeout(createCharacterStatsToggle, 100);
+      }
+	
+/* === SECTION 17: AI NARRATIVE GENERATION (via Cloud Function) === */
+/* v4: generateEncounterTransition added after generateEpisodeOpening */
+/*     Diamond loader uses dedicated #narrative-loader div            */
+/*     narrative-text is NEVER touched with innerHTML                 */
+/* ================================================================== */
+
+      // CSS animations
+      const streakAnimStyle = document.createElement('style');
+      streakAnimStyle.textContent = `
+        @keyframes slideDown {
+          from { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+          to   { transform: translateX(-50%) translateY(0);      opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateX(-50%) translateY(0);      opacity: 1; }
+          to   { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+        }
+        @keyframes diamondPulse {
+          0%   { transform: rotate(45deg) scale(1);   opacity: 1; }
+          50%  { transform: rotate(45deg) scale(1.3); opacity: 0.6; }
+          100% { transform: rotate(45deg) scale(1);   opacity: 1; }
+        }
+        @keyframes diamondOrbit {
+          0%   { transform: rotate(0deg)   translateX(28px) rotate(0deg); }
+          100% { transform: rotate(360deg) translateX(28px) rotate(-360deg); }
+        }
+        @keyframes narrativeFadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .diamond-loader-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 16px 0 8px 0;
+          gap: 14px;
+        }
+        .diamond-loader-rig {
+          position: relative;
+          width: 64px;
+          height: 64px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .diamond-center {
+          width: 20px;
+          height: 20px;
+          background: linear-gradient(135deg, #f39c12, #e74c3c);
+          transform: rotate(45deg);
+          animation: diamondPulse 1.2s ease-in-out infinite;
+          box-shadow: 0 0 12px rgba(243,156,18,0.7);
+          border-radius: 2px;
+        }
+        .diamond-orbit {
+          position: absolute;
+          top: 50%; left: 50%;
+          width: 8px; height: 8px;
+          margin: -4px 0 0 -4px;
+          background: #f39c12;
+          transform: rotate(45deg);
+          border-radius: 1px;
+          animation: diamondOrbit 1.4s linear infinite;
+          box-shadow: 0 0 6px rgba(243,156,18,0.8);
+        }
+        .diamond-orbit:nth-child(2) { animation-delay: -0.35s; background: #e74c3c; }
+        .diamond-orbit:nth-child(3) { animation-delay: -0.70s; background: #9b59b6; }
+        .diamond-orbit:nth-child(4) { animation-delay: -1.05s; background: #3498db; }
+        .diamond-loader-label {
+          color: #bdc3c7;
+          font-size: 13px;
+          font-style: normal;
+          letter-spacing: 0.05em;
+          opacity: 0.85;
+        }
+        #narrative-text.narrative-ready {
+          animation: narrativeFadeIn 0.6s ease-out;
+        }
+      `;
+      document.head.appendChild(streakAnimStyle);
+
+      // ─────────────────────────────────────────────────────────────
+      // NARRATIVE STATE
+      // ─────────────────────────────────────────────────────────────
+      let episodeNarrative = {
+        genre:               '',
+        episodeTitle:        '',
+        episodeDescription:  '',
+        openingNarrative:    '',
+        questionNarratives:  [],
+        playerActions:       [],
+        storyBeats:          [],
+        tonalShift:          'neutral',
+        sessionPerspective:  '',
+        sessionAtmosphere:   '',
+        sessionHook:         '',
+        sessionStyle:        ''
+      };
+
+      const narrativeSeeds = {
+        perspectives: [
+          'from the perspective of a reluctant hero thrust into destiny',
+          'through the eyes of a seasoned veteran who has seen it all',
+          'as a young prodigy proving themselves for the first time',
+          'as an outsider who has earned their place through sheer determination',
+          'as someone returning after a long absence to face old challenges',
+          'as an unlikely champion chosen by fate rather than birth'
+        ],
+        atmospheres: [
+          'The air crackles with electric anticipation.',
+          'An eerie stillness hangs over everything.',
+          'A distant storm brews on the horizon.',
+          'Ancient energy pulses through the ground itself.',
+          'The world holds its breath in this pivotal moment.',
+          'Something has shifted — the stakes have never felt higher.',
+          'A rare convergence of forces has made this moment possible.',
+          'The threads of fate have drawn everything to this point.'
+        ],
+        openingHooks: [
+          'Begin with an unexpected complication that sets the tone',
+          'Open with a sensory detail that grounds the player in the world',
+          'Start with a revelation that reframes everything that follows',
+          'Begin mid-action, dropping the player into the heart of things',
+          'Open with a question that the episode will answer',
+          'Start with a character moment that establishes personal stakes'
+        ],
+        styleVariants: [
+          'Write in a lyrical, poetic style with vivid imagery',
+          'Write in a terse, urgent style that builds immediate tension',
+          'Write in a warm, storyteller style as if around a campfire',
+          'Write in a cinematic style with sharp scene-setting',
+          'Write in an epic, mythic style befitting legends',
+          'Write in an intimate style that focuses on personal emotion'
+        ]
+      };
+
+      const randomSeed = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+      // ─────────────────────────────────────────────────────────────
+      // HELPERS
+      // ─────────────────────────────────────────────────────────────
+      const getEpisodeDescription = (episode) => {
+        if (episode.encounters && episode.encounters.length > 0 && episode.encounters[0].narrative) {
+          return episode.encounters[0].narrative
+            .replace(/^Episode Description:\s*/i, '')
+            .trim();
+        }
+        return '';
+      };
+
+      const resetEpisodeNarrative = (episode) => {
+        episodeNarrative = {
+          genre:                    episode.genre || episode.theme || 'Fantasy',
+          episodeTitle:             episode.title || 'Unknown Quest',
+          episodeDescription:       getEpisodeDescription(episode),
+          currentEncounterTitle:    episode.encounters && episode.encounters[0] ? (episode.encounters[0].title || '') : '',
+          currentEncounterNarrative:getEpisodeDescription(episode),
+          currentEncounterIndex:    0,
+          openingNarrative:         '',
+          questionNarratives:       [],
+          playerActions:            [],
+          storyBeats:               [],
+          tonalShift:               'neutral',
+          sessionPerspective:       randomSeed(narrativeSeeds.perspectives),
+          sessionAtmosphere:        randomSeed(narrativeSeeds.atmospheres),
+          sessionHook:              randomSeed(narrativeSeeds.openingHooks),
+          sessionStyle:             randomSeed(narrativeSeeds.styleVariants)
+        };
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // DIAMOND LOADER — writes to #narrative-loader ONLY
+      // narrative-text is never touched here
+      // ─────────────────────────────────────────────────────────────
+      const showNarrativeLoading = (message = 'Conjuring your story…') => {
+        const loader = document.getElementById('narrative-loader');
+        if (!loader) return;
+        loader.innerHTML = `
+          <div class="diamond-loader-wrap">
+            <div class="diamond-loader-rig">
+              <div class="diamond-center"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+              <div class="diamond-orbit"></div>
+            </div>
+            <div class="diamond-loader-label">♦ ${message} ♦</div>
+          </div>`;
+        loader.style.display = 'block';
+
+        const narrativeEl = document.getElementById('narrative-text');
+        if (narrativeEl) narrativeEl.textContent = '';
+      };
+
+      const hideNarrativeLoading = () => {
+        const loader = document.getElementById('narrative-loader');
+        if (loader) {
+          loader.innerHTML = '';
+          loader.style.display = 'none';
+        }
+      };
+
+      // Write final narrative — only ever uses textContent, never innerHTML
+      const displayNarrative = (narrative, type = 'opening') => {
+        const el = document.getElementById('narrative-text');
+        if (!el) { console.warn('narrative-text element not found'); return; }
+
+        hideNarrativeLoading();
+
+        el.style.fontStyle  = 'normal';
+        el.style.fontSize   = type === 'opening' ? '15px' : '14px';
+        el.style.color      = type === 'opening' ? '#ecf0f1' : '#dfe6e9';
+        el.style.lineHeight = '1.7';
+
+        el.textContent = narrative;
+
+        el.classList.remove('narrative-ready');
+        void el.offsetWidth;
+        el.classList.add('narrative-ready');
+      };
+
+      const trackPlayerAction = (action) => {
+        episodeNarrative.playerActions.push(action);
+        if (episodeNarrative.playerActions.length > 10) episodeNarrative.playerActions.shift();
+      };
+
+      const updateTonalShift = () => {
+        const accuracy     = sessionStats.calculateAccuracy();
+        const focusPercent = player.focus || 0;
+        if      (accuracy >= 80 && focusPercent >= 70) episodeNarrative.tonalShift = 'triumphant';
+        else if (accuracy >= 60 && focusPercent >= 50) episodeNarrative.tonalShift = 'hopeful';
+        else if (accuracy <  40 || focusPercent <  30) episodeNarrative.tonalShift = 'desperate';
+        else                                            episodeNarrative.tonalShift = 'tense';
+      };
+
+      const callNarrativeFunction = async (promptText, maxTokens = 300) => {
+        const generateNarrative = httpsCallable(functions, 'generateNarrative');
+        const result = await generateNarrative({
+          requestData: { model: 'claude-sonnet-4-5', maxTokens, promptText }
+        });
+        if (result.data && result.data.success && result.data.data && result.data.data.content) {
+          return result.data.data.content
+            .filter(item => item.type === 'text')
+            .map(item => item.text)
+            .join('\n\n')
+            .replace(/\*\*/g, '')
+            .trim();
+        }
+        throw new Error('Invalid response from Cloud Function');
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // EPISODE OPENING
+      // ─────────────────────────────────────────────────────────────
+      const generateEpisodeOpening = async (episode) => {
+        console.log('Generating episode opening via Cloud Function...');
+
+        showNarrativeLoading('Conjuring your story…');
+
+        try {
+          const desc  = getEpisodeDescription(episode);
+          const level = Math.floor((player.xp || 0) / 100) + 1;
+
+          let reputation = 'Apprentice';
+          if (typeof reputationSystem !== 'undefined' && reputationSystem.reputation != null) {
+            const r = reputationSystem.reputation;
+            if      (r >= 75) reputation = 'Legend';
+            else if (r >= 50) reputation = 'Master';
+            else if (r >= 25) reputation = 'Expert';
+            else if (r >=  0) reputation = 'Journeyman';
+          }
+
+          const totalQ = episode.encounters
+            ? episode.encounters.reduce((sum, enc) => sum + (enc.qCount || enc.questionsPerApproach || 0), 0)
+            : 5;
+
+          const prompt = `You are the Dungeon Master for Test Quest, an educational adventure game. Generate a unique, engaging opening narrative for this episode. Every playthrough must feel fresh and different.
+
+EPISODE CONTEXT:
+- Genre: ${episodeNarrative.genre}
+- Episode Title: "${episodeNarrative.episodeTitle}"
+- Episode Description: "${desc}"
+- Player: ${player.name}, a Level ${level} ${player.className}
+- Reputation: ${reputation}
+- Difficulty: ${adaptiveDifficulty ? adaptiveDifficulty.currentLevel : 5}/10
+- Challenges Ahead: ${totalQ} trials
+
+NARRATIVE DIRECTION (follow these to make this playthrough unique):
+- Character Framing: Tell this ${episodeNarrative.sessionPerspective}
+- Atmosphere: ${episodeNarrative.sessionAtmosphere}
+- Opening Approach: ${episodeNarrative.sessionHook}
+- Writing Style: ${episodeNarrative.sessionStyle}
+
+CONTENT REQUIREMENTS:
+- Write 2-3 paragraphs in ${episodeNarrative.genre} style
+- Draw directly from the Episode Description — use its specific details, characters, and setting
+- Address the player as ${player.name} and acknowledge their ${player.className} class
+- Reference specific elements from the description (locations, characters, events mentioned)
+- Set up the stakes described in the episode
+- Hint at the ${totalQ} challenges ahead without calling them "questions"
+- Match tone to their reputation level (${reputation})
+- Keep it immersive and exciting
+- NO meta-references to "questions", "answers", or "game mechanics"
+- Make this feel completely different from a standard opening
+
+Generate the opening narrative now:`;
+
+          console.log('=== Calling Cloud Function ===');
+          console.log('Sending prompt (length):', prompt.length);
+          console.log('Episode description:', desc.substring(0, 100) + '...');
+          console.log('Narrative seeds:', episodeNarrative.sessionPerspective, '|', episodeNarrative.sessionAtmosphere);
+
+          const narrative = await callNarrativeFunction(prompt, 600);
+
+          episodeNarrative.openingNarrative = narrative;
+          displayNarrative(narrative, 'opening');
+          console.log('AI opening displayed successfully');
+          return narrative;
+
+        } catch (error) {
+          console.error('AI opening generation failed:', error);
+          hideNarrativeLoading();
+          const fallback = generateTemplateOpening(episode);
+          episodeNarrative.openingNarrative = fallback;
+          displayNarrative(fallback, 'opening');
+          return fallback;
+        }
+      };
