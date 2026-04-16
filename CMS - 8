@@ -1,0 +1,1080 @@
+
+// ================================================
+// SETTINGS PAGE MANAGEMENT
+// ================================================
+
+CMSApp.prototype.loadSettingsPage = function() {
+  console.log('⚙️ Loading settings page...');
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  if (apiKeyInput) {
+    const storedKey = this.getStoredApiKey();
+    apiKeyInput.value = storedKey || '';
+  }
+  const settings = this.getParserSettings();
+  const extractionModeSelect = document.getElementById('default-extraction-mode');
+  const maxPagesSelect       = document.getElementById('max-pdf-pages');
+  const multiPassCheckbox    = document.getElementById('enable-multi-pass');
+  const autoDetectCheckbox   = document.getElementById('auto-detect-test-type');
+  if (extractionModeSelect) extractionModeSelect.value    = settings.defaultExtractionMode;
+  if (maxPagesSelect)       maxPagesSelect.value          = settings.maxPdfPages;
+  if (multiPassCheckbox)    multiPassCheckbox.checked     = settings.enableMultiPass;
+  if (autoDetectCheckbox)   autoDetectCheckbox.checked    = settings.autoDetectTestType;
+  this.updateApiKeyStatus();
+  this.attachSettingsEventListeners();
+  this.updateStorageUsage();
+  console.log('✅ Settings page loaded');
+};
+
+CMSApp.prototype.attachSettingsEventListeners = function() {
+  const toggleBtn   = document.getElementById('toggle-api-key-visibility');
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  if (toggleBtn && apiKeyInput) {
+    toggleBtn.addEventListener('click', () => {
+      if (apiKeyInput.type === 'password') { apiKeyInput.type = 'text';     toggleBtn.textContent = '🙈'; }
+      else                                 { apiKeyInput.type = 'password'; toggleBtn.textContent = '👁️'; }
+    });
+  }
+  const saveKeyBtn     = document.getElementById('save-api-key');
+  const testKeyBtn     = document.getElementById('test-api-key');
+  const helpBtn        = document.getElementById('get-api-key-help');
+  const saveSettingsBtn = document.getElementById('save-parser-settings');
+  const resetBtn       = document.getElementById('reset-parser-settings');
+  if (saveKeyBtn)      saveKeyBtn.addEventListener('click',      () => this.handleSaveApiKey());
+  if (testKeyBtn)      testKeyBtn.addEventListener('click',      () => this.handleTestApiKey());
+  if (helpBtn)         helpBtn.addEventListener('click',         () => this.showApiKeyHelp());
+  if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', () => this.handleSaveParserSettings());
+  if (resetBtn)        resetBtn.addEventListener('click',        () => this.handleResetSettings());
+};
+
+CMSApp.prototype.handleSaveApiKey = function() {
+  const apiKeyInput = document.getElementById('gemini-api-key');
+  const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (!apiKey) { this.showAlert('Please enter an API key.', 'error'); return; }
+  if (!apiKey.startsWith('AIza')) { this.showAlert('Invalid API key format. Gemini API keys start with "AIza".', 'error'); return; }
+  if (this.saveApiKey(apiKey)) {
+    this.showAlert('API key saved! Reinitializing parser...', 'success');
+    this.initializeUltimateParser();
+    this.updateApiKeyStatus();
+  } else {
+    this.showAlert('Failed to save API key.', 'error');
+  }
+};
+
+CMSApp.prototype.handleTestApiKey = function() {
+  const apiKey = this.getStoredApiKey();
+  if (!apiKey) { this.showAlert('Please save an API key first.', 'warning'); return; }
+  this.showProcessing('Testing API connection...');
+  if (this.geminiModel) {
+    this.geminiModel.generateContent('Respond with exactly: {"status": "connected"}')
+      .then(() => { this.hideProcessing(); this.showAlert('✅ API key is working correctly!', 'success'); this.updateApiKeyStatus(true); })
+      .catch(error => {
+        this.hideProcessing();
+        let msg = '❌ API key test failed. ';
+        if (error.message.includes('API_KEY_INVALID')) msg += 'The API key is invalid.';
+        else if (error.message.includes('quota') || error.message.includes('429')) msg += 'API quota exceeded.';
+        else msg += 'Please check your key and billing settings.';
+        this.showAlert(msg, 'error');
+        this.updateApiKeyStatus(false);
+      });
+  } else {
+    this.hideProcessing();
+    this.showAlert('Parser not initialized. Please save API key first.', 'warning');
+  }
+};
+
+CMSApp.prototype.updateApiKeyStatus = function(testResult = null) {
+  const statusDiv  = document.getElementById('api-key-status');
+  const statusText = document.getElementById('api-key-status-text');
+  if (!statusDiv || !statusText) return;
+  const hasKey = !!this.getStoredApiKey();
+  if (testResult === true) {
+    statusDiv.style.cssText  = 'display:block;background:rgba(40,167,69,0.1);border:1px solid #28a745;';
+    statusText.style.color   = '#28a745';
+    statusText.textContent   = '✅ API key is working correctly';
+  } else if (testResult === false) {
+    statusDiv.style.cssText  = 'display:block;background:rgba(220,53,69,0.1);border:1px solid #dc3545;';
+    statusText.style.color   = '#dc3545';
+    statusText.textContent   = '❌ API key test failed';
+  } else if (hasKey) {
+    statusDiv.style.cssText  = 'display:block;background:rgba(255,193,7,0.1);border:1px solid #ffc107;';
+    statusText.style.color   = '#856404';
+    statusText.textContent   = '🔑 API key saved (not tested)';
+  } else {
+    statusDiv.style.display  = 'none';
+  }
+};
+
+CMSApp.prototype.showApiKeyHelp = function() {
+  this.showAlert('Get a Gemini API key at https://aistudio.google.com/app/apikey — sign in, click Create API key, select your project, copy the key (starts with AIza...) and paste it here.', 'info');
+};
+
+CMSApp.prototype.handleSaveParserSettings = function() {
+  const settings = {
+    defaultExtractionMode: document.getElementById('default-extraction-mode')?.value  || 'smart',
+    maxPdfPages:           parseInt(document.getElementById('max-pdf-pages')?.value)   || 10,
+    enableMultiPass:       document.getElementById('enable-multi-pass')?.checked       || true,
+    autoDetectTestType:    document.getElementById('auto-detect-test-type')?.checked   || true
+  };
+  if (this.saveParserSettings(settings)) this.showAlert('Parser settings saved!', 'success');
+  else                                   this.showAlert('Failed to save settings.', 'error');
+};
+
+CMSApp.prototype.handleResetSettings = function() {
+  if (!confirm('Reset all parser settings to defaults?')) return;
+  const defaults = this.getDefaultSettings();
+  document.getElementById('default-extraction-mode').value = defaults.defaultExtractionMode;
+  document.getElementById('max-pdf-pages').value           = defaults.maxPdfPages;
+  document.getElementById('enable-multi-pass').checked     = defaults.enableMultiPass;
+  document.getElementById('auto-detect-test-type').checked = defaults.autoDetectTestType;
+  this.saveParserSettings(defaults);
+  this.showAlert('Settings reset to defaults!', 'success');
+};
+
+CMSApp.prototype.updateStorageUsage = function() {
+  const usageSpan = document.getElementById('storage-usage');
+  if (!usageSpan) return;
+  try {
+    let totalSize = 0;
+    for (let key in localStorage) {
+      if (localStorage.hasOwnProperty(key)) totalSize += localStorage[key].length;
+    }
+    usageSpan.textContent = `${(totalSize / 1024).toFixed(2)} KB`;
+  } catch(e) { usageSpan.textContent = 'Unable to calculate'; }
+};
+
+// ================================================
+// FORM HANDLERS
+// ================================================
+
+CMSApp.prototype.saveQuestionBank = function() { this.handleQuestionBankSubmit(); };
+CMSApp.prototype.saveEpisode      = function() { this.handleEpisodeSubmit(); };
+CMSApp.prototype.saveGenre        = function() { this.handleGenreSubmit(); };
+
+CMSApp.prototype.handleQuestionBankSubmit = function() {
+  const name        = document.getElementById('q-bank-name').value.trim();
+  const approach    = document.getElementById('q-bank-approach').value;
+  const descField   = document.getElementById('q-bank-description');
+  const description = descField ? descField.value.trim() : '';
+  if (!name || !approach) { this.showAlert('Please fill in all required fields.', 'error'); return; }
+  this.showProcessing(this.state.editingBankId ? 'Updating question bank...' : 'Creating question bank...');
+  const bankData = { name, approach, description, updatedAt: this.serverTimestamp() };
+  const promise = this.state.editingBankId
+    ? this.updateDoc(this.doc(this.db, 'questionBanks', this.state.editingBankId), bankData)
+    : this.addDoc(this.collection(this.db, 'questionBanks'), {
+        ...bankData, questions: [], createdAt: this.serverTimestamp(), createdWith: 'Ultimate Parser CMS v2.3'
+      });
+  promise.then(() => {
+    this.showAlert(this.state.editingBankId ? 'Question bank updated!' : 'Question bank created!', 'success');
+    this.closeModal('question-bank-modal');
+    this.loadQuestionBanks();
+    this.state.editingBankId = null;
+    if (this.state.pendingImport) {
+      setTimeout(() => {
+        this.showAlert('Question bank created! Reopening AI Import...', 'success');
+        setTimeout(() => {
+          this.state.contentFile = this.state.pendingImport.contentFile;
+          this.state.answerFile  = this.state.pendingImport.answerFile;
+          this.showQuickImport();
+          setTimeout(() => {
+            if (this.state.contentFile) {
+              this.elements.contentUploadArea.classList.add('has-content');
+              const contentPreview  = document.getElementById('content-preview');
+              const contentFileName = document.getElementById('content-file-name');
+              if (contentPreview)  contentPreview.style.display = 'block';
+              if (contentFileName) contentFileName.textContent  = this.state.contentFile.name;
+            }
+            if (this.state.pendingImport.contentText && this.elements.contentPasteArea) {
+              this.elements.contentPasteArea.textContent = this.state.pendingImport.contentText;
+            }
+            const frameworkCheckbox = document.getElementById('framework-mode-enable');
+            if (frameworkCheckbox && this.state.pendingImport.frameworkMode) frameworkCheckbox.checked = true;
+            this.state.pendingImport = null;
+          }, 500);
+        }, 1000);
+      }, 500);
+    }
+  }).catch(error => {
+    console.error('Error saving question bank:', error);
+    this.showAlert('Error saving question bank.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ================================================
+// ENCOUNTER EDITOR
+// ================================================
+
+CMSApp.prototype.initEncounterEditor = function(encounters) {
+  const list = document.getElementById('encounters-list');
+  if (!list) return;
+  list.innerHTML = '';
+  this._encounterCount = 0;
+  if (encounters && encounters.length > 0) {
+    encounters.forEach(enc => this.addEncounterRow(enc));
+  } else {
+    this.addEncounterRow();
+  }
+};
+
+CMSApp.prototype.addEncounterRow = function(data) {
+  const list = document.getElementById('encounters-list');
+  if (!list) return;
+  const idx         = this._encounterCount || 0;
+  this._encounterCount = idx + 1;
+  const row         = document.createElement('div');
+  row.className     = 'encounter-row';
+  row.dataset.encounterIdx = idx;
+
+  const title       = (data && data.title)    || '';
+  const narrative   = (data && data.narrative) || '';
+  const qCount      = (data && (data.questionsPerApproach || data.qCount)) || 5;
+  const minCorrect  = (data && data.successThreshold && data.successThreshold.minCorrect  != null)
+                      ? data.successThreshold.minCorrect : '';
+  const minAccuracy = (data && data.successThreshold && data.successThreshold.minAccuracy != null)
+                      ? data.successThreshold.minAccuracy : 60;
+
+  // Escape for HTML attribute safety
+  const safeTitle     = title.replace(/"/g, '&quot;');
+  const safeNarrative = narrative.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  row.innerHTML = `
+    <div class="encounter-row-header">
+      <span class="encounter-row-title">⚔️ Encounter ${idx + 1}</span>
+      <button type="button" class="encounter-remove-btn"
+              onclick="window.cmsApp.removeEncounterRow(${idx})">Remove</button>
+    </div>
+    <div class="encounter-field" style="margin-bottom:12px;">
+      <label>Encounter Title</label>
+      <input type="text" class="enc-title" placeholder="e.g. Signal Detection" value="${safeTitle}">
+    </div>
+    <div class="encounter-field" style="margin-bottom:12px;">
+      <label>Narrative / Story Description</label>
+      <textarea class="enc-narrative"
+                placeholder="Describe what happens in this encounter...">${safeNarrative}</textarea>
+    </div>
+    <div class="encounter-grid">
+      <div class="encounter-field">
+        <label>Questions Per Encounter</label>
+        <input type="number" class="enc-qcount" min="1" max="100" value="${qCount}" placeholder="5">
+      </div>
+      <div class="encounter-field">
+        <label>Min Accuracy to Pass (%)</label>
+        <input type="number" class="enc-accuracy" min="0" max="100" value="${minAccuracy}" placeholder="60">
+      </div>
+    </div>
+    <div class="encounter-field" style="margin-top:4px;">
+      <label>Min Correct Answers to Pass (optional)</label>
+      <input type="number" class="enc-mincorrect" min="0" value="${minCorrect}"
+             placeholder="e.g. 3 (leave blank for accuracy only)">
+    </div>
+  `;
+  list.appendChild(row);
+
+  // Mark modal dirty when encounter fields change
+  row.querySelectorAll('input, textarea').forEach(el => {
+    el.addEventListener('input', () => this._markEpisodeModalDirty());
+  });
+
+  this._updateEncounterNumbers();
+};
+
+CMSApp.prototype.removeEncounterRow = function(idx) {
+  const list = document.getElementById('encounters-list');
+  if (!list) return;
+  const row = list.querySelector(`[data-encounter-idx="${idx}"]`);
+  if (row) row.remove();
+  this._updateEncounterNumbers();
+  this._markEpisodeModalDirty();
+};
+
+CMSApp.prototype._updateEncounterNumbers = function() {
+  document.querySelectorAll('.encounter-row').forEach((row, i) => {
+    const titleEl = row.querySelector('.encounter-row-title');
+    if (titleEl) titleEl.textContent = `⚔️ Encounter ${i + 1}`;
+  });
+};
+
+CMSApp.prototype.getEncountersFromEditor = function() {
+  const encounters = [];
+  document.querySelectorAll('.encounter-row').forEach(row => {
+    const title      = row.querySelector('.enc-title')?.value.trim()      || '';
+    const narrative  = row.querySelector('.enc-narrative')?.value.trim()  || '';
+    const qCount     = parseInt(row.querySelector('.enc-qcount')?.value)  || 5;
+    const accuracy   = parseInt(row.querySelector('.enc-accuracy')?.value)|| 60;
+    const minCorrect = row.querySelector('.enc-mincorrect')?.value.trim() || '';
+    const enc = {
+      title, narrative,
+      questionsPerApproach: qCount,
+      qCount,
+      successThreshold: { minAccuracy: accuracy }
+    };
+    if (minCorrect !== '') enc.successThreshold.minCorrect = parseInt(minCorrect);
+    encounters.push(enc);
+  });
+  return encounters;
+};
+
+// ================================================
+// EPISODE SUBMIT
+// ================================================
+
+CMSApp.prototype.handleEpisodeSubmit = function() {
+  const title       = document.getElementById('episode-title').value.trim();
+  const genre       = document.getElementById('episode-genre').value;
+  const description = document.getElementById('episode-description').value.trim();
+  const active      = document.getElementById('episode-active').checked;
+
+  const selectedApproaches = [];
+  document.querySelectorAll('.approach-checkbox:checked').forEach(cb => selectedApproaches.push(cb.value));
+
+  const selectedQuestionBanks = this.getSelectedQuestionBanks();
+
+  if (!title || !genre)               { this.showAlert('Please fill in all required fields.', 'error'); return; }
+  if (selectedApproaches.length === 0){ this.showAlert('Please select at least one approach.', 'error'); return; }
+
+  const encounters = this.getEncountersFromEditor();
+  if (encounters.length === 0)        { this.showAlert('Please add at least one encounter.', 'error'); return; }
+
+  // Cutscene settings
+  const cutsceneEncountersEnabled = document.getElementById('cutscene-encounters-enabled')?.checked ?? true;
+  const cutsceneCompletionEnabled = document.getElementById('cutscene-completion-enabled')?.checked ?? true;
+  const encounterCutsceneStyle    = document.getElementById('enc-style-novel')?.checked ? 'graphic_novel' : 'cinematic';
+  const completionCutsceneStyle   = document.getElementById('comp-style-cinematic')?.checked ? 'cinematic' : 'graphic_novel';
+
+  this.showProcessing(this.state.editingEpisodeId ? 'Updating episode...' : 'Creating episode...');
+
+  const episodeData = {
+    title, genre, description, active,
+    availableApproaches:   selectedApproaches,
+    selectedQuestionBanks: selectedQuestionBanks,
+    encounters,
+    cutsceneEncountersEnabled,
+    cutsceneCompletionEnabled,
+    encounterCutsceneStyle,
+    completionCutsceneStyle,
+    updatedAt: this.serverTimestamp()
+  };
+
+  const promise = this.state.editingEpisodeId
+    ? this.updateDoc(this.doc(this.db, 'episodes', this.state.editingEpisodeId), episodeData)
+    : this.addDoc(this.collection(this.db, 'episodes'), {
+        ...episodeData, createdAt: this.serverTimestamp(), createdWith: 'Ultimate Parser CMS v2.3'
+      });
+
+  promise.then(() => {
+    this._resetEpisodeModalDirty();
+    this.showAlert(
+      `Episode ${this.state.editingEpisodeId ? 'updated' : 'created'} with ${encounters.length} encounter${encounters.length !== 1 ? 's' : ''} and ${selectedQuestionBanks.length} question bank${selectedQuestionBanks.length !== 1 ? 's' : ''}!`,
+      'success'
+    );
+    this.closeModal('episode-modal');
+    this.loadEpisodes();
+    this.state.editingEpisodeId = null;
+  }).catch(error => {
+    console.error('Error saving episode:', error);
+    this.showAlert('Error saving episode.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+CMSApp.prototype.handleGenreSubmit = function() {
+  const name           = document.getElementById('genre-name').value.trim();
+  const descField      = document.getElementById('genre-description');
+  const subjectField   = document.getElementById('genre-subject');
+  const description    = descField    ? descField.value.trim()    : '';
+  const primarySubject = subjectField ? subjectField.value        : '';
+  if (!name) { this.showAlert('Please enter a genre name.', 'error'); return; }
+  this.showProcessing(this.state.editingGenreId ? 'Updating genre...' : 'Creating genre...');
+  const genreData = { name, description, primarySubject, updatedAt: this.serverTimestamp() };
+  const promise = this.state.editingGenreId
+    ? this.updateDoc(this.doc(this.db, 'genres', this.state.editingGenreId), genreData)
+    : this.addDoc(this.collection(this.db, 'genres'), { ...genreData, createdAt: this.serverTimestamp() });
+  promise.then(() => {
+    this.showAlert(this.state.editingGenreId ? 'Genre updated!' : 'Genre created!', 'success');
+    this.closeModal('genre-modal');
+    this.loadGenres();
+    this.state.editingGenreId = null;
+  }).catch(error => {
+    console.error('Error saving genre:', error);
+    this.showAlert('Error saving genre.', 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+// ================================================
+// QUESTION BANK SLIDERS FOR EPISODES
+// ================================================
+
+// FIX: now accepts episode param and restores checked state
+CMSApp.prototype.loadQuestionBanksForEpisode = function(episode) {
+  console.log('🔄 Loading question banks for episode sliders...', episode ? episode.id : 'new');
+  const togglesContainer = document.getElementById('question-banks-toggles');
+  if (!togglesContainer) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    this.getDocs(this.collection(this.db, 'questionBanks')).then(qBanksSnapshot => {
+      togglesContainer.innerHTML = '';
+      if (qBanksSnapshot.empty) {
+        togglesContainer.innerHTML = '<div style="text-align:center;color:#6c757d;padding:20px;">No question banks found. Create question banks first.</div>';
+        resolve();
+        return;
+      }
+      this.setupToggleAllButton();
+      qBanksSnapshot.forEach(doc => {
+        const bank = { id: doc.id, ...doc.data() };
+        this.renderQuestionBankToggle(bank, togglesContainer);
+      });
+
+      // ── FIX: restore previously selected banks when editing ──
+      if (episode && Array.isArray(episode.selectedQuestionBanks) && episode.selectedQuestionBanks.length > 0) {
+        this.setSelectedQuestionBanks(episode.selectedQuestionBanks);
+        console.log('✅ Restored selected question banks:', episode.selectedQuestionBanks);
+      }
+
+      resolve();
+    }).catch(error => {
+      console.error('Error loading question banks for episode:', error);
+      togglesContainer.innerHTML = '<div style="text-align:center;color:#dc3545;padding:20px;">Error loading question banks</div>';
+      resolve();
+    });
+  });
+};
+
+CMSApp.prototype.renderQuestionBankToggle = function(bank, container) {
+  const questions = Array.isArray(bank.questions) ? bank.questions : [];
+  const bankItem  = document.createElement('div');
+  bankItem.className     = 'bank-toggle-item';
+  bankItem.dataset.bankId = bank.id;
+  bankItem.innerHTML = `
+    <div class="bank-info">
+      <div class="bank-name">${bank.name || 'Untitled Bank'}</div>
+      <div class="bank-details">${bank.approach || 'General'} • ${questions.length} questions</div>
+    </div>
+    <label class="toggle-switch">
+      <input type="checkbox" class="bank-toggle" data-bank-id="${bank.id}">
+      <span class="toggle-slider"></span>
+    </label>
+  `;
+  container.appendChild(bankItem);
+  const toggle = bankItem.querySelector('.bank-toggle');
+  toggle.addEventListener('change', (e) => {
+    bankItem.classList.toggle('enabled', e.target.checked);
+    this._markEpisodeModalDirty();
+  });
+};
+
+CMSApp.prototype.setupToggleAllButton = function() {
+  const toggleAllBtn = document.getElementById('toggle-all-banks-btn');
+  if (!toggleAllBtn) return;
+  const newButton = toggleAllBtn.cloneNode(true);
+  toggleAllBtn.parentNode.replaceChild(newButton, toggleAllBtn);
+  newButton.addEventListener('click', () => this.toggleAllQuestionBanks());
+};
+
+CMSApp.prototype.toggleAllQuestionBanks = function() {
+  const toggles = document.querySelectorAll('.bank-toggle');
+  if (toggles.length === 0) return;
+  const allChecked = Array.from(toggles).every(t => t.checked);
+  toggles.forEach(toggle => {
+    toggle.checked = !allChecked;
+    toggle.closest('.bank-toggle-item').classList.toggle('enabled', !allChecked);
+  });
+  this._markEpisodeModalDirty();
+};
+
+CMSApp.prototype.setSelectedQuestionBanks = function(selectedBankIds) {
+  document.querySelectorAll('.bank-toggle').forEach(toggle => {
+    const isSelected = selectedBankIds.includes(toggle.dataset.bankId);
+    toggle.checked = isSelected;
+    toggle.closest('.bank-toggle-item').classList.toggle('enabled', isSelected);
+  });
+};
+
+CMSApp.prototype.getSelectedQuestionBanks = function() {
+  const selectedBanks = [];
+  document.querySelectorAll('.bank-toggle:checked').forEach(toggle => {
+    selectedBanks.push(toggle.dataset.bankId);
+  });
+  return selectedBanks;
+};
+
+// ================================================
+// GENRE DROPDOWN
+// ================================================
+
+CMSApp.prototype.populateGenreDropdown = function() {
+  return new Promise((resolve) => {
+    const genreSelect = document.getElementById('episode-genre');
+    if (!genreSelect) { resolve(); return; }
+    genreSelect.innerHTML = '<option value="">Select genre...</option>';
+    if (this.state.genres.length === 0) {
+      ['Mystery','Adventure','Science Fiction','Fantasy','Educational'].forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = name;
+        genreSelect.appendChild(opt);
+      });
+    } else {
+      this.state.genres.forEach(genre => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = genre.name;
+        genreSelect.appendChild(opt);
+      });
+    }
+    resolve();
+  });
+};
+
+// ================================================
+// EPISODE AI PARSER
+// Lets teacher upload/paste a document and have
+// Gemini auto-fill title, description, encounters
+// ================================================
+
+CMSApp.prototype.showEpisodeAIParser = function() {
+  const existing = document.getElementById('episode-ai-parser-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'episode-ai-parser-modal';
+  modal.style.cssText = `
+    position:fixed;top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.65);z-index:99998;
+    display:flex;align-items:center;justify-content:center;padding:20px;`;
+
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:28px;width:100%;max-width:680px;
+                box-shadow:0 8px 40px rgba(0,0,0,0.35);max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  margin-bottom:18px;border-bottom:2px solid #e9ecef;padding-bottom:12px;">
+        <h2 style="margin:0;font-size:19px;color:#212529;">🤖 AI Episode Builder</h2>
+        <button onclick="document.getElementById('episode-ai-parser-modal').remove()"
+                style="background:none;border:none;font-size:26px;cursor:pointer;color:#6c757d;">&times;</button>
+      </div>
+
+      <p style="color:#6c757d;font-size:14px;margin-bottom:18px;">
+        Paste or upload a curriculum document, unit plan, or topic outline and AI will suggest
+        an episode title, description, and encounter structure for you to review and edit.
+      </p>
+
+      <!-- File upload -->
+      <div style="margin-bottom:16px;">
+        <label style="font-weight:600;font-size:14px;display:block;margin-bottom:6px;">
+          📎 Upload Document (PDF or text file)
+        </label>
+        <input type="file" id="ep-ai-file-input" accept=".pdf,.txt,.doc,.docx"
+               style="width:100%;padding:8px;border:1px solid #ced4da;border-radius:6px;font-size:13px;">
+      </div>
+
+      <!-- Paste area -->
+      <div style="margin-bottom:16px;">
+        <label style="font-weight:600;font-size:14px;display:block;margin-bottom:6px;">
+          📋 Or Paste Content Here
+        </label>
+        <textarea id="ep-ai-paste-area" rows="6"
+                  placeholder="Paste curriculum text, unit objectives, topic outline, or any relevant content..."
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;
+                         font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+      </div>
+
+      <!-- Number of encounters -->
+      <div style="margin-bottom:20px;">
+        <label style="font-weight:600;font-size:14px;display:block;margin-bottom:6px;">
+          ⚔️ Number of Encounters to Generate
+        </label>
+        <select id="ep-ai-encounter-count"
+                style="padding:8px 12px;border:1px solid #ced4da;border-radius:6px;font-size:14px;">
+          <option value="1">1 encounter</option>
+          <option value="2">2 encounters</option>
+          <option value="3" selected>3 encounters</option>
+          <option value="4">4 encounters</option>
+          <option value="5">5 encounters</option>
+        </select>
+      </div>
+
+      <!-- Status -->
+      <div id="ep-ai-status" style="display:none;padding:10px 14px;border-radius:6px;
+           font-size:13px;margin-bottom:14px;background:#d1ecf1;color:#0c5460;"></div>
+
+      <!-- Actions -->
+      <div style="display:flex;gap:12px;">
+        <button id="ep-ai-submit-btn"
+                onclick="window.cmsApp.handleEpisodeAIParser()"
+                style="flex:1;padding:12px;background:#007bff;color:white;border:none;
+                       border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+          🤖 Generate Episode Structure
+        </button>
+        <button onclick="document.getElementById('episode-ai-parser-modal').remove()"
+                style="padding:12px 20px;background:#6c757d;color:white;border:none;
+                       border-radius:6px;font-size:15px;cursor:pointer;">
+          Cancel
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+};
+
+CMSApp.prototype.handleEpisodeAIParser = async function() {
+  if (!this.geminiModel) {
+    this.showAlert('AI Parser is not ready. Please check your API key in Settings.', 'error');
+    return;
+  }
+
+  const fileInput    = document.getElementById('ep-ai-file-input');
+  const pasteArea    = document.getElementById('ep-ai-paste-area');
+  const countSelect  = document.getElementById('ep-ai-encounter-count');
+  const statusEl     = document.getElementById('ep-ai-status');
+  const submitBtn    = document.getElementById('ep-ai-submit-btn');
+
+  const encounterCount = parseInt(countSelect?.value) || 3;
+  let contentText = (pasteArea?.value || '').trim();
+
+  // Read file if provided
+  const file = fileInput?.files[0];
+  if (file && !contentText) {
+    try {
+      if (file.type === 'application/pdf') {
+        contentText = await this.extractTextFromPDF(file);
+      } else {
+        contentText = await this.readFileAsText(file);
+      }
+    } catch(e) {
+      this.showAlert('Could not read file: ' + e.message, 'error');
+      return;
+    }
+  }
+
+  if (!contentText) {
+    this.showAlert('Please upload a file or paste content first.', 'error');
+    return;
+  }
+
+  // Show loading state
+  if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🤖 AI is building your episode structure (15–30 seconds)...'; }
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.style.opacity = '0.6'; }
+
+  const prompt = `You are an expert curriculum designer and educational game developer.
+Based on the following content, generate a structured episode for an ACT test prep game.
+
+Create exactly ${encounterCount} encounters that logically break the content into progressive difficulty levels.
+
+Respond ONLY with a valid JSON object — no markdown, no explanation:
+{
+  "title": "Short catchy episode title (max 8 words)",
+  "description": "2-3 sentence episode description explaining what students will learn and practice",
+  "encounters": [
+    {
+      "title": "Encounter title",
+      "narrative": "2-3 sentence story narrative describing the scenario students will face",
+      "questionsPerApproach": 5,
+      "successThreshold": {
+        "minAccuracy": 60
+      }
+    }
+  ]
+}
+
+Rules:
+- Title should be engaging and topic-relevant
+- Each encounter narrative should feel like a story moment, not just a description
+- questionsPerApproach should be 4-8 depending on complexity
+- minAccuracy should be 55-75 depending on difficulty
+- Make encounters progressively more challenging
+- Keep all text appropriate for high school students
+
+CONTENT TO BUILD FROM:
+${contentText.substring(0, 4000)}`;
+
+  try {
+    const result = await this.geminiModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 2048, temperature: 0.4 }
+    });
+    const responseText = result.response.text();
+
+    // Parse the response
+    let episodeData;
+    try {
+      let clean = responseText.trim()
+        .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      clean = this.repairJsonString ? this.repairJsonString(clean) : clean;
+      episodeData = JSON.parse(clean);
+    } catch(parseErr) {
+      console.error('Episode AI parse error:', parseErr, responseText);
+      this.showAlert('AI returned an unexpected format. Please try again.', 'error');
+      if (statusEl) statusEl.style.display = 'none';
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = '1'; }
+      return;
+    }
+
+    // Apply to episode form
+    if (episodeData.title) {
+      const titleEl = document.getElementById('episode-title');
+      if (titleEl) titleEl.value = episodeData.title;
+    }
+    if (episodeData.description) {
+      const descEl = document.getElementById('episode-description');
+      if (descEl) descEl.value = episodeData.description;
+    }
+    if (Array.isArray(episodeData.encounters) && episodeData.encounters.length > 0) {
+      this.initEncounterEditor(episodeData.encounters);
+    }
+
+    // Close parser modal and show success
+    document.getElementById('episode-ai-parser-modal')?.remove();
+    this._markEpisodeModalDirty();
+    this.showAlert(
+      `✅ AI generated "${episodeData.title}" with ${episodeData.encounters?.length || 0} encounters — review and save when ready!`,
+      'success'
+    );
+
+  } catch(err) {
+    console.error('Episode AI error:', err);
+    this.showAlert('AI generation failed: ' + (err.message || 'Unknown error'), 'error');
+    if (statusEl) { statusEl.style.color = '#721c24'; statusEl.style.background = '#f8d7da'; statusEl.textContent = '❌ ' + (err.message || 'Unknown error'); }
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.style.opacity = '1'; }
+  }
+};
+
+// ================================================
+// PROCESSING OVERLAY
+// ================================================
+
+CMSApp.prototype.showProcessing = function(message) {
+  let overlay = document.getElementById('processing-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'processing-overlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+      <div style="background:white;padding:30px 40px;border-radius:12px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+        <div style="font-size:32px;margin-bottom:12px;">⚙️</div>
+        <div id="processing-message" style="font-size:16px;color:#495057;">${message || 'Processing...'}</div>
+      </div>`;
+    document.body.appendChild(overlay);
+  } else {
+    const msgEl = document.getElementById('processing-message');
+    if (msgEl) msgEl.textContent = message || 'Processing...';
+    overlay.style.display = 'flex';
+  }
+};
+
+CMSApp.prototype.hideProcessing = function() {
+  const overlay = document.getElementById('processing-overlay');
+  if (overlay) overlay.style.display = 'none';
+};
+
+CMSApp.prototype.hideProcessingOverlay = CMSApp.prototype.hideProcessing;
+
+CMSApp.prototype.updateProgress = function(percent, message) {
+  const fill      = this.elements.aiProgressFill;
+  const status    = this.elements.aiProcessingStatus;
+  const container = this.elements.aiProgressContainer;
+  if (container) container.style.display = 'block';
+  if (fill)      fill.style.width        = percent + '%';
+  if (status)    status.textContent      = message || '';
+};
+
+CMSApp.prototype.hideProgress = function() {
+  const container = this.elements.aiProgressContainer;
+  if (container) container.style.display = 'none';
+};
+
+// ================================================
+// NAVIGATION COUNTS + DASHBOARD
+// ================================================
+
+CMSApp.prototype.updateNavigationCounts = function() {
+  const banksCount    = document.getElementById('banks-count');
+  const episodesCount = document.getElementById('episodes-count');
+  if (banksCount)    banksCount.textContent    = this.state.questionBanks.length;
+  if (episodesCount) episodesCount.textContent = this.state.episodes.length;
+};
+
+CMSApp.prototype.loadDashboardData = function() {
+  const totalQBanks    = document.getElementById('total-question-banks');
+  const totalEpisodes  = document.getElementById('total-episodes');
+  const activeEpisodes = document.getElementById('active-episodes');
+  if (totalQBanks)    totalQBanks.textContent    = this.state.questionBanks.length;
+  if (totalEpisodes)  totalEpisodes.textContent  = this.state.episodes.length;
+  if (activeEpisodes) activeEpisodes.textContent = this.state.episodes.filter(e => e.active).length;
+};
+
+CMSApp.prototype.updateDashboardParserStats = function() {
+  const successRateEl = document.getElementById('parser-success-rate');
+  const processedEl   = document.getElementById('parser-processed');
+  if (successRateEl) successRateEl.textContent = this.state.parserStats.successRate + '%';
+  if (processedEl)   processedEl.textContent   = this.state.parserStats.processedDocuments;
+};
+
+// ================================================
+// SYSTEM STATUS
+// ================================================
+
+CMSApp.prototype.getSystemStatus = function() {
+  return {
+    parserReady:         this.parserReady,
+    firebaseConnected:   !!this.db,
+    questionBanksLoaded: this.state.questionBanks.length > 0,
+    version:             window.ULTIMATE_PARSER_CONFIG?.VERSION || '2.3',
+    successRate:         this.state.parserStats.successRate,
+    processedDocuments:  this.state.parserStats.processedDocuments,
+    extractedQuestions:  this.state.parserStats.extractedQuestions
+  };
+};
+
+CMSApp.prototype.logPerformanceMetric = function(operation, duration, success = true) {
+  console.log(`📈 Performance: ${operation} took ${duration}ms (${success ? 'success' : 'failed'})`);
+};
+
+CMSApp.prototype.verifyInitialization = function() {
+  const status = this.getSystemStatus();
+  console.log('🔍 System Status Check:', status);
+  if (!status.parserReady)       console.warn('⚠️ Ultimate Parser not ready.');
+  if (!status.firebaseConnected) this.showAlert('❌ Database connection failed. Please refresh.', 'error');
+  return status.parserReady && status.firebaseConnected;
+};
+
+CMSApp.prototype.cleanup = function() {
+  this.state.isProcessingImport = false;
+  this.hideProcessing();
+  this.hideProgress();
+  document.querySelectorAll('.cms-modal').forEach(modal => { modal.style.display = 'none'; });
+};
+
+// ================================================
+// GLOBAL ERROR HANDLERS
+// ================================================
+
+window.addEventListener('error', function(e) {
+  console.error('🚨 Global error:', e.error);
+  if (window.cmsApp) window.cmsApp.handleError(e.error, 'system error');
+});
+
+window.addEventListener('beforeunload', function() {
+  if (window.cmsApp) window.cmsApp.cleanup();
+});
+
+// ================================================
+// PATCH showEpisodeModal to attach dirty listeners
+// Must run after Section 8 defines showEpisodeModal
+// ================================================
+(function() {
+  const _orig = CMSApp.prototype.showEpisodeModal;
+  CMSApp.prototype.showEpisodeModal = function(episode) {
+    _orig.call(this, episode);
+    // Attach dirty listeners after modal is rendered
+    setTimeout(() => this._attachEpisodeDirtyListeners(), 100);
+  };
+})();
+
+setTimeout(() => {
+  if (window.cmsApp && window.cmsApp.verifyInitialization) {
+    window.cmsApp.verifyInitialization();
+    console.log('✅ Section 13 v5 — encounter fix + close confirm + episode AI parser loaded');
+  }
+}, 2000);
+
+console.log('✅ Section 13 v5 COMPLETE');
+</script>
+
+<!-- ========================================= -->
+<!-- SECTION 14.5: MANUAL QUESTION ADDING    -->
+<!-- FIXED:                                  -->
+<!--   Modal appended to body (not nested)   -->
+<!--   High z-index, solid white background  -->
+<!--   Cancel button works properly          -->
+<!--   Format selector A/B/C/D, F/G/H/J,    -->
+<!--   True/False, Custom                    -->
+<!-- ========================================= -->
+<script>
+console.log('📝 Loading Section 14.5: Manual Question Adding...');
+
+CMSApp.prototype.showAddQuestionModal = function(bankId) {
+  console.log('➕ Opening add question modal for bank:', bankId);
+  const bank = this.state.questionBanks.find(b => b.id === bankId);
+  if (!bank) { this.showAlert('Question bank not found.', 'error'); return; }
+  this.state.addingQuestionToBankId = bankId;
+
+  // Remove any existing instance
+  const existing = document.getElementById('add-question-modal');
+  if (existing) existing.remove();
+
+  // Build modal and append directly to body so it sits above everything
+  const modalEl = document.createElement('div');
+  modalEl.id = 'add-question-modal';
+  modalEl.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-y: auto;
+    padding: 20px;
+  `;
+
+  modalEl.innerHTML = `
+    <div style="
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 30px;
+      width: 100%;
+      max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+      z-index: 99999;
+    ">
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:2px solid #e9ecef;padding-bottom:14px;">
+        <h2 style="margin:0;font-size:20px;color:#212529;">➕ Add Question to: ${bank.name}</h2>
+        <button onclick="window.cmsApp.closeAddQuestionModal()"
+                style="background:none;border:none;font-size:24px;cursor:pointer;color:#6c757d;line-height:1;padding:0 4px;"
+                title="Cancel">&times;</button>
+      </div>
+
+      <form id="add-question-form" onsubmit="event.preventDefault(); window.cmsApp.handleManualQuestionSubmit();">
+
+        <!-- Format -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Answer Format *</label>
+          <select id="manual-q-format"
+                  onchange="window.cmsApp.renderManualQuestionOptions(this.value)"
+                  style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;background:#fff;">
+            <option value="abcd">A, B, C, D — Standard ACT (Math / Science / English)</option>
+            <option value="fghj">F, G, H, J — ACT Reading</option>
+            <option value="tf">True / False</option>
+            <option value="custom">Custom (up to 5 options A–E)</option>
+          </select>
+        </div>
+
+        <!-- Question Text -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">Question Text *</label>
+          <textarea id="manual-q-text" rows="3" required
+                    placeholder="Enter your question here..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Passage -->
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Passage / Context
+            <span style="font-weight:400;color:#6c757d;">(Optional — for Reading questions)</span>
+          </label>
+          <textarea id="manual-q-passage" rows="4"
+                    placeholder="Enter the reading passage or context if applicable..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Dynamic options -->
+        <div id="manual-options-container"></div>
+
+        <!-- Explanation -->
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;color:#495057;">
+            Explanation
+            <span style="font-weight:400;color:#6c757d;">(Optional)</span>
+          </label>
+          <textarea id="manual-q-explanation" rows="3"
+                    placeholder="Explain why this answer is correct..."
+                    style="width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+
+        <!-- Buttons -->
+        <div style="display:flex;gap:12px;">
+          <button type="submit"
+                  style="flex:1;padding:12px;background:#28a745;color:white;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            ➕ Add Question
+          </button>
+          <button type="button"
+                  onclick="window.cmsApp.closeAddQuestionModal()"
+                  style="flex:1;padding:12px;background:#6c757d;color:white;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modalEl);
+
+  // Close on backdrop click
+  modalEl.addEventListener('click', (e) => {
+    if (e.target === modalEl) window.cmsApp.closeAddQuestionModal();
+  });
+
+  // Render default options
+  this.renderManualQuestionOptions('abcd');
+};
+
+CMSApp.prototype.closeAddQuestionModal = function() {
+  const modal = document.getElementById('add-question-modal');
+  if (modal) modal.remove();
+  this.state.addingQuestionToBankId = null;
+};
+
+// Render options based on selected format
+CMSApp.prototype.renderManualQuestionOptions = function(format) {
+  const container = document.getElementById('manual-options-container');
+  if (!container) return;
+
+  const inputStyle = 'width:100%;padding:10px;border:1px solid #ced4da;border-radius:6px;font-size:14px;box-sizing:border-box;';
+  const groupStyle = 'margin-bottom:12px;';
+  const labelStyle = 'display:block;font-weight:500;margin-bottom:4px;color:#495057;';
+
+  let letters = [];
+  if (format === 'abcd') letters = ['A','B','C','D'];
+  else if (format === 'fghj') letters = ['F','G','H','J'];
+  else if (format === 'tf') letters = ['T','F2'];
+  else if (format === 'custom') letters = ['A','B','C','D','E'];
+
+  let optionsHTML = `<div style="margin-bottom:16px;">
+    <div style="font-weight:600;color:#495057;margin-bottom:10px;font-size:15px;">Answer Options *</div>`;
+
+  if (format === 'tf') {
+    optionsHTML += `
+      <div style="${groupStyle}">
+        <label style="${labelStyle}">Option 1:</label>
+        <input type="text" id="manual-option-T" value="True" readonly style="${inputStyle}background:#f8f9fa;">
+      </div>
+      <div style="${groupStyle}">
+        <label style="${labelStyle}">Option 2:</label>
+        <input type="text" id="manual-option-F2" value="False" readonly style="${inputStyle}background:#f8f9fa;">
+      </div>
+    `;
+  } else {
+    const placeholder = format === 'custom' ? ' (leave blank to omit)' : '';
+    letters.forEach(l => {
+      optionsHTML += `
+        <div style="${groupStyle}">
+          <label style="${labelStyle}">${l}:</label>
+          <input type="text" id="manual-option-${l}" placeholder="Option ${l}${placeholder}" style="${inputStyle}">
+        </div>
+      `;
+    });
+  }
+
+  // Correct answer dropdown
+  let correctOptions = '';
+  if (format === 'tf') {
+    correctOptions = '<option value="T">True</option><option value="F2">False</option>';
+  } else {
+    letters.forEach(l => { correctOptions += `<option value="${l}">${l}</option>`; });
+  }
+
+  optionsHTML += `
+    <div style="${groupStyle}">
+      <label style="${labelStyle}">Correct Answer *</label>
+      <select id="manual-correct-answer" required style="${inputStyle}background:#fff;">
+        ${correctOptions}
+      </select>
+    </div>
+  </div>`;
+
+  container.innerHTML = optionsHTML;
+};
