@@ -1,0 +1,899 @@
+
+CMSApp.prototype.handleManualQuestionSubmit = function() {
+  const bankId = this.state.addingQuestionToBankId;
+  if (!bankId) { this.showAlert('No bank selected.', 'error'); return; }
+
+  const questionText = document.getElementById('manual-q-text').value.trim();
+  const passage = document.getElementById('manual-q-passage').value.trim();
+  const explanation = document.getElementById('manual-q-explanation').value.trim();
+  const format = document.getElementById('manual-q-format').value;
+  const correctAnswer = document.getElementById('manual-correct-answer').value;
+
+  if (!questionText) { this.showAlert('Please enter a question.', 'error'); return; }
+
+  // Collect options
+  const options = {};
+  let letters = [];
+  if (format === 'abcd') letters = ['A','B','C','D'];
+  else if (format === 'fghj') letters = ['F','G','H','J'];
+  else if (format === 'tf') letters = ['T','F2'];
+  else if (format === 'custom') letters = ['A','B','C','D','E'];
+
+  let hasOptions = false;
+  letters.forEach(letter => {
+    const input = document.getElementById(`manual-option-${letter}`);
+    if (input && input.value.trim()) { options[letter] = input.value.trim(); hasOptions = true; }
+  });
+
+  if (!hasOptions) { this.showAlert('Please enter at least one answer option.', 'error'); return; }
+  if (!options[correctAnswer]) { this.showAlert('The correct answer option must have text entered.', 'error'); return; }
+
+  const newQuestion = {
+    question: questionText,
+    text: questionText,
+    options,
+    correct: correctAnswer,
+    format,
+    passage: passage || '',
+    explanation: explanation || '',
+    addedManually: true,
+    createdAt: new Date().toISOString()
+  };
+
+  this.showProcessing('Adding question...');
+  const bankRef = this.doc(this.db, 'questionBanks', bankId);
+  this.getDoc(bankRef).then(docSnap => {
+    if (!docSnap.exists()) throw new Error('Question bank not found');
+    const currentQuestions = docSnap.data().questions || [];
+    currentQuestions.push(newQuestion);
+    return this.updateDoc(bankRef, { questions: currentQuestions, updatedAt: this.serverTimestamp() });
+  }).then(() => {
+    this.showAlert('Question added successfully!', 'success');
+    this.closeAddQuestionModal();
+    // Reload bank then refresh questions view
+    const { doc, getDoc } = window.firebaseV9;
+    getDoc(doc(this.db, 'questionBanks', bankId)).then(snap => {
+      if (snap.exists()) {
+        const bank = this.state.questionBanks.find(b => b.id === bankId);
+        if (bank) {
+          bank.questions = snap.data().questions || [];
+          this.showQuestionsViewModal(bank);
+        }
+      }
+    });
+    this.loadQuestionBanks();
+  }).catch(error => {
+    console.error('Error adding question:', error);
+    this.showAlert('Error adding question: ' + error.message, 'error');
+  }).finally(() => { this.hideProcessing(); });
+};
+
+console.log('✅ Section 14.5 loaded — modal appended to body, z-index 99999, cancel works');
+</script>
+
+<!-- ========================================= -->
+<!-- SECTION 15: CLASS MANAGER                -->
+<!-- Handles class CRUD, code generation,     -->
+<!-- and UI helpers only.                     -->
+<!-- loadStudentReports lives in Section 16.  -->
+<!-- ========================================= -->
+<script>
+console.log('🏫 Loading Section 15: Class Manager...');
+
+// ================================================
+// CODE GENERATION UTILITIES
+// ================================================
+
+function generateLastNameCode() {
+  const currentUser = window.cmsApp ? window.cmsApp.state.currentUser : null;
+  const name = currentUser ? (currentUser.displayName || currentUser.name || currentUser.email || 'TEACHER') : 'TEACHER';
+  const parts = name.trim().split(/\s+/);
+  const lastName = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+  const clean = lastName.toUpperCase().replace(/[^A-Z]/g, '').substring(0, 8);
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return clean + num;
+}
+
+function generateRandomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+  return code;
+}
+
+function getCurrentCodeStyle() {
+  const selected = document.querySelector('input[name="code-style"]:checked');
+  return selected ? selected.value : 'lastname';
+}
+
+window.updateCodePreview = function() {
+  const style = getCurrentCodeStyle();
+  const customInput = document.getElementById('custom-code-input');
+  const preview = document.getElementById('code-preview');
+  if (style === 'custom') {
+    customInput.style.display = 'block';
+    preview.textContent = document.getElementById('new-class-custom-code').value || 'YOURCODE';
+  } else {
+    customInput.style.display = 'none';
+    preview.textContent = style === 'lastname' ? generateLastNameCode() : generateRandomCode();
+  }
+};
+
+window.refreshCodePreview = function() {
+  const style = getCurrentCodeStyle();
+  const preview = document.getElementById('code-preview');
+  if (style === 'lastname') preview.textContent = generateLastNameCode();
+  else if (style === 'random') preview.textContent = generateRandomCode();
+};
+
+// ================================================
+// COPY CODE
+// ================================================
+
+window.copyCode = function(code) {
+  navigator.clipboard.writeText(code)
+    .then(() => { if (window.cmsApp) window.cmsApp.showAlert('Copied: ' + code, 'success'); })
+    .catch(() => prompt('Copy your join code:', code));
+};
+
+window.copyReportsJoinCode = function() {
+  const code = document.getElementById('reports-join-code-display').textContent;
+  if (code) copyCode(code);
+};
+
+// ================================================
+// CLASS SELECTOR + DASHBOARD SUMMARY
+// (called from Section 16 after loadTeacherClasses)
+// ================================================
+
+function updateClassSelector() {
+  const selector = document.getElementById('reports-class-selector');
+  if (!selector) return;
+  selector.innerHTML = '<option value="">— Select a Class —</option>';
+  teacherClasses.forEach(cls => {
+    const opt = document.createElement('option');
+    opt.value = cls.id;
+    opt.textContent = cls.name + ' (' + cls.joinCode + ')';
+    selector.appendChild(opt);
+  });
+  if (teacherClasses.length > 0 && !currentReportsClassId) {
+    selector.value = teacherClasses[0].id;
+    currentReportsClassId = teacherClasses[0].id;
+    showReportsJoinCode(teacherClasses[0].joinCode);
+  }
+}
+
+function showReportsJoinCode(code) {
+  const banner  = document.getElementById('reports-class-code-banner');
+  const display = document.getElementById('reports-join-code-display');
+  if (banner)  banner.style.display = code ? 'block' : 'none';
+  if (display && code) display.textContent = code;
+}
+
+function updateDashboardClassesSummary() {
+  const container = document.getElementById('dashboard-classes-summary');
+  if (!container) return;
+  if (teacherClasses.length === 0) {
+    container.innerHTML = '<p style="color:#6c757d;">No classes yet. <a href="#" onclick="document.querySelector(\'[data-page=classes]\').click(); return false;">Create your first class →</a></p>';
+    return;
+  }
+  let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:15px;">';
+  teacherClasses.forEach(cls => {
+    const assigned = (cls.assignedEpisodes || []).length;
+    html +=
+      '<div style="background:white; padding:15px; border-radius:10px; border:2px solid #e0e0e0;">' +
+        '<div style="font-weight:700; color:#333; margin-bottom:5px;">' + cls.name + '</div>' +
+        '<div style="font-size:18px; font-weight:900; letter-spacing:3px; color:#667eea; font-family:monospace;">' + cls.joinCode + '</div>' +
+        '<div style="font-size:12px; color:#999; margin-top:5px;">' + (cls.studentCount || 0) + ' students · ' + assigned + ' episodes</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ================================================
+// RENDER CLASSES LIST
+// ================================================
+
+function renderClassesList() {
+  const container = document.getElementById('classes-list');
+  const emptyEl   = document.getElementById('classes-empty');
+  if (!container) return;
+  if (teacherClasses.length === 0) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    container.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  container.innerHTML = '';
+  teacherClasses.forEach(cls => {
+    const assignedCount = (cls.assignedEpisodes || []).length;
+    const createdDate = cls.createdAt && cls.createdAt.toDate
+      ? cls.createdAt.toDate().toLocaleDateString()
+      : new Date(cls.createdAt).toLocaleDateString();
+    const div = document.createElement('div');
+    div.className = 'cms-item';
+    div.style.cssText = 'padding:20px; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;';
+    div.innerHTML =
+      '<div>' +
+        '<div style="font-size:18px; font-weight:700; color:#333;">' + cls.name + '</div>' +
+        '<div style="margin-top:5px; display:flex; align-items:center; gap:10px;">' +
+          '<span style="font-size:20px; font-weight:900; letter-spacing:3px; color:#667eea; font-family:monospace; background:#f0f4ff; padding:4px 12px; border-radius:6px;">' + cls.joinCode + '</span>' +
+          '<button onclick="copyCode(\'' + cls.joinCode + '\')" style="background:none; border:1px solid #667eea; color:#667eea; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px;">📋 Copy</button>' +
+        '</div>' +
+        '<div style="font-size:12px; color:#999; margin-top:5px;">Created ' + createdDate + ' · ' + (cls.studentCount || 0) + ' students · ' + assignedCount + ' episode' + (assignedCount !== 1 ? 's' : '') + ' assigned</div>' +
+      '</div>' +
+      '<div style="display:flex; gap:10px; flex-wrap:wrap;">' +
+        '<button onclick="openAssignEpisodesModal(\'' + cls.id + '\')" class="cms-btn" style="background:#667eea; color:white; border:none; cursor:pointer;">📚 Assign Episodes</button>' +
+        '<button onclick="viewClassReports(\'' + cls.id + '\')" class="cms-btn cms-btn-primary">📊 View Reports</button>' +
+        '<button onclick="deleteClass(\'' + cls.id + '\', \'' + cls.name.replace(/'/g, "\\'") + '\')" class="cms-btn" style="background:#dc3545; color:white; border:none; cursor:pointer;">🗑 Delete</button>' +
+      '</div>';
+    container.appendChild(div);
+  });
+}
+
+// ================================================
+// CREATE CLASS
+// ================================================
+
+window.showCreateClassModal = function() {
+  const modal = document.getElementById('create-class-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('new-class-name').value = '';
+  document.getElementById('new-class-custom-code').value = '';
+  const lastnameRadio = document.querySelector('input[name="code-style"][value="lastname"]');
+  if (lastnameRadio) lastnameRadio.checked = true;
+  document.getElementById('custom-code-input').style.display = 'none';
+  document.getElementById('code-preview').textContent = generateLastNameCode();
+};
+
+window.closeCreateClassModal = function() {
+  const modal = document.getElementById('create-class-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.saveNewClass = async function() {
+  const app  = window.cmsApp;
+  const name = document.getElementById('new-class-name').value.trim();
+  if (!name) { if (app) app.showAlert('Please enter a class name.', 'error'); return; }
+
+  const style = getCurrentCodeStyle();
+  let joinCode;
+  if (style === 'custom') {
+    joinCode = document.getElementById('new-class-custom-code').value.trim().toUpperCase();
+    if (!joinCode) { if (app) app.showAlert('Please enter a custom code.', 'error'); return; }
+  } else {
+    joinCode = document.getElementById('code-preview').textContent;
+  }
+
+  const currentUser = app ? app.state.currentUser : null;
+  const teacherId   = currentUser ? (currentUser.uid || 'test-teacher') : 'test-teacher';
+  const db          = typeof getDB === 'function' ? getDB() : (app ? app.db : null);
+
+  const newClass = { name, joinCode, teacherId, studentCount: 0, assignedEpisodes: [], createdAt: new Date().toISOString() };
+
+  if (db && window.firebaseV9) {
+    const { collection, addDoc, serverTimestamp } = window.firebaseV9;
+    try {
+      const docRef = await addDoc(collection(db, 'classes'), { ...newClass, createdAt: serverTimestamp() });
+      newClass.id = docRef.id;
+      console.log('✅ Class saved to Firebase:', newClass.id);
+    } catch (e) {
+      console.warn('Could not save to Firebase, saving locally:', e);
+      newClass.id = 'local-' + Date.now();
+    }
+  } else {
+    newClass.id = 'local-' + Date.now();
+  }
+
+  teacherClasses.unshift(newClass);
+  sessionStorage.setItem('teacherClasses', JSON.stringify(teacherClasses));
+  closeCreateClassModal();
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+  if (app) app.showAlert('Class "' + name + '" created! Join code: ' + joinCode, 'success');
+};
+
+// ================================================
+// DELETE CLASS
+// ================================================
+
+window.deleteClass = async function(classId, className) {
+  const app = window.cmsApp;
+  if (!confirm('Delete class "' + className + '"? Students will lose their link to this class.')) return;
+
+  const db = typeof getDB === 'function' ? getDB() : (app ? app.db : null);
+  if (db && window.firebaseV9) {
+    const { doc, deleteDoc } = window.firebaseV9;
+    try {
+      await deleteDoc(doc(db, 'classes', classId));
+      console.log('✅ Class deleted from Firebase');
+    } catch (e) { console.warn('Could not delete from Firebase:', e); }
+  }
+
+  teacherClasses = teacherClasses.filter(c => c.id !== classId);
+  sessionStorage.setItem('teacherClasses', JSON.stringify(teacherClasses));
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+  if (app) app.showAlert('Class deleted.', 'success');
+};
+
+console.log('✅ Section 15 COMPLETE — class management only, no boot hooks');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 16: CLASS MANAGER LOGIC +        -->
+<!-- EPISODE ASSIGNMENT + LICENSE SCAFFOLD    -->
+<!-- STUDENT REPORTS                          -->
+<!-- Single BOOT block — no duplicates        -->
+<!-- ========================================= -->
+<script>
+console.log('🏫 Loading Section 16: Class Manager Logic + Student Reports...');
+
+// ================================================
+// GET FRESH DB REFERENCE
+// ================================================
+
+function getDB() {
+  try {
+    if (window.cmsApp && window.cmsApp.db) return window.cmsApp.db;
+    const { getFirestore } = window.firebaseV9;
+    if (window.cmsApp && window.cmsApp.firebaseApp) return getFirestore(window.cmsApp.firebaseApp);
+    return getFirestore();
+  } catch(e) { console.warn('getDB fallback:', e); return null; }
+}
+
+// ================================================
+// LICENSE SCAFFOLD
+// ================================================
+
+async function ensureTeacherLicense() {
+  const app = window.cmsApp;
+  const currentUser = app ? app.state.currentUser : null;
+  if (!currentUser || !currentUser.uid) return;
+  const db = getDB();
+  if (!db) return;
+  const { doc, getDoc, setDoc } = window.firebaseV9;
+  try {
+    const userRef = doc(db, 'users', currentUser.uid);
+    const snap = await getDoc(userRef);
+    const data = snap.exists() ? snap.data() : {};
+    if (!data.license) {
+      await setDoc(userRef, { license: 'trial', licenseSetAt: new Date().toISOString() }, { merge: true });
+      console.log('✅ Trial license set for:', currentUser.uid);
+    }
+    showLicenseBanner(data.license || 'trial');
+  } catch (e) { console.warn('License check failed:', e); }
+}
+
+function showLicenseBanner(licenseType) {
+  if (licenseType === 'active' || licenseType === 'admin') return;
+  const existing = document.getElementById('license-banner');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'license-banner';
+  banner.style.cssText = 'background:linear-gradient(135deg,rgba(230,126,34,0.15),rgba(230,126,34,0.05));border-bottom:1px solid rgba(230,126,34,0.3);padding:10px 20px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#e67e22;position:sticky;top:0;z-index:100;';
+  banner.innerHTML = '<span>⚡ <strong>Trial License</strong> — Full access during beta. Licensing coming soon.</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:#e67e22;cursor:pointer;font-size:16px;">×</button>';
+  const container = document.getElementById('cms-container');
+  if (container) container.insertBefore(banner, container.firstChild);
+}
+
+// ================================================
+// STATE
+// ================================================
+
+var teacherClasses = [];
+var currentReportsClassId = null;
+var reportsAllStudents = [];
+
+// ================================================
+// LOAD TEACHER CLASSES
+// ================================================
+
+window.loadTeacherClasses = async function() {
+  console.log('🏫 Loading teacher classes...');
+  if (!window.firebaseV9 || !window.firebaseV9.collection) {
+    setTimeout(window.loadTeacherClasses, 500); return;
+  }
+  const app = window.cmsApp;
+  const currentUser = app ? app.state.currentUser : null;
+  if (!currentUser) { setTimeout(window.loadTeacherClasses, 500); return; }
+
+  const loadingEl = document.getElementById('classes-loading');
+  const emptyEl   = document.getElementById('classes-empty');
+  const listEl    = document.getElementById('classes-list');
+  if (loadingEl) loadingEl.style.display = 'block';
+  if (emptyEl)   emptyEl.style.display   = 'none';
+  if (listEl)    listEl.innerHTML        = '';
+
+  const db = getDB();
+  if (!db) { setTimeout(window.loadTeacherClasses, 500); return; }
+
+  const teacherId = currentUser.uid || 'test-teacher';
+  console.log('👤 Loading classes for teacher:', teacherId, '| DB:', db);
+
+  const { collection, query, where, orderBy, getDocs } = window.firebaseV9;
+  try {
+    let snapshot;
+    try {
+      snapshot = await getDocs(query(collection(db,'classes'), where('teacherId','==',teacherId), orderBy('createdAt','desc')));
+    } catch(e) {
+      snapshot = await getDocs(query(collection(db,'classes'), where('teacherId','==',teacherId)));
+    }
+    teacherClasses = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log('✅ Loaded', teacherClasses.length, 'classes');
+  } catch(e) {
+    console.warn('Firebase query failed, using session fallback:', e);
+    teacherClasses = JSON.parse(sessionStorage.getItem('teacherClasses') || '[]');
+  }
+
+  if (loadingEl) loadingEl.style.display = 'none';
+  renderClassesList();
+  updateClassSelector();
+  updateDashboardClassesSummary();
+  const badge = document.getElementById('classes-count');
+  if (badge) badge.textContent = teacherClasses.length;
+};
+
+// ================================================
+// REPORTS — CLASS SELECTOR & NAVIGATION
+// ================================================
+
+window.onReportsClassChange = function() {
+  const selector = document.getElementById('reports-class-selector');
+  currentReportsClassId = selector.value;
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  showReportsJoinCode(cls ? cls.joinCode : null);
+  if (currentReportsClassId) {
+    loadStudentReports();
+  } else {
+    document.getElementById('reports-no-class').style.display = 'block';
+    document.getElementById('reports-loading').style.display  = 'none';
+    document.getElementById('reports-empty').style.display    = 'none';
+    document.getElementById('reports-table').style.display    = 'none';
+  }
+};
+
+window.viewClassReports = function(classId) {
+  document.querySelector('[data-page=analytics]').click();
+  setTimeout(() => {
+    const selector = document.getElementById('reports-class-selector');
+    if (selector) selector.value = classId;
+    currentReportsClassId = classId;
+    const cls = teacherClasses.find(c => c.id === classId);
+    showReportsJoinCode(cls ? cls.joinCode : null);
+    loadStudentReports();
+  }, 150);
+};
+
+// ================================================
+// LOAD STUDENT REPORTS
+// ================================================
+
+window.loadStudentReports = async function() {
+  if (!currentReportsClassId) return;
+
+  document.getElementById('reports-no-class').style.display = 'none';
+  document.getElementById('reports-loading').style.display  = 'block';
+  document.getElementById('reports-empty').style.display    = 'none';
+  document.getElementById('reports-table').style.display    = 'none';
+
+  const cls      = teacherClasses.find(c => c.id === currentReportsClassId);
+  const joinCode = cls ? cls.joinCode : null;
+  const db       = getDB();
+  let loadedFromFirebase = false;
+
+  if (db && joinCode && window.firebaseV9) {
+    const { collection, query, where, getDocs } = window.firebaseV9;
+    try {
+      const studentsSnapshot = await getDocs(
+        query(collection(db, 'players'), where('enrolledCodes', 'array-contains', joinCode))
+      );
+      reportsAllStudents = [];
+      for (const studentDoc of studentsSnapshot.docs) {
+        const studentData = { id: studentDoc.id, ...studentDoc.data() };
+        const progressSnapshot = await getDocs(
+          query(collection(db, 'studentProgress'), where('studentId', '==', studentDoc.id))
+        );
+        studentData.progressData = progressSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        reportsAllStudents.push(studentData);
+      }
+      loadedFromFirebase = true;
+      console.log('✅ Loaded', reportsAllStudents.length, 'students for class:', joinCode);
+    } catch(e) {
+      console.warn('Firebase student load failed:', e);
+    }
+  }
+
+  // Deduplicate by email (true account identifier)
+  if (reportsAllStudents.length > 0) {
+    const byUid = {};
+    reportsAllStudents.forEach(student => {
+      const key = student.email || student.uid || student.id;
+      if (!byUid[key] || student.progressData.length > byUid[key].progressData.length) {
+        byUid[key] = student;
+      }
+    });
+    reportsAllStudents = Object.values(byUid);
+    console.log('✅ After dedup:', reportsAllStudents.length, 'unique students');
+  }
+
+  if (!loadedFromFirebase || reportsAllStudents.length === 0) {
+    console.log('📊 Using test data fallback for reports');
+    reportsAllStudents = [
+      { id:'student1', name:'Alice Johnson', email:'alice@test.com', xp:2450,
+        progressData:[
+          {episodeId:'ep1',episodeName:'Algebra Basics',completed:true,accuracy:0.92,questionsAnswered:25,correctAnswers:23,timestamp:'2025-01-15'},
+          {episodeId:'ep2',episodeName:'Geometry Intro',completed:true,accuracy:0.88,questionsAnswered:20,correctAnswers:18,timestamp:'2025-01-20'}
+        ]},
+      { id:'student2', name:'Bob Smith', email:'bob@test.com', xp:1800,
+        progressData:[
+          {episodeId:'ep1',episodeName:'Algebra Basics',completed:true,accuracy:0.80,questionsAnswered:25,correctAnswers:20,timestamp:'2025-01-16'}
+        ]},
+      { id:'student3', name:'Carol Davis', email:'carol@test.com', xp:3200,
+        progressData:[
+          {episodeId:'ep1',episodeName:'Algebra Basics',completed:true,accuracy:0.96,questionsAnswered:25,correctAnswers:24,timestamp:'2025-01-14'},
+          {episodeId:'ep2',episodeName:'Geometry Intro',completed:true,accuracy:0.94,questionsAnswered:20,correctAnswers:19,timestamp:'2025-01-19'}
+        ]}
+    ];
+  }
+
+  renderReportsDashboard();
+};
+
+// ================================================
+// RENDER REPORTS
+// ================================================
+
+function renderReportsDashboard() {
+  document.getElementById('reports-loading').style.display = 'none';
+  if (reportsAllStudents.length === 0) {
+    document.getElementById('reports-empty').style.display = 'block';
+    return;
+  }
+  document.getElementById('reports-table').style.display = 'table';
+
+  const total          = reportsAllStudents.length;
+  const totalCompleted = reportsAllStudents.reduce((sum,s) => sum + s.progressData.filter(p=>p.completed).length, 0);
+  const avgProgress    = Math.round(reportsAllStudents.reduce((sum,s) => {
+    const c = s.progressData.filter(p=>p.completed).length;
+    return sum + (c / (s.progressData.length||1) * 100);
+  }, 0) / total);
+  const avgAccuracy    = Math.round(reportsAllStudents.reduce((sum,s) => {
+    return sum + s.progressData.reduce((a,p) => a+(p.accuracy||0), 0) / (s.progressData.length||1);
+  }, 0) / total * 100);
+
+  document.getElementById('reports-total-students').textContent    = total;
+  document.getElementById('reports-avg-progress').textContent      = avgProgress + '%';
+  document.getElementById('reports-avg-accuracy').textContent      = avgAccuracy + '%';
+  document.getElementById('reports-completed-episodes').textContent = totalCompleted;
+
+  renderReportsTable();
+}
+
+function renderReportsTable(students) {
+  const list  = students || reportsAllStudents;
+  const tbody = document.getElementById('reports-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  list.forEach(student => {
+    const completed = student.progressData.filter(p=>p.completed).length;
+    const total     = student.progressData.length || 1;
+    const progress  = Math.round(completed / total * 100);
+    const accuracy  = Math.round(student.progressData.reduce((s,p) => s+(p.accuracy||0), 0) / total * 100);
+    let bg = '#d4edda', fg = '#155724';
+    if (accuracy < 60)      { bg='#f8d7da'; fg='#721c24'; }
+    else if (accuracy < 75) { bg='#fff3cd'; fg='#856404'; }
+    else if (accuracy < 90) { bg='#d1ecf1'; fg='#0c5460'; }
+    const status = accuracy>=90?'excellent':accuracy>=75?'good':accuracy>=60?'fair':'needs help';
+
+    const row = document.createElement('tr');
+    row.style.cursor = 'pointer';
+    row.onmouseover  = () => row.style.background = '#f8f9ff';
+    row.onmouseout   = () => row.style.background = '';
+    row.onclick      = () => openStudentModal(student);
+    row.innerHTML =
+      '<td style="padding:15px;border-bottom:1px solid #f0f0f0;">' +
+        '<div style="font-weight:600;color:#333;">' + student.name + '</div>' +
+        (student.characterCount > 1 ? '<div style="font-size:11px;color:#667eea;font-weight:600;">1 of ' + student.characterCount + ' characters on account</div>' : '') +
+        '<div style="font-size:13px;color:#999;">' + (student.email||'') + '</div>' +
+      '</td>' +
+      '<td style="padding:15px;border-bottom:1px solid #f0f0f0;">' + completed + ' / ' + total + '</td>' +
+      '<td style="padding:15px;border-bottom:1px solid #f0f0f0;"><div style="background:#e0e0e0;height:8px;border-radius:4px;"><div style="height:100%;background:linear-gradient(90deg,#667eea,#764ba2);border-radius:4px;width:' + progress + '%;"></div></div><div style="font-size:12px;color:#666;margin-top:4px;">' + progress + '%</div></td>' +
+      '<td style="padding:15px;border-bottom:1px solid #f0f0f0;"><strong>' + accuracy + '%</strong></td>' +
+      '<td style="padding:15px;border-bottom:1px solid #f0f0f0;"><span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:' + bg + ';color:' + fg + ';">' + status + '</span></td>' +
+      '<td style="padding:15px;border-bottom:1px solid #f0f0f0;"><button onclick="event.stopPropagation();openStudentModal(reportsAllStudents.find(s=>s.id===\'' + student.id + '\'))" style="padding:6px 12px;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;">View Details</button></td>';
+    tbody.appendChild(row);
+  });
+}
+
+window.filterReportsStudents = function() {
+  const term = document.getElementById('reports-search').value.toLowerCase();
+  renderReportsTable(reportsAllStudents.filter(s =>
+    s.name.toLowerCase().includes(term) || (s.email||'').toLowerCase().includes(term)
+  ));
+};
+
+// ================================================
+// STUDENT DETAIL MODAL
+// ================================================
+
+window.openStudentModal = function(student) {
+  if (!student) return;
+  document.getElementById('student-modal-name').textContent     = student.name;
+  document.getElementById('student-modal-xp').textContent       = student.xp || 0;
+  document.getElementById('student-modal-level').textContent    = xpToLevel(student.xp || 0);
+  document.getElementById('student-modal-episodes').textContent = student.progressData.filter(p=>p.completed).length;
+  const avgAcc = student.progressData.reduce((s,p) => s+(p.accuracy||0), 0) / (student.progressData.length||1);
+  document.getElementById('student-modal-accuracy').textContent = Math.round(avgAcc * 100) + '%';
+
+  const chart = document.getElementById('student-modal-chart');
+  chart.innerHTML = '';
+  [...student.progressData].sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp)).forEach(data => {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'flex:1;background:linear-gradient(180deg,#667eea,#764ba2);height:' + (data.accuracy*200) + 'px;border-radius:4px 4px 0 0;position:relative;min-width:40px;';
+    const label = document.createElement('div');
+    label.style.cssText = 'position:absolute;bottom:-25px;left:50%;transform:translateX(-50%);font-size:11px;color:#666;white-space:nowrap;';
+    label.textContent = Math.round(data.accuracy*100) + '%';
+    bar.appendChild(label);
+    chart.appendChild(bar);
+  });
+
+  const struggling = student.progressData.filter(p => p.accuracy < 0.75);
+  document.getElementById('student-modal-struggling').innerHTML =
+    '<h3 style="margin-bottom:15px;">Topics Needing Attention</h3>' +
+    (struggling.length === 0
+      ? '<p style="color:#28a745;">No struggling topics — great work!</p>'
+      : struggling.map(d =>
+          '<div style="background:#fff3cd;padding:15px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;">' +
+          '<span style="font-weight:600;color:#856404;">' + d.episodeName + '</span>' +
+          '<span style="color:#856404;font-weight:600;">' + Math.round(d.accuracy*100) + '% accuracy</span></div>'
+        ).join(''));
+
+  const sorted = [...student.progressData].sort((a,b) => new Date(b.timestamp)-new Date(a.timestamp));
+  document.getElementById('student-modal-history').innerHTML = sorted.length === 0
+    ? '<p style="color:#999;text-align:center;">No episode history yet</p>'
+    : sorted.map(ep =>
+        '<div style="background:#f8f9fa;padding:20px;border-radius:10px;margin-bottom:15px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">' +
+            '<div style="font-weight:600;">' + ep.episodeName + '</div>' +
+            '<span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;background:' +
+              (ep.completed?'#d4edda':'#fff3cd') + ';color:' + (ep.completed?'#155724':'#856404') + ';">' +
+              (ep.completed?'Completed':'In Progress') + '</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:15px;">' +
+            '<div><div style="font-size:12px;color:#666;">Accuracy</div><div style="font-size:18px;font-weight:600;">' + Math.round(ep.accuracy*100) + '%</div></div>' +
+            '<div><div style="font-size:12px;color:#666;">Questions</div><div style="font-size:18px;font-weight:600;">' + (ep.questionsAnswered||0) + '</div></div>' +
+            '<div><div style="font-size:12px;color:#666;">Correct</div><div style="font-size:18px;font-weight:600;">' + (ep.correctAnswers||0) + '</div></div>' +
+            '<div><div style="font-size:12px;color:#666;">Date</div><div style="font-size:14px;font-weight:600;">' + new Date(ep.timestamp).toLocaleDateString() + '</div></div>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+
+  document.getElementById('student-detail-modal').style.display = 'flex';
+};
+
+window.closeStudentModal = function() {
+  document.getElementById('student-detail-modal').style.display = 'none';
+};
+
+// ================================================
+// EXPORT CSV
+// ================================================
+
+window.exportStudentReport = function() {
+  if (reportsAllStudents.length === 0) {
+    if (window.cmsApp) window.cmsApp.showAlert('No student data to export.', 'error');
+    return;
+  }
+  const cls = teacherClasses.find(c => c.id === currentReportsClassId);
+  let csv = 'Class,' + (cls ? cls.name : 'Unknown') + '\n';
+  csv += 'Name,Email,Episodes Completed,Overall Accuracy,Status\n';
+  reportsAllStudents.forEach(student => {
+    const completed = student.progressData.filter(p=>p.completed).length;
+    const total     = student.progressData.length || 1;
+    const accuracy  = Math.round(student.progressData.reduce((s,p) => s+(p.accuracy||0), 0) / total * 100);
+    const status    = accuracy>=90?'Excellent':accuracy>=75?'Good':accuracy>=60?'Fair':'Needs Help';
+    csv += student.name + ',' + (student.email||'') + ',' + completed + '/' + total + ',' + accuracy + '%,' + status + '\n';
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = window.URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'class-report-' + (cls?cls.name.replace(/\s+/g,'-'):'export') + '-' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+};
+
+// ================================================
+// ASSIGN EPISODES TO CLASS
+// ================================================
+
+window.openAssignEpisodesModal = async function(classId) {
+  const cls = teacherClasses.find(c => c.id === classId);
+  if (!cls) return;
+  const db  = getDB();
+  const app = window.cmsApp;
+  const { collection, getDocs } = window.firebaseV9;
+  let allEpisodes = (app && app.state && app.state.episodes) ? app.state.episodes : [];
+  if (allEpisodes.length === 0 && db) {
+    try {
+      const snap = await getDocs(collection(db, 'episodes'));
+      allEpisodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch(e) { console.warn('Could not load episodes:', e); }
+  }
+  if (allEpisodes.length === 0) {
+    if (app) app.showAlert('No episodes found. Create episodes first.', 'error');
+    return;
+  }
+  const currentAssigned = cls.assignedEpisodes || [];
+  const episodeCheckboxes = allEpisodes.map(ep =>
+    '<label style="display:flex;align-items:center;gap:12px;padding:14px;border:1px solid #e0e0e0;border-radius:8px;cursor:pointer;margin-bottom:10px;background:white;" onmouseover="this.style.background=\'#f8f9ff\'" onmouseout="this.style.background=\'white\'">' +
+    '<input type="checkbox" value="' + ep.id + '" ' + (currentAssigned.includes(ep.id)?'checked':'') + ' style="width:18px;height:18px;cursor:pointer;accent-color:#667eea;">' +
+    '<div><div style="font-weight:600;color:#333;">' + (ep.title||'Untitled Episode') + '</div>' +
+    '<div style="font-size:12px;color:#999;margin-top:2px;">' + (ep.genre||'General') + '</div></div></label>'
+  ).join('');
+
+  const existingModal = document.getElementById('assign-episodes-modal');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'assign-episodes-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML =
+    '<div style="background:white;border-radius:16px;max-width:600px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+      '<div style="padding:24px 28px;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:white;z-index:1;">' +
+        '<div><h2 style="color:#333;font-size:22px;margin-bottom:4px;">📚 Assign Episodes</h2>' +
+        '<div style="font-size:13px;color:#999;">Class: <strong style="color:#667eea;">' + cls.name + '</strong></div></div>' +
+        '<button onclick="closeAssignModal()" style="background:none;border:none;font-size:28px;color:#999;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:24px 28px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+          '<span style="font-size:14px;color:#666;">' + allEpisodes.length + ' episodes available</span>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button onclick="toggleAllEpisodes(true)" style="background:none;border:1px solid #667eea;color:#667eea;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">Select All</button>' +
+            '<button onclick="toggleAllEpisodes(false)" style="background:none;border:1px solid #e0e0e0;color:#666;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;">Clear All</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="episode-checklist">' + episodeCheckboxes + '</div>' +
+      '</div>' +
+      '<div style="padding:16px 28px;border-top:1px solid #e0e0e0;display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:0;background:white;">' +
+        '<button onclick="closeAssignModal()" class="cms-btn cms-btn-secondary">Cancel</button>' +
+        '<button onclick="saveEpisodeAssignments(\'' + classId + '\')" class="cms-btn cms-btn-primary">✅ Save Assignments</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+};
+
+window.closeAssignModal    = function() { const m=document.getElementById('assign-episodes-modal'); if(m) m.remove(); };
+window.toggleAllEpisodes   = function(checked) { document.querySelectorAll('#episode-checklist input[type=checkbox]').forEach(cb => cb.checked=checked); };
+
+window.saveEpisodeAssignments = async function(classId) {
+  const db  = getDB();
+  const app = window.cmsApp;
+  if (!db) return;
+  const { doc, updateDoc, arrayUnion, arrayRemove, serverTimestamp } = window.firebaseV9;
+  const checked   = [...document.querySelectorAll('#episode-checklist input[type=checkbox]:checked')].map(cb=>cb.value);
+  const unchecked = [...document.querySelectorAll('#episode-checklist input[type=checkbox]:not(:checked)')].map(cb=>cb.value);
+  try {
+    for (const epId of checked)   await updateDoc(doc(db,'episodes',epId), { assignedClasses: arrayUnion(classId) });
+    for (const epId of unchecked) await updateDoc(doc(db,'episodes',epId), { assignedClasses: arrayRemove(classId) });
+    await updateDoc(doc(db,'classes',classId), { assignedEpisodes: checked, updatedAt: serverTimestamp() });
+    const cls = teacherClasses.find(c=>c.id===classId);
+    if (cls) cls.assignedEpisodes = checked;
+    closeAssignModal();
+    renderClassesList();
+    if (app) app.showAlert('Episodes assigned to class!', 'success');
+  } catch(e) {
+    console.error('Save assignments failed:', e);
+    if (app) app.showAlert('Error saving assignments: ' + e.message, 'error');
+  }
+};
+
+// ================================================
+// BOOT — single registration guard
+// ================================================
+
+if (!window._cmsBootRegistered) {
+  window._cmsBootRegistered = true;
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.cms-nav-tab').forEach(tab => {
+      tab.addEventListener('click', function() {
+        const page = this.getAttribute('data-page');
+        if (page === 'classes')   setTimeout(() => loadTeacherClasses(), 100);
+        if (page === 'analytics') setTimeout(() => loadTeacherClasses(), 100);
+        // loadStudentReports fires via onReportsClassChange when user selects a class
+      });
+    });
+    setTimeout(() => {
+      loadTeacherClasses();
+      ensureTeacherLicense();
+    }, 1500);
+  });
+}
+
+console.log('✅ Section 16 COMPLETE — single boot guard, student reports, episode assignment');
+</script>
+
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SECTION 18: LEGAL FOOTER + MODAL                                        -->
+<!-- Insert just before <!-- END #cms-container -->             
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- Legal Footer -->
+<div style="text-align:center; padding:24px 20px 32px; border-top:1px solid rgba(255,255,255,0.06); margin-top:40px;">
+  <p style="color:#3a4456; font-size:11px; margin:0 0 10px 0; font-family:'Segoe UI',sans-serif;">
+    © 2025–2026 Volney Cothran / Kaveat · Test Quest · Oklahoma City, Oklahoma
+  </p>
+  <p style="color:#3a4456; font-size:11px; margin:0 0 10px 0; font-family:'Segoe UI',sans-serif;">
+    Not affiliated with ACT, Inc. ACT® is a registered trademark of ACT, Inc.
+  </p>
+  <div>
+    <a href="#" onclick="cmsOpenLegal('terms');return false;"
+       style="color:#4a5568; font-size:11px; text-decoration:none; margin:0 10px;
+              transition:color 0.2s;"
+       onmouseover="this.style.color='#667eea'"
+       onmouseout="this.style.color='#4a5568'">Terms of Service</a>
+    <span style="color:#3a4456;">·</span>
+    <a href="#" onclick="cmsOpenLegal('privacy');return false;"
+       style="color:#4a5568; font-size:11px; text-decoration:none; margin:0 10px;
+              transition:color 0.2s;"
+       onmouseover="this.style.color='#667eea'"
+       onmouseout="this.style.color='#4a5568'">Privacy Policy</a>
+    <span style="color:#3a4456;">·</span>
+    <a href="#" onclick="cmsOpenLegal('contact');return false;"
+       style="color:#4a5568; font-size:11px; text-decoration:none; margin:0 10px;
+              transition:color 0.2s;"
+       onmouseover="this.style.color='#667eea'"
+       onmouseout="this.style.color='#4a5568'">Contact</a>
+  </div>
+</div>
+
+<!-- Legal Modal -->
+<div id="cms-legal-modal" style="display:none; position:fixed; inset:0;
+     background:rgba(0,0,0,0.85); backdrop-filter:blur(7px);
+     z-index:9999; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:linear-gradient(145deg,#141d2e,#1e2a3e);
+              border:2px solid rgba(255,255,255,0.1); border-radius:24px;
+              padding:34px; width:100%; max-width:700px; position:relative;
+              max-height:90vh; overflow-y:auto;">
+
+    <button onclick="document.getElementById('cms-legal-modal').style.display='none'"
+            style="position:absolute; top:14px; right:14px;
+                   background:rgba(255,255,255,0.06); border:none; color:#8892a4;
+                   width:32px; height:32px; border-radius:50%; font-size:18px;
+                   cursor:pointer; line-height:1;">×</button>
+
+    <h2 style="font-family:'Cinzel',serif; color:white; font-size:22px; margin-bottom:4px;">Legal</h2>
+    <p style="color:#8892a4; font-size:12px; margin-bottom:20px;">
+      Test Quest · Volney Cothran / Kaveat · Last updated March 2026
+    </p>
+
+    <!-- Tab nav -->
+    <div style="display:flex; border-bottom:2px solid rgba(255,255,255,0.06); margin-bottom:22px;">
+      <button id="cms-ltab-terms"
+              onclick="cmsLegalTab('terms')"
+              style="padding:9px 18px; background:none; border:none; color:#667eea;
+                     font-size:12px; font-weight:700; cursor:pointer;
+                     border-bottom:3px solid #667eea; margin-bottom:-2px;">Terms</button>
+      <button id="cms-ltab-privacy"
+              onclick="cmsLegalTab('privacy')"
+              style="padding:9px 18px; background:none; border:none; color:#4a5568;
+                     font-size:12px; font-weight:700; cursor:pointer;
+                     border-bottom:3px solid transparent; margin-bottom:-2px;">Privacy</button>
+      <button id="cms-ltab-contact"
+              onclick="cmsLegalTab('contact')"
+              style="padding:9px 18px; background:none; border:none; color:#4a5568;
+                     font-size:12px; font-weight:700; cursor:pointer;
+                     border-bottom:3px solid transparent; margin-bottom:-2px;">Contact</button>
+    </div>
