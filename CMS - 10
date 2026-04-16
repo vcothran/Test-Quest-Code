@@ -1,0 +1,80 @@
+
+    <!-- Terms panel -->
+    <div id="cms-lpanel-terms" style="font-size:13px; color:#8892a4; line-height:1.8;">
+      <p>By using Test Quest you agree to these Terms.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">1 · Acceptance</p>
+      <p>Test Quest is operated by Volney Cothran / Kaveat. These terms apply to all users — teachers, students, and administrators.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">2 · Description of Service</p>
+      <p>An educational gamification platform for ACT test preparation including teacher content tools, AI-assisted question extraction, student gameplay, and analytics.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">3 · Trademark Disclaimer</p>
+      <div style="background:rgba(45,27,105,0.3); border:1px solid rgba(155,89,182,0.25);
+                  border-radius:10px; padding:14px; text-align:center; margin:10px 0;">
+        Test Quest is not affiliated with, endorsed by, or sponsored by ACT, Inc.<br>
+        ACT® is a registered trademark of ACT, Inc.
+      </div>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">4 · Teacher Responsibilities</p>
+      <p>Teachers are responsible for ensuring uploaded content complies with copyright law and is appropriate for their students. AI-generated content must be reviewed before use.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">5 · AI-Generated Content</p>
+      <p>Test Quest uses Google Gemini and Anthropic Claude for content assistance. AI content may contain errors. Teachers must review all AI-generated content before assigning to students.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">6 · Limitation of Liability</p>
+      <p>Test Quest is provided "as is" without warranties. We are not liable for damages arising from platform use.</p>
+    </div>
+
+    <!-- Privacy panel -->
+    <div id="cms-lpanel-privacy" style="display:none; font-size:13px; color:#8892a4; line-height:1.8;">
+      <p style="font-weight:700; color:white;">We do not sell your personal data.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">What We Collect</p>
+      <p>Account info (email, name, role), content you create (episodes, questions), usage data, and basic technical data for security.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">Student Data</p>
+      <p>Student progress, accuracy, and XP are stored to power reports and analytics. This data is only accessible to the assigned teacher and is never sold or shared with third parties.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">Student Privacy</p>
+      <p>Not intended for children under 13 without teacher or parental supervision. Teachers are responsible for obtaining appropriate consent for student use.</p>
+      <p style="color:#e67e22; font-weight:700; margin:16px 0 6px;">Data Deletion</p>
+      <p>Email <a href="mailto:support@kaveat.com" style="color:#667eea;">support@kaveat.com</a> to request deletion of your account and data within 30 days.</p>
+    </div>
+
+    <!-- Contact panel -->
+    <div id="cms-lpanel-contact" style="display:none; font-size:13px; color:#8892a4; line-height:1.8;">
+      <p style="margin-bottom:18px;">Reach out to the right team below.</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07);
+                    border-radius:10px; padding:14px; text-align:center;">
+          <div style="font-size:10px; color:#4a5568; text-transform:uppercase; margin-bottom:5px;">General Support</div>
+          <a href="mailto:support@kaveat.com" style="color:#667eea; text-decoration:none; font-size:12px;">support@kaveat.com</a>
+        </div>
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07);
+                    border-radius:10px; padding:14px; text-align:center;">
+          <div style="font-size:10px; color:#4a5568; text-transform:uppercase; margin-bottom:5px;">Privacy Requests</div>
+          <a href="mailto:privacy@kaveat.com" style="color:#667eea; text-decoration:none; font-size:12px;">privacy@kaveat.com</a>
+        </div>
+      </div>
+      <div style="background:rgba(45,27,105,0.3); border:1px solid rgba(155,89,182,0.25);
+                  border-radius:10px; padding:14px; text-align:center;">
+        Test Quest — Volney Cothran / Kaveat · Oklahoma City, Oklahoma<br>
+        <span style="font-size:11px; opacity:0.7;">Not affiliated with ACT, Inc. ACT® is a registered trademark of ACT, Inc.</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+window.cmsOpenLegal = (tab) => {
+  const modal = document.getElementById('cms-legal-modal');
+  if (modal) modal.style.display = 'flex';
+  window.cmsLegalTab(tab || 'terms');
+};
+window.cmsLegalTab = (tab) => {
+  ['terms','privacy','contact'].forEach(t => {
+    const panel = document.getElementById('cms-lpanel-' + t);
+    const btn   = document.getElementById('cms-ltab-' + t);
+    if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
+    if (btn) {
+      btn.style.color        = (t === tab) ? '#667eea' : '#4a5568';
+      btn.style.borderBottom = (t === tab) ? '3px solid #667eea' : '3px solid transparent';
+    }
+  });
+};
+</script>
+	
+<!-- END #cms-container -->
