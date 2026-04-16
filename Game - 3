@@ -1,0 +1,1000 @@
+
+      // ENHANCED: Detailed question-type-specific hints
+      const getDetailedQuestionHint = (question) => {
+        if (!selectedApproach) {
+          return 'careful analysis of all available information';
+        }
+        
+        const hints = {
+          'Logic (Science)': [
+            'analyzing the experimental data systematically',
+            'identifying cause-and-effect relationships in the data',
+            'examining the control variables and constants',
+            'understanding the scientific method applied here',
+            'looking for patterns in the measurements'
+          ],
+          'Persuasion (English)': [
+            'understanding the author\'s rhetorical strategy',
+            'identifying the tone and purpose of the passage',
+            'recognizing transitional phrases and their effects',
+            'analyzing sentence structure and word choice',
+            'finding the logical flow of the argument'
+          ],
+          'Calculation (Math)': [
+            'applying the correct formula or theorem',
+            'breaking down the problem into smaller steps',
+            'checking units and ensuring dimensional consistency',
+            'looking for patterns or relationships in the numbers',
+            'working backwards from the answer choices'
+          ],
+          'Empathy (Reading)': [
+            'understanding character motivations and conflicts',
+            'identifying the main idea versus supporting details',
+            'recognizing cause and effect in the narrative',
+            'paying attention to emotional undertones and subtext',
+            'tracking how relationships evolve through the passage'
+          ],
+          'General': [
+            'careful reading and attention to detail',
+            'eliminating obviously wrong answers first',
+            'looking for key words in both question and answers',
+            'trusting your first instinct after thorough analysis',
+            'checking if extreme answer choices are justified'
+          ]
+        };
+        
+        const approachHints = hints[selectedApproach] || hints['General'];
+        return approachHints[Math.floor(Math.random() * approachHints.length)];
+      };
+
+      const getQuestionHint = (question) => {
+        const hints = [
+          'careful reading and analysis',
+          'understanding of key concepts',
+          'attention to detail',
+          'logical reasoning skills',
+          'critical thinking abilities'
+        ];
+        return hints[Math.floor(Math.random() * hints.length)];
+      };
+
+      const getEmotionalContext = (question) => {
+        const contexts = [
+          'Pay attention to character motivations and relationships.',
+          'Consider the emotional undertones of the passage.',
+          'Look for clues about how characters feel about each other.',
+          'The answer often reflects the emotional truth of the situation.'
+        ];
+        return contexts[Math.floor(Math.random() * contexts.length)];
+      };
+
+      const getQuestionDifficulty = (question) => {
+        const difficulties = ['Easy', 'Medium', 'Hard'];
+        return difficulties[Math.floor(Math.random() * difficulties.length)];
+      };
+
+      const getDynamicFeedback = (isCorrect, approach) => {
+        const correctFeedback = {
+          'Logic (Science)': [
+            'Your logical deduction is flawless!',
+            'Scientific precision guides your path!',
+            'Your analytical mind prevails!',
+            'Reasoning triumphs!'
+          ],
+          'Persuasion (English)': [
+            'Your words carry great power!',
+            'Eloquence opens new doors!',
+            'Your command of language is masterful!',
+            'Persuasion is your greatest weapon!'
+          ],
+          'Calculation (Math)': [
+            'Mathematical perfection achieved!',
+            'Your calculations are precise!',
+            'Numbers bend to your will!',
+            'Arithmetic excellence!'
+          ],
+          'Empathy (Reading)': [
+            'Your understanding runs deep!',
+            'Insight guides your choices!',
+            'Emotional intelligence prevails!',
+            'Empathy illuminates the path!'
+          ],
+          'General': [
+            'Excellent work!',
+            'Your wisdom shines through!',
+            'Well reasoned!',
+            'Knowledge is power!'
+          ]
+        };
+
+        const incorrectFeedback = {
+          'Logic (Science)': [
+            'The data suggests a different path...',
+            'Logic requires careful analysis.',
+            'Scientific method demands precision.',
+            'Reconsider the evidence.'
+          ],
+          'Persuasion (English)': [
+            'Your words did not convince.',
+            'Language requires careful consideration.',
+            'The message was unclear.',
+            'Eloquence comes with practice.'
+          ],
+          'Calculation (Math)': [
+            'The numbers tell a different story.',
+            'Mathematical precision is needed.',
+            'Check your calculations.',
+            'Every digit matters.'
+          ],
+          'Empathy (Reading)': [
+            'Understanding requires deeper reflection.',
+            'The true meaning was missed.',
+            'Insight comes with careful reading.',
+            'Empathy demands attention to detail.'
+          ],
+          'General': [
+            'Not quite right, but learning is part of the journey.',
+            'Every mistake is a lesson.',
+            'Consider the question more carefully.',
+            'Knowledge grows through practice.'
+          ]
+        };
+
+        const feedbackArray = isCorrect ? 
+          (correctFeedback[approach] || correctFeedback['General']) : 
+          (incorrectFeedback[approach] || incorrectFeedback['General']);
+        
+        return feedbackArray[Math.floor(Math.random() * feedbackArray.length)];
+      };
+		console.log('✅ Section 10: Ability Implementation & Game Flow loaded');
+		
+/* === SECTION 11: Authentication & Episode Management === */
+
+      const handleAuthState = async (user) => {
+        if (user) {
+          if (isTestMode && user.uid === 'testUser123') {
+            if (!player || !player.name) {
+              player = { uid: user.uid, name: 'Test Hero', className: 'Pathfinder', xp: 0, focus: 100 };
+              initializePlayerAbilities();
+              showScreen('characterSelect');
+              csLoadCharacters(user.uid);
+            } else {
+              await loadGameContent();
+              showScreen('episodeSelection');
+            }
+          } else {
+            const playerRef  = doc(db, "players", user.uid);
+            const playerSnap = await getDoc(playerRef);
+
+            if (playerSnap.exists()) {
+              player = { uid: user.uid, ...playerSnap.data() };
+              if (player.xp    == null) player.xp    = 0;
+              if (player.focus == null) player.focus  = 100;
+              // Always sync email from Firebase Auth — source of truth
+              if (user.email && !player.email) {
+                player.email = user.email;
+                setDoc(doc(db, 'players', user.uid), { email: user.email }, { merge: true }).catch(()=>{});
+              }
+              initializePlayerAbilities();
+
+              if (!player.role) {
+                showRoleSelection(user);
+              } else if (player.role === 'teacher') {
+                handleTeacherLogin(user);
+              } else {
+                const greetingEl = document.getElementById('cs-greeting');
+                if (greetingEl) greetingEl.textContent = 'Welcome back, ' + (user.displayName || user.email || 'Hero');
+                showScreen('characterSelect');
+                csLoadCharacters(user.uid);
+              }
+            } else {
+              player = { uid: user.uid, xp: 0, focus: 100 };
+              initializePlayerAbilities();
+              showRoleSelection(user);
+            }
+          }
+        } else {
+          player     = null;
+          isTestMode = false;
+          showScreen('login');
+        }
+      };
+
+      // -------------------------------------------------------
+      // ROLE SELECTION — shown once to new users
+      // -------------------------------------------------------
+      const showRoleSelection = (user) => {
+        const existing = document.getElementById('role-selection-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'role-selection-overlay';
+        overlay.style.cssText = `
+          position: fixed; inset: 0;
+          background: rgba(10, 14, 23, 0.97);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 99999;
+          font-family: 'Cinzel', serif;
+        `;
+
+        overlay.innerHTML = `
+          <div style="
+            background: linear-gradient(145deg, #1a2035, #0d1117);
+            border: 2px solid rgba(102,126,234,0.4);
+            border-radius: 24px;
+            padding: 50px 40px;
+            max-width: 480px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+          ">
+            <div style="font-size: 48px; margin-bottom: 20px;">⚔️</div>
+            <h2 style="
+              color: #c9a84c;
+              font-size: 28px;
+              margin-bottom: 10px;
+              text-shadow: 0 0 20px rgba(201,168,76,0.4);
+            ">Welcome, ${user.displayName || 'Hero'}!</h2>
+            <p style="color: #8892a4; font-size: 15px; margin-bottom: 40px; font-family: 'Segoe UI', sans-serif;">
+              How will you be using Test Quest?
+            </p>
+
+            <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+              <button id="role-student-btn" style="
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                border: none; border-radius: 16px;
+                padding: 24px 32px;
+                cursor: pointer;
+                color: white;
+                min-width: 160px;
+                transition: transform 0.2s, box-shadow 0.2s;
+                box-shadow: 0 8px 25px rgba(102,126,234,0.4);
+              ">
+                <div style="font-size: 36px; margin-bottom: 10px;">🎮</div>
+                <div style="font-family: 'Cinzel', serif; font-size: 16px; font-weight: 700; margin-bottom: 6px;">I'm a Student</div>
+                <div style="font-size: 12px; opacity: 0.8; font-family: 'Segoe UI', sans-serif;">Play adventures and earn XP</div>
+              </button>
+
+              <button id="role-teacher-btn" style="
+                background: linear-gradient(135deg, #f093fb, #c0392b);
+                border: none; border-radius: 16px;
+                padding: 24px 32px;
+                cursor: pointer;
+                color: white;
+                min-width: 160px;
+                transition: transform 0.2s, box-shadow 0.2s;
+                box-shadow: 0 8px 25px rgba(192,57,43,0.4);
+              ">
+                <div style="font-size: 36px; margin-bottom: 10px;">📚</div>
+                <div style="font-family: 'Cinzel', serif; font-size: 16px; font-weight: 700; margin-bottom: 6px;">I'm a Teacher</div>
+                <div style="font-size: 12px; opacity: 0.8; font-family: 'Segoe UI', sans-serif;">Create and manage content</div>
+              </button>
+            </div>
+          </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        document.getElementById('role-student-btn').onclick = async () => {
+          overlay.remove();
+          player.role = 'student';
+          try {
+            await setDoc(doc(db, 'players', player.uid), { role: 'student' }, { merge: true });
+          } catch(e) { console.warn('Could not save role:', e); }
+          showScreen('characterSelect');
+          csLoadCharacters(player.uid);
+        };
+
+        document.getElementById('role-teacher-btn').onclick = async () => {
+          overlay.remove();
+          player.role = 'teacher';
+          try {
+            await setDoc(doc(db, 'players', player.uid), { role: 'teacher' }, { merge: true });
+          } catch(e) { console.warn('Could not save role:', e); }
+          showTeacherRegistration(auth.currentUser);
+        };
+      };
+
+      // -------------------------------------------------------
+      // TEACHER LOGIN HANDLER — checks registration status
+      // -------------------------------------------------------
+      const handleTeacherLogin = async (user) => {
+        try {
+          const snap = await getDoc(doc(db, 'teachers', player.uid));
+          if (snap.exists() && snap.data().registeredAt) {
+            showTeacherLanding(user);
+            return;
+          }
+        } catch(e) { console.warn('Could not check teacher registration:', e); }
+        showTeacherRegistration(user);
+      };
+
+      // -------------------------------------------------------
+      // TEACHER REGISTRATION FORM — shown once to new teachers
+      // -------------------------------------------------------
+      const showTeacherRegistration = (user) => {
+        const existing = document.getElementById('teacher-reg-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'teacher-reg-overlay';
+        overlay.style.cssText = `
+          position: fixed; inset: 0;
+          background: rgba(10, 14, 23, 0.98);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 99999;
+          font-family: 'Cinzel', serif;
+          overflow-y: auto;
+          padding: 20px;
+        `;
+
+        const subjects = [
+          'Math', 'Science', 'English / Reading', 'Social Studies',
+          'History', 'Foreign Language', 'Elective / CTE'
+        ];
+
+        overlay.innerHTML = `
+          <div style="
+            background: linear-gradient(145deg, #1a2035, #0d1117);
+            border: 2px solid rgba(201,168,76,0.3);
+            border-radius: 24px;
+            padding: 44px 40px;
+            max-width: 540px;
+            width: 100%;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+          ">
+            <div style="text-align:center;margin-bottom:28px;">
+              <div style="font-size:40px;margin-bottom:12px;">📋</div>
+              <h2 style="color:#c9a84c;font-size:24px;margin:0 0 8px 0;text-shadow:0 0 20px rgba(201,168,76,0.4);">
+                Complete Your Profile
+              </h2>
+              <p style="color:#8892a4;font-size:14px;margin:0;font-family:'Segoe UI',sans-serif;">
+                Just a few details to get you started with Test Quest
+              </p>
+            </div>
+
+            <div style="margin-bottom:18px;">
+              <label style="display:block;color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;font-family:'Segoe UI',sans-serif;">Full Name *</label>
+              <input id="reg-name" value="${user && user.displayName ? user.displayName : ''}" placeholder="Your full name"
+                style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;color:white;font-size:14px;font-family:'Segoe UI',sans-serif;box-sizing:border-box;outline:none;">
+            </div>
+
+            <div style="margin-bottom:18px;">
+              <label style="display:block;color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;font-family:'Segoe UI',sans-serif;">School Name *</label>
+              <input id="reg-school" placeholder="e.g. Lincoln Middle School"
+                style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;color:white;font-size:14px;font-family:'Segoe UI',sans-serif;box-sizing:border-box;outline:none;">
+            </div>
+
+            <div style="margin-bottom:18px;">
+              <label style="display:block;color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;font-family:'Segoe UI',sans-serif;">School District *</label>
+              <input id="reg-district" placeholder="e.g. Oklahoma City Public Schools"
+                style="width:100%;padding:11px 14px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;color:white;font-size:14px;font-family:'Segoe UI',sans-serif;box-sizing:border-box;outline:none;">
+            </div>
+
+            <div style="margin-bottom:24px;">
+              <label style="display:block;color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;font-family:'Segoe UI',sans-serif;">Subject Areas (select all that apply)</label>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;" id="reg-subjects">
+                ${subjects.map(s => `
+                  <label style="display:flex;align-items:center;gap:7px;padding:7px 13px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;cursor:pointer;font-family:'Segoe UI',sans-serif;font-size:13px;color:#8892a4;transition:all 0.2s;" class="subj-label">
+                    <input type="checkbox" value="${s}" class="reg-subj-check" style="display:none;">
+                    ${s}
+                  </label>
+                `).join('')}
+              </div>
+              <div style="margin-top:10px;display:flex;align-items:center;gap:10px;">
+                <label style="display:flex;align-items:center;gap:7px;padding:7px 13px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;cursor:pointer;font-family:'Segoe UI',sans-serif;font-size:13px;color:#8892a4;" class="subj-label">
+                  <input type="checkbox" id="reg-other-check" class="reg-subj-check" value="Other" style="display:none;">
+                  Other
+                </label>
+                <input id="reg-other-text" placeholder="Specify subject…"
+                  style="flex:1;padding:7px 12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:20px;color:white;font-size:13px;font-family:'Segoe UI',sans-serif;outline:none;display:none;">
+              </div>
+            </div>
+
+            <div id="reg-error" style="display:none;color:#e74c3c;font-size:13px;margin-bottom:16px;font-family:'Segoe UI',sans-serif;text-align:center;"></div>
+
+            <button id="reg-submit-btn" onclick="submitTeacherRegistration()"
+              style="width:100%;padding:14px;background:linear-gradient(135deg,#c9a84c,#a07030);border:none;border-radius:12px;color:white;font-size:16px;font-weight:700;cursor:pointer;font-family:'Cinzel',serif;letter-spacing:0.5px;">
+              Complete Registration
+            </button>
+
+            <p style="text-align:center;color:#3a4456;font-size:11px;margin-top:16px;font-family:'Segoe UI',sans-serif;">
+              This information is only used to improve Test Quest and is never shared publicly.
+            </p>
+          </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        overlay.querySelectorAll('.subj-label').forEach(label => {
+          label.addEventListener('click', () => {
+            const check = label.querySelector('input[type=checkbox]');
+            check.checked = !check.checked;
+            label.style.background  = check.checked ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.04)';
+            label.style.borderColor = check.checked ? 'rgba(201,168,76,0.5)'  : 'rgba(255,255,255,0.09)';
+            label.style.color       = check.checked ? '#c9a84c'               : '#8892a4';
+            if (check.value === 'Other') {
+              document.getElementById('reg-other-text').style.display = check.checked ? 'block' : 'none';
+            }
+          });
+        });
+      };
+
+      window.submitTeacherRegistration = async () => {
+        const name     = document.getElementById('reg-name').value.trim();
+        const school   = document.getElementById('reg-school').value.trim();
+        const district = document.getElementById('reg-district').value.trim();
+        const errorEl  = document.getElementById('reg-error');
+        const btn      = document.getElementById('reg-submit-btn');
+
+        if (!name)     { errorEl.textContent = 'Please enter your full name.';       errorEl.style.display = 'block'; return; }
+        if (!school)   { errorEl.textContent = 'Please enter your school name.';     errorEl.style.display = 'block'; return; }
+        if (!district) { errorEl.textContent = 'Please enter your school district.'; errorEl.style.display = 'block'; return; }
+        errorEl.style.display = 'none';
+
+        const subjects = [];
+        document.querySelectorAll('.reg-subj-check:checked').forEach(cb => {
+          if (cb.value === 'Other') {
+            const other = document.getElementById('reg-other-text').value.trim();
+            if (other) subjects.push(other);
+          } else {
+            subjects.push(cb.value);
+          }
+        });
+
+        btn.disabled = true; btn.textContent = 'Saving…';
+
+        try {
+          const currentUser = auth.currentUser;
+          const regData = {
+            name, school, district, subjects,
+            email:        currentUser ? (currentUser.email || null) : null,
+            role:         'teacher',
+            registeredAt: new Date().toISOString()
+          };
+
+          await Promise.all([
+            setDoc(doc(db, 'players',  player.uid), { name, school, district, subjects }, { merge: true }),
+            setDoc(doc(db, 'teachers', player.uid), regData, { merge: true })
+          ]);
+
+          player.name     = name;
+          player.school   = school;
+          player.district = district;
+          player.subjects = subjects;
+
+          const overlay = document.getElementById('teacher-reg-overlay');
+          if (overlay) overlay.remove();
+
+          showTeacherLanding(auth.currentUser);
+        } catch(e) {
+          console.error('Registration error:', e);
+          errorEl.textContent = 'Error saving registration. Please try again.';
+          errorEl.style.display = 'block';
+          btn.disabled = false; btn.textContent = 'Complete Registration';
+        }
+      };
+
+      // -------------------------------------------------------
+      // TEACHER LANDING — shown every login for teachers
+      // -------------------------------------------------------
+      const showTeacherLanding = (user) => {
+        const existing = document.getElementById('teacher-landing-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'teacher-landing-overlay';
+        overlay.style.cssText = `
+          position: fixed; inset: 0;
+          background: rgba(10, 14, 23, 0.97);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 99999;
+          font-family: 'Cinzel', serif;
+        `;
+
+        overlay.innerHTML = `
+          <div style="
+            background: linear-gradient(145deg, #1a2035, #0d1117);
+            border: 2px solid rgba(201,168,76,0.4);
+            border-radius: 24px;
+            padding: 50px 40px;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+          ">
+            <div style="font-size: 48px; margin-bottom: 20px;">📚</div>
+            <h2 style="
+              color: #c9a84c;
+              font-size: 28px;
+              margin-bottom: 10px;
+              text-shadow: 0 0 20px rgba(201,168,76,0.4);
+            ">Teacher Portal</h2>
+            <p style="color: #8892a4; font-size: 15px; margin-bottom: 40px; font-family: 'Segoe UI', sans-serif;">
+              What would you like to do today?
+            </p>
+
+            <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+              <button id="teacher-play-btn" style="
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                border: none; border-radius: 16px;
+                padding: 24px 32px;
+                cursor: pointer;
+                color: white;
+                min-width: 160px;
+                box-shadow: 0 8px 25px rgba(102,126,234,0.4);
+              ">
+                <div style="font-size: 36px; margin-bottom: 10px;">🎮</div>
+                <div style="font-family: 'Cinzel', serif; font-size: 16px; font-weight: 700; margin-bottom: 6px;">Play Game</div>
+                <div style="font-size: 12px; opacity: 0.8; font-family: 'Segoe UI', sans-serif;">Test episodes as a player</div>
+              </button>
+
+              <button id="teacher-cms-btn" style="
+                background: linear-gradient(135deg, #f093fb, #c0392b);
+                border: none; border-radius: 16px;
+                padding: 24px 32px;
+                cursor: pointer;
+                color: white;
+                min-width: 160px;
+                box-shadow: 0 8px 25px rgba(192,57,43,0.4);
+              ">
+                <div style="font-size: 36px; margin-bottom: 10px;">⚙️</div>
+                <div style="font-family: 'Cinzel', serif; font-size: 16px; font-weight: 700; margin-bottom: 6px;">Manage Content</div>
+                <div style="font-size: 12px; opacity: 0.8; font-family: 'Segoe UI', sans-serif;">Create and edit episodes</div>
+              </button>
+            </div>
+          </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        document.getElementById('teacher-play-btn').onclick = () => {
+          overlay.remove();
+          const greetingEl = document.getElementById('cs-greeting');
+          if (greetingEl) greetingEl.textContent = 'Welcome, ' + (player.name || (user && user.displayName) || (user && user.email) || 'Teacher');
+          showScreen('characterSelect');
+          csLoadCharacters(player.uid);
+        };
+
+        document.getElementById('teacher-cms-btn').onclick = () => {
+          window.location.href = 'https://ground-flow.com/teacher-cms/';
+        };
+      };
+
+      // -------------------------------------------------------
+      // CHARACTER SELECT
+      // -------------------------------------------------------
+      const CS_CLASSES = {
+        Strategist:  { icon: '⚔️',  color: '#e74c3c', tagline: 'Masters of tactical thinking' },
+        Arcanist:    { icon: '🔮',  color: '#9b59b6', tagline: 'Wielders of mystical knowledge' },
+        Infiltrator: { icon: '🗡️', color: '#708090', tagline: 'Shadows and secrets are their allies' },
+        Empath:      { icon: '❤️',  color: '#e84393', tagline: 'Understanding guides their path' },
+        Pathfinder:  { icon: '🧭',  color: '#27ae60', tagline: 'Explorers of the unknown' }
+      };
+      const CS_ORDER = ['Strategist','Arcanist','Infiltrator','Empath','Pathfinder'];
+
+      let csCharacters    = [];
+      let csSelectedIndex = null;
+      let csCreatingSlot  = null;
+      let csSelectedClass = null;
+      let csCodeResolve   = null;
+
+      const csLoadCharacters = async (uid) => {
+        const loadingEl = document.getElementById('cs-loading');
+        const gridEl    = document.getElementById('cs-grid');
+        if (loadingEl) loadingEl.style.display = 'block';
+        if (gridEl)    gridEl.style.display    = 'none';
+        try {
+          const snap = await getDocs(collection(db, 'players', uid, 'characters'));
+          csCharacters = snap.docs
+            .map(d => Object.assign({ id: d.id }, d.data()))
+            .sort((a, b) => (a.slotIndex != null ? a.slotIndex : 99) - (b.slotIndex != null ? b.slotIndex : 99));
+        } catch (e) { console.warn('Could not load characters:', e); csCharacters = []; }
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (gridEl)    gridEl.style.display    = 'grid';
+        csRenderGrid();
+      };
+
+      const csTimeAgo = (date) => {
+        const s = Math.floor((new Date() - date) / 1000);
+        if (s < 60)    return 'just now';
+        if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+        if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+        return Math.floor(s / 86400) + 'd ago';
+      };
+
+      const csRenderGrid = () => {
+        const grid = document.getElementById('cs-grid');
+        if (!grid) return;
+        grid.innerHTML = '';
+        for (let i = 0; i < 5; i++) {
+          const char = csCharacters.find(c => c.slotIndex === i) || null;
+          const slot = document.createElement('div');
+          slot.style.cssText = 'border-radius:18px; padding:22px 12px 18px; text-align:center; cursor:pointer; position:relative; min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:transform 0.25s,box-shadow 0.25s,border 0.25s;';
+
+          if (char) {
+            const def   = CS_CLASSES[char.className] || { icon: '⚔️', color: '#667eea' };
+            const level = window.getLevelData ? window.getLevelData(char.xp || 0).level : Math.floor((char.xp || 0) / 100) + 1;
+            const ago   = char.lastPlayed ? csTimeAgo(new Date(char.lastPlayed)) : 'Never played';
+            const isSel = csSelectedIndex === i;
+            slot.style.background = 'rgba(255,255,255,0.04)';
+            slot.style.border     = '2px solid ' + (isSel ? def.color : def.color + '55');
+            if (isSel) { slot.style.boxShadow = '0 20px 45px ' + def.color + '55'; slot.style.transform = 'translateY(-8px)'; }
+            const portraitHtml = char.currentPortraitUrl
+              ? '<div style="width:80px;height:80px;border-radius:50%;overflow:hidden;border:3px solid '+def.color+';margin-bottom:10px;box-shadow:0 4px 16px rgba(0,0,0,0.5);flex-shrink:0;">' +
+                '<img src="'+char.currentPortraitUrl+'" style="width:100%;height:100%;object-fit:cover;" onclick="event.stopPropagation();window.showPortraitGallery&&window.showPortraitGallery();" title="View Portrait Hall">' +
+                '</div>'
+              : '<span style="font-size:46px;margin-bottom:10px;display:block;">'+def.icon+'</span>';
+            slot.innerHTML =
+              '<span style="position:absolute;top:9px;left:12px;font-size:10px;font-weight:700;color:#3a4456;text-transform:uppercase;letter-spacing:1px;">#'+(i+1)+'</span>' +
+              '<button onclick="event.stopPropagation();csConfirmDelete('+i+')" style="position:absolute;top:9px;right:9px;background:rgba(231,76,60,0.12);border:1px solid rgba(231,76,60,0.3);color:#e74c3c;border-radius:50%;width:22px;height:22px;font-size:11px;cursor:pointer;opacity:0;transition:opacity 0.2s;line-height:1;" class="cs-del-btn">x</button>' +
+              portraitHtml +
+              '<div style="font-family:\'Cinzel\',serif;font-size:15px;font-weight:700;color:white;margin-bottom:2px;">'+char.name+'</div>' +
+              '<div style="font-size:10px;color:#8892a4;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">'+char.className+'</div>' +
+              '<div style="display:flex;gap:8px;justify-content:center;margin-bottom:7px;">' +
+                '<div style="text-align:center;"><span style="font-size:16px;font-weight:700;color:#667eea;display:block;">'+level+'</span><span style="font-size:9px;color:#4a5568;text-transform:uppercase;">Level</span></div>' +
+                '<div style="text-align:center;"><span style="font-size:16px;font-weight:700;color:#667eea;display:block;">'+(char.xp||0)+'</span><span style="font-size:9px;color:#4a5568;text-transform:uppercase;">XP</span></div>' +
+              '</div>' +
+              '<div style="font-size:10px;color:#3a4456;">'+ago+'</div>' +
+              '<button style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;border-radius:14px;padding:5px 16px;font-size:12px;font-weight:700;cursor:pointer;opacity:'+(isSel?'1':'0')+';transition:opacity 0.2s;white-space:nowrap;" class="cs-play-btn">Play</button>';
+            slot.onmouseenter = (function(el, idx) { return () => {
+              if (csSelectedIndex !== idx) { el.style.transform = 'translateY(-6px)'; el.style.boxShadow = '0 16px 35px rgba(0,0,0,0.5)'; }
+              const db = el.querySelector('.cs-del-btn'), pb = el.querySelector('.cs-play-btn');
+              if (db) db.style.opacity = '1'; if (pb) pb.style.opacity = '1';
+            }; })(slot, i);
+            slot.onmouseleave = (function(el, idx) { return () => {
+              if (csSelectedIndex !== idx) { el.style.transform = 'translateY(0)'; el.style.boxShadow = 'none'; }
+              const db = el.querySelector('.cs-del-btn'), pb = el.querySelector('.cs-play-btn');
+              if (db) db.style.opacity = '0'; if (pb) pb.style.opacity = (csSelectedIndex===idx)?'1':'0';
+            }; })(slot, i);
+            slot.onclick = (function(idx) { return () => csSelectSlot(idx); })(i);
+          } else {
+            slot.style.background = 'rgba(255,255,255,0.015)';
+            slot.style.border     = '2px dashed rgba(255,255,255,0.09)';
+            slot.innerHTML =
+              '<span style="position:absolute;top:9px;left:12px;font-size:10px;font-weight:700;color:#3a4456;text-transform:uppercase;letter-spacing:1px;">#'+(i+1)+'</span>' +
+              '<span style="font-size:32px;opacity:0.18;margin-bottom:10px;display:block;">+</span>' +
+              '<div style="font-size:12px;color:#3a4456;">New Hero</div>';
+            slot.onmouseenter = (function(el) { return () => { el.style.background='rgba(255,255,255,0.03)'; el.style.borderColor='rgba(255,255,255,0.18)'; }; })(slot);
+            slot.onmouseleave = (function(el) { return () => { el.style.background='rgba(255,255,255,0.015)'; el.style.borderColor='rgba(255,255,255,0.09)'; }; })(slot);
+            slot.onclick = (function(idx) { return () => csOpenCreate(idx); })(i);
+          }
+          grid.appendChild(slot);
+        }
+      };
+
+      const csSelectSlot = (index) => {
+        csSelectedIndex = index;
+        csRenderGrid();
+        const char = csCharacters.find(c => c.slotIndex === index);
+        const btn  = document.getElementById('cs-enter-btn');
+        if (!btn) return;
+        btn.style.opacity = '1'; btn.style.pointerEvents = 'auto';
+        btn.style.boxShadow = '0 14px 40px rgba(102,126,234,0.6)';
+        btn.textContent = char ? 'Play as ' + char.name : 'Begin Adventure';
+      };
+
+      window.csEnterGame = async () => {
+        const char = csCharacters.find(c => c.slotIndex === csSelectedIndex);
+        if (!char) return;
+        try {
+          // Sync enrolledCodes from character doc to top-level player doc
+          // so the reports query (array-contains on players collection) finds this student
+          const charCodes = Array.isArray(char.enrolledCodes) ? char.enrolledCodes : [];
+          // Get email from Firebase Auth and character count
+          // Try multiple sources in case auth.currentUser isn't ready yet
+          const authEmail = (typeof auth !== 'undefined' && auth.currentUser && auth.currentUser.email)
+            ? auth.currentUser.email
+            : (player.email || null);
+          const characterCount = csCharacters ? csCharacters.length : 1;
+
+          const playerUpdate = {
+            name: char.name, className: char.className,
+            xp: char.xp || 0, focus: char.focus || 100,
+            abilities: char.abilities || null, activeEffects: char.activeEffects || null,
+            inventory: char.inventory || null,
+            activeCharacterId: char.id,
+            characterCount: characterCount,
+            email: authEmail,
+            lastLogin: new Date().toISOString()
+          };
+          // Only write enrolledCodes if the character has them — never overwrite with empty array
+          if (charCodes.length > 0) playerUpdate.enrolledCodes = charCodes;
+          await setDoc(doc(db, 'players', player.uid), playerUpdate, { merge: true });
+          await setDoc(doc(db, 'players', player.uid, 'characters', char.id), { lastPlayed: new Date().toISOString() }, { merge: true });
+          player.name              = char.name;
+          player.className         = char.className;
+          player.xp                = char.xp            || 0;
+          player.focus             = char.focus          || 100;
+          player.abilities         = char.abilities      || null;
+          player.activeEffects     = char.activeEffects  || null;
+          player.inventory         = char.inventory      || null;
+          player.enrolledCodes        = charCodes;
+          player.activeCharacterId    = char.id;
+          player.abilityUpgrades      = char.abilityUpgrades || {};
+          // Load portrait descriptors for cutscene use
+          // Pull from character doc — these were saved when portrait was created
+          player.portraitEditedFields = char.portraitEditedFields || {};
+          player.portraitDescription  = char.portraitDescription  || '';
+          player.currentPortraitUrl   = char.currentPortraitUrl   || '';
+          // Extract individual physical fields from editedFields if not stored separately
+          const pf = char.portraitEditedFields || {};
+          player.portraitHair = char.portraitHair || pf.hair || '';
+          player.portraitEyes = char.portraitEyes || pf.eyes || '';
+          player.portraitSkin = char.portraitSkin || pf.skin || '';
+          // Also parse from combined portraitDescription as fallback
+          if (!player.portraitHair && char.portraitDescription) {
+            const desc = char.portraitDescription.toLowerCase();
+            const hairMatch = char.portraitDescription.match(/([a-z\s]+ hair)/i);
+            const eyesMatch = char.portraitDescription.match(/([a-z\s]+ eyes)/i);
+            const skinMatch = char.portraitDescription.match(/([a-z\s]+ skin)/i);
+            if (hairMatch) player.portraitHair = hairMatch[1];
+            if (eyesMatch) player.portraitEyes = eyesMatch[1];
+            if (skinMatch) player.portraitSkin = skinMatch[1].replace(/ skin$/i, '');
+          }
+          if (player.xp    == null) player.xp    = 0;
+          if (player.focus == null) player.focus  = 100;
+          initializePlayerAbilities();
+          await loadGameContent();
+          showScreen('episodeSelection');
+          // Call updateHUDPortrait multiple times to beat WordPress emoji rendering
+          setTimeout(() => { if (typeof window.updateHUDPortrait === 'function') window.updateHUDPortrait(); }, 300);
+          setTimeout(() => { if (typeof window.updateHUDPortrait === 'function') window.updateHUDPortrait(); }, 800);
+          setTimeout(() => { if (typeof window.updateHUDPortrait === 'function') window.updateHUDPortrait(); }, 1500);
+        } catch (e) { console.error('csEnterGame error:', e); alert('Error loading hero. Please try again.'); }
+      };
+
+      // -------------------------------------------------------
+      // CREATE HERO MODAL
+      // -------------------------------------------------------
+      const csOpenCreate = (slotIndex) => {
+        csCreatingSlot = slotIndex; csSelectedClass = null;
+        const grid = document.getElementById('cs-class-grid');
+        if (!grid) return;
+        grid.innerHTML = '';
+        CS_ORDER.forEach(cls => {
+          const def  = CS_CLASSES[cls];
+          const card = document.createElement('div');
+          card.id    = 'cscard-' + cls;
+          card.style.cssText = 'background:rgba(255,255,255,0.04);border:2px solid rgba(255,255,255,0.08);border-radius:11px;padding:13px 10px;text-align:center;cursor:pointer;transition:all 0.2s;';
+          card.innerHTML = '<span style="font-size:26px;display:block;margin-bottom:5px;">'+def.icon+'</span><div style="font-size:13px;font-weight:700;color:white;margin-bottom:2px;">'+cls+'</div><div style="font-size:10px;color:#4a5568;line-height:1.4;">'+def.tagline+'</div>';
+          card.onclick = (function(c, d, el) { return () => {
+            csSelectedClass = c;
+            document.querySelectorAll('[id^=cscard-]').forEach(x => { x.style.background='rgba(255,255,255,0.04)'; x.style.borderColor='rgba(255,255,255,0.08)'; });
+            el.style.background = 'rgba(102,126,234,0.15)'; el.style.borderColor = d.color;
+          }; })(cls, def, card);
+          grid.appendChild(card);
+        });
+        const heroNameEl = document.getElementById('cs-hero-name');
+        if (heroNameEl) heroNameEl.value = '';
+        const modal = document.getElementById('cs-create-modal');
+        if (modal) { modal.style.display = 'flex'; setTimeout(() => heroNameEl && heroNameEl.focus(), 100); }
+      };
+
+      window.csCloseCreate = () => {
+        const modal = document.getElementById('cs-create-modal');
+        if (modal) modal.style.display = 'none';
+        csCreatingSlot = null; csSelectedClass = null;
+      };
+
+      window.csDoCreate = async () => {
+        const heroNameEl = document.getElementById('cs-hero-name');
+        const name = heroNameEl ? heroNameEl.value.trim() : '';
+        if (!csSelectedClass) { alert('Please choose a class.'); return; }
+        if (!name)            { alert('Please enter a hero name.'); return; }
+        const btn = document.getElementById('cs-create-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+        try {
+          const newChar = { name, className: csSelectedClass, xp: 0, focus: 100, abilities: null, activeEffects: null, inventory: null, enrolledCodes: [], slotIndex: csCreatingSlot, createdAt: new Date().toISOString(), lastPlayed: null };
+          const ref = doc(collection(db, 'players', player.uid, 'characters'));
+          await setDoc(ref, Object.assign({}, newChar, { id: ref.id }));
+          newChar.id = ref.id;
+          csCharacters = csCharacters.filter(c => c.slotIndex !== csCreatingSlot);
+          csCharacters.push(newChar);
+          window.csCloseCreate();
+          csRenderGrid();
+        } catch (e) { console.error('csDoCreate error:', e); alert('Error creating hero. Please try again.'); }
+        finally { if (btn) { btn.disabled = false; btn.textContent = 'Create Hero'; } }
+      };
+
+      window.csConfirmDelete = (slotIndex) => {
+        const char = csCharacters.find(c => c.slotIndex === slotIndex);
+        if (!char || !confirm('Delete ' + char.name + '? This cannot be undone.')) return;
+        deleteDoc(doc(db, 'players', player.uid, 'characters', char.id))
+          .then(() => {
+            csCharacters = csCharacters.filter(c => c.slotIndex !== slotIndex);
+            if (csSelectedIndex === slotIndex) {
+              csSelectedIndex = null;
+              const btn = document.getElementById('cs-enter-btn');
+              if (btn) { btn.style.opacity = '0.35'; btn.style.pointerEvents = 'none'; btn.textContent = 'Begin Adventure'; }
+            }
+            csRenderGrid();
+          })
+          .catch(() => alert('Error deleting hero.'));
+      };
+
+      // -------------------------------------------------------
+      // CLASS CODE MODAL
+      // -------------------------------------------------------
+      const csShowCodeModal = () => new Promise((resolve) => {
+        if (player.role === 'teacher') { resolve(null); return; }
+
+        csCodeResolve = resolve;
+        const lastCode = (Array.isArray(player.enrolledCodes) && player.enrolledCodes[0]) || '';
+        const input    = document.getElementById('cs-code-input');
+        const badge    = document.getElementById('cs-prefill-badge');
+        const prefill  = document.getElementById('cs-prefill-text');
+        const error    = document.getElementById('cs-code-error');
+        const checking = document.getElementById('cs-code-checking');
+        const submit   = document.getElementById('cs-code-submit');
+        if (!input || !submit) { resolve(null); return; }
+        input.value = lastCode;
+        if (error)    error.style.display    = 'none';
+        if (checking) checking.style.display = 'none';
+        submit.disabled = false; submit.style.opacity = '1';
+        if (lastCode && prefill && badge) { prefill.textContent = lastCode; badge.style.display = 'flex'; }
+        else if (badge) { badge.style.display = 'none'; }
+        const modal = document.getElementById('cs-code-modal');
+        if (modal) { modal.style.display = 'flex'; setTimeout(() => input.focus(), 100); }
+      });
+
+      window.csUsePrefill = () => {
+        const input   = document.getElementById('cs-code-input');
+        const prefill = document.getElementById('cs-prefill-text');
+        if (input && prefill) input.value = prefill.textContent;
+        window.csSubmitCode();
+      };
+
+      window.csSubmitCode = async () => {
+        const input    = document.getElementById('cs-code-input');
+        const error    = document.getElementById('cs-code-error');
+        const checking = document.getElementById('cs-code-checking');
+        const submit   = document.getElementById('cs-code-submit');
+        const code     = input ? input.value.trim().toUpperCase() : '';
+        if (!code) { if (error) { error.textContent = 'Please enter a code.'; error.style.display = 'block'; } return; }
+        if (submit)   { submit.disabled = true; submit.style.opacity = '0.6'; }
+        if (error)    error.style.display    = 'none';
+        if (checking) checking.style.display = 'block';
+        try {
+          const q    = query(collection(db, 'classes'), where('joinCode', '==', code));
+          const snap = await getDocs(q);
+          if (checking) checking.style.display = 'none';
+          if (!snap.empty) {
+            const classData = Object.assign({ id: snap.docs[0].id }, snap.docs[0].data());
+            await csAddCode(code);
+            const modal = document.getElementById('cs-code-modal');
+            if (modal) modal.style.display = 'none';
+            if (csCodeResolve) { csCodeResolve({ code, classData }); csCodeResolve = null; }
+          } else {
+            if (error)  { error.textContent = 'Code not found — check with your teacher and try again.'; error.style.display = 'block'; }
+            if (submit) { submit.disabled = false; submit.style.opacity = '1'; }
+          }
+        } catch (e) {
+          if (checking) checking.style.display = 'none';
+          if (error)    { error.textContent = 'Error checking code. Please try again.'; error.style.display = 'block'; }
+          if (submit)   { submit.disabled = false; submit.style.opacity = '1'; }
+        }
+      };
+
+      window.csSkipCode = () => {
+        const modal = document.getElementById('cs-code-modal');
+        if (modal) modal.style.display = 'none';
+        if (csCodeResolve) { csCodeResolve(null); csCodeResolve = null; }
+      };
+
+      const csAddCode = async (code) => {
+        const existing = Array.isArray(player.enrolledCodes) ? player.enrolledCodes : [];
+        if (existing.includes(code)) return;
+        const updated = [...existing, code];
+        player.enrolledCodes = updated;
+        try {
+          // Always save to top-level player doc first — this is what reports query uses
+          await setDoc(doc(db, 'players', player.uid), { enrolledCodes: updated }, { merge: true });
+          // Also save to active character doc if we have one
+          if (player.activeCharacterId) {
+            await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId), { enrolledCodes: updated }, { merge: true });
+          }
+        } catch (e) { console.warn('csAddCode error:', e); }
+      };
+
+      // -------------------------------------------------------
+      // LEGAL MODAL
+      // -------------------------------------------------------
+      window.csOpenLegal = (tab) => {
+        const modal = document.getElementById('cs-legal-modal');
+        if (modal) modal.style.display = 'flex';
+        window.csLegalTab(tab || 'terms');
+      };
+
+      window.csLegalTab = (tab) => {
+        ['terms','privacy','contact'].forEach(t => {
+          const panel = document.getElementById('lpanel-' + t);
+          const btn   = document.getElementById('ltab-' + t);
+          if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
+          if (btn) { btn.style.color = (t === tab) ? '#667eea' : '#4a5568'; btn.style.borderBottom = (t === tab) ? '3px solid #667eea' : '3px solid transparent'; }
+        });
+      };
+
+      // -------------------------------------------------------
+      // LOAD GAME CONTENT
+      // -------------------------------------------------------
+      const loadGameContent = async () => {
+        episodeListDiv.innerHTML = 'Loading Adventures...';
+        let activeClassId = null;
+
+        if (!isTestMode) {
+          const result = await csShowCodeModal();
+          if (result && result.classData) activeClassId = result.classData.id;
+        }
+
+        try {
+          const episodesSnapshot = await getDocs(collection(db, "episodes"));
+          const allEpisodes      = episodesSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+          const qBanksSnapshot = await getDocs(collection(db, "questionBanks"));
+          qBanksSnapshot.forEach(d => { questionBanks[d.id] = d.data(); });
+
+          let filteredEpisodes;
+          if (isTestMode || player.role === 'teacher' || !activeClassId) {
+            filteredEpisodes = allEpisodes;
+          } else {
+            const codes    = Array.isArray(player.enrolledCodes) ? player.enrolledCodes : [];
+            const classIds = await csGetClassIdsForCodes(codes);
+            if (activeClassId && !classIds.includes(activeClassId)) classIds.push(activeClassId);
+            filteredEpisodes = classIds.length === 0 ? [] : allEpisodes.filter(ep => {
+              const assigned = Array.isArray(ep.assignedClasses) ? ep.assignedClasses : [];
+              return assigned.some(cid => classIds.includes(cid));
+            });
+          }
+
+          episodes = filteredEpisodes;
+          episodeListDiv.innerHTML = '';
+
+          if (episodes.length === 0) {
+            episodeListDiv.innerHTML =
+              '<div style="text-align:center;padding:40px;color:#95a5a6;">' +
+                '<h3 style="color:#bdc3c7;">No Adventures Assigned Yet</h3>' +
+                '<p>Your teacher has not assigned any episodes. Check back soon!</p>' +
+                '<button onclick="document.getElementById(\'cs-code-modal\').style.display=\'flex\'" ' +
+                  'style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;' +
+                  'border-radius:10px;padding:12px 24px;font-size:14px;cursor:pointer;margin-top:10px;">' +
+                  'Try a Different Code' +
+                '</button>' +
+              '</div>';
+          } else {
+            if (player.role !== 'teacher') {
+              const bar = document.createElement('div');
+              bar.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding:11px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;font-size:13px;color:#6c757d;';
+              bar.innerHTML =
+                '<span>Class code active · ' + episodes.length + ' adventure' + (episodes.length !== 1 ? 's' : '') + ' available</span>' +
+                '<button onclick="document.getElementById(\'cs-code-modal\').style.display=\'flex\'" ' +
+                  'style="background:none;border:1px solid rgba(102,126,234,0.35);color:#667eea;' +
+                  'border-radius:8px;padding:5px 13px;font-size:12px;cursor:pointer;">Change Class</button>';
+              episodeListDiv.appendChild(bar);
+            }
+            episodes.forEach(ep => {
+              const epDiv = document.createElement('div');
+              epDiv.className = 'episode-item';
+              epDiv.innerHTML = `<h3>${ep.title}</h3><p>An epic quest awaits...</p>`;
+              epDiv.onclick = () => startEpisode(ep.id);
+              episodeListDiv.appendChild(epDiv);
+            });
+          }
+        } catch (error) {
+          console.error("Error loading content:", error);
+          episodeListDiv.innerHTML = '<p>Could not load adventures. Please refresh and try again.</p>';
+        }
+      };
+
+      const csGetClassIdsForCodes = async (codes) => {
+        if (!codes || codes.length === 0) return [];
+        try {
+          const ids = [];
+          for (let i = 0; i < codes.length; i += 10) {
+            const batch = codes.slice(i, i + 10);
+            const snap  = await getDocs(query(collection(db, 'classes'), where('joinCode', 'in', batch)));
+            snap.docs.forEach(d => ids.push(d.id));
+          }
+          return ids;
+        } catch (e) { console.warn('csGetClassIdsForCodes error:', e); return []; }
+      };
