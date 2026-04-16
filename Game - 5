@@ -1,0 +1,988 @@
+
+      // Add compact toolbar for passage annotation
+      const addPassageToolbar = () => {
+        document.getElementById('passage-toolbar')?.remove();
+        
+        const toolbar = document.createElement('div');
+        toolbar.id = 'passage-toolbar';
+        toolbar.style.cssText = `
+          position: fixed;
+          top: 80px;
+          right: 20px;
+          background: rgba(44, 62, 80, 0.95);
+          border: 2px solid #e67e22;
+          border-radius: 10px;
+          padding: 10px;
+          z-index: 10000;
+          display: flex;
+          gap: 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        `;
+        
+        toolbar.innerHTML = `
+          <button data-tool="highlighter" style="background: #f39c12; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;" title="Highlighter">🖍️</button>
+          <button data-tool="pen" style="background: #3498db; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;" title="Pen">✏️</button>
+          <button data-tool="eraser" style="background: #95a5a6; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;" title="Eraser">🧹</button>
+          <div style="width: 1px; background: #34495e; margin: 0 4px;"></div>
+          <button id="clear-passage" style="background: #e74c3c; padding: 8px 12px; border: none; border-radius: 5px; cursor: pointer; color: white; font-size: 12px;">Clear</button>
+        `;
+        
+        document.body.appendChild(toolbar);
+        
+        // Tool selection
+        toolbar.querySelectorAll('[data-tool]').forEach(btn => {
+          btn.onclick = () => {
+            selectPassageTool(btn.dataset.tool);
+            toolbar.querySelectorAll('[data-tool]').forEach(b => b.style.transform = 'none');
+            btn.style.transform = 'scale(1.15)';
+          };
+        });
+        
+        // Clear button
+        document.getElementById('clear-passage').onclick = () => {
+          if (confirm('Clear all annotations?')) {
+            annotationState.passageCtx.clearRect(
+              0, 0,
+              annotationState.passageCanvas.width,
+              annotationState.passageCanvas.height
+            );
+          }
+        };
+        
+        // Auto-select highlighter
+        selectPassageTool('highlighter');
+        toolbar.querySelector('[data-tool="highlighter"]').style.transform = 'scale(1.15)';
+      };
+
+      // Select passage annotation tool
+      const selectPassageTool = (tool) => {
+        annotationState.currentTool = tool;
+        
+        if (tool === 'highlighter') {
+          annotationState.lineWidth = 12;
+          annotationState.currentColor = '#ffeb3b';
+        } else if (tool === 'pen') {
+          annotationState.lineWidth = 2;
+          annotationState.currentColor = '#e74c3c';
+        } else if (tool === 'eraser') {
+          annotationState.lineWidth = 20;
+        }
+      };
+
+      // Setup passage drawing
+      const setupPassageDrawing = () => {
+        const canvas = annotationState.passageCanvas;
+        const ctx = annotationState.passageCtx;
+        let path = [];
+        
+        canvas.onmousedown = (e) => {
+          annotationState.isDrawing = true;
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          path = [{x, y}];
+          
+          if (annotationState.currentTool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.globalAlpha = 1.0;
+            ctx.lineWidth = annotationState.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+          }
+        };
+        
+        canvas.onmousemove = (e) => {
+          if (!annotationState.isDrawing) return;
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          path.push({x, y});
+          
+          if (annotationState.currentTool === 'eraser') {
+            // Eraser works immediately
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          }
+        };
+        
+        canvas.onmouseup = () => {
+          if (!annotationState.isDrawing) return;
+          annotationState.isDrawing = false;
+          
+          if (annotationState.currentTool !== 'eraser' && path.length > 1) {
+            // Draw the complete path as a single stroke (prevents spray effect!)
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.currentColor;
+            ctx.globalAlpha = annotationState.currentTool === 'highlighter' ? 0.20 : 1.0;
+            ctx.lineWidth = annotationState.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            ctx.beginPath();
+            ctx.moveTo(path[0].x, path[0].y);
+            for (let i = 1; i < path.length; i++) {
+              ctx.lineTo(path[i].x, path[i].y);
+            }
+            ctx.stroke();
+          }
+          
+          ctx.closePath();
+          ctx.globalAlpha = 1.0;
+          ctx.globalCompositeOperation = 'source-over';
+          path = [];
+        };
+        
+        canvas.onmouseleave = () => {
+          annotationState.isDrawing = false;
+        };
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          canvas.dispatchEvent(new MouseEvent('mouseup'));
+        }, { passive: false });
+      };
+
+      // Toggle scratch pad
+      const toggleScratchPad = () => {
+        const existing = document.getElementById('scratch-overlay');
+        
+        if (existing) {
+          existing.remove();
+          document.getElementById('scratch-pad-btn').innerHTML = '📐 Scratch Pad';
+          
+          // Show passage toolbar if it was hidden
+          const passageToolbar = document.getElementById('passage-toolbar');
+          if (passageToolbar) {
+            passageToolbar.style.display = 'flex';
+          }
+        } else {
+          createScratchPad();
+          document.getElementById('scratch-pad-btn').innerHTML = '✅ Close Scratch Pad';
+          
+          // Hide passage toolbar while scratch pad is open (z-index conflict)
+          const passageToolbar = document.getElementById('passage-toolbar');
+          if (passageToolbar) {
+            passageToolbar.style.display = 'none';
+          }
+        }
+      };
+
+      // Create scratch pad overlay
+      const createScratchPad = () => {
+        const overlay = document.createElement('div');
+        overlay.id = 'scratch-overlay';
+        overlay.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          width: 450px;
+          height: 350px;
+          background: rgba(30, 42, 56, 0.98);
+          border: 3px solid #9b59b6;
+          border-radius: 15px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+          z-index: 9999;
+          display: flex;
+          flex-direction: column;
+          resize: both;
+          overflow: hidden;
+          min-width: 300px;
+          min-height: 250px;
+        `;
+        
+        overlay.innerHTML = `
+          <div id="scratch-handle" style="
+            background: linear-gradient(145deg, #9b59b6, #8e44ad);
+            padding: 8px;
+            cursor: move;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 12px 12px 0 0;
+          ">
+            <span style="color: white; font-weight: bold; font-size: 14px;">📐 Scratch Pad</span>
+            <button id="close-scratch" style="background: #e74c3c; border: none; color: white; width: 24px; height: 24px; border-radius: 50%; cursor: pointer;">×</button>
+          </div>
+          
+          <div style="background: #2c3e50; padding: 8px; display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+            <button class="scratch-tool" data-tool="pen" style="background: #3498db; border: 2px solid #2980b9; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">✏️</button>
+            <button class="scratch-tool" data-tool="highlighter" style="background: #f39c12; border: 2px solid #e67e22; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">🖍️</button>
+            <button class="scratch-tool" data-tool="line" style="background: #16a085; border: 2px solid #138d75; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">📏</button>
+            <button class="scratch-tool" data-tool="circle" style="background: #8e44ad; border: 2px solid #7d3c98; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">⭕</button>
+            <button class="scratch-tool" data-tool="rectangle" style="background: #c0392b; border: 2px solid #a93226; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">▢</button>
+            <button class="scratch-tool" data-tool="triangle" style="background: #27ae60; border: 2px solid #229954; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">△</button>
+            <button class="scratch-tool" data-tool="polygon" style="background: #d35400; border: 2px solid #ba4a00; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;" title="Freeform Polygon">⬡</button>
+            <button class="scratch-tool" data-tool="eraser" style="background: #95a5a6; border: 2px solid #7f8c8d; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;">🧹</button>
+            
+            <div style="width: 1px; height: 24px; background: #34495e; margin: 0 5px;"></div>
+            
+            <button class="scratch-color" data-color="#ffeb3b" style="background: #ffeb3b; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#ff5722" style="background: #ff5722; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#4caf50" style="background: #4caf50; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#2196f3" style="background: #2196f3; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#9c27b0" style="background: #9c27b0; width: 20px; height: 20px; border: 2px solid #34495e; border-radius: 50%; cursor: pointer;"></button>
+            <button class="scratch-color" data-color="#000000" style="background: #000000; width: 20px; height: 20px; border: 2px solid #ecf0f1; border-radius: 50%; cursor: pointer;"></button>
+            
+            <div style="width: 1px; height: 24px; background: #34495e; margin: 0 5px;"></div>
+            
+            <button id="clear-scratch" style="background: #e74c3c; border: none; color: white; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 11px;">Clear</button>
+          </div>
+          
+          <div style="flex: 1; position: relative; background: white;">
+            <canvas id="scratch-canvas" style="position: absolute; width: 100%; height: 100%; cursor: crosshair;"></canvas>
+          </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        
+        const canvas = document.getElementById('scratch-canvas');
+        const container = canvas.parentElement;
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        
+        annotationState.scratchCanvas = canvas;
+        annotationState.scratchCtx = canvas.getContext('2d');
+        annotationState.scratchTool = 'pen';
+        annotationState.scratchColor = '#000000';
+        
+        // Draw grid
+        drawScratchGrid();
+        
+        // Add ResizeObserver to handle scratch pad resizing
+        const resizeObserver = new ResizeObserver(entries => {
+          for (let entry of entries) {
+            const newWidth = Math.max(entry.contentRect.width, canvas.width);
+            const newHeight = Math.max(entry.contentRect.height, canvas.height);
+            
+            // Only resize if we're GROWING (prevent content loss when shrinking)
+            if (newWidth <= canvas.width && newHeight <= canvas.height) {
+              // Shrinking - don't resize canvas, just let CSS handle display
+              return;
+            }
+            
+            // Growing - need to expand canvas
+            if (Math.abs(canvas.width - newWidth) < 2 && Math.abs(canvas.height - newHeight) < 2) {
+              return;
+            }
+            
+            // Save current drawing at FULL resolution
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, 0, 0);
+            
+            // Expand canvas to new size
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            
+            // Redraw grid
+            drawScratchGrid();
+            
+            // Restore drawing at original position (top-left, no scaling)
+            annotationState.scratchCtx.drawImage(tempCanvas, 0, 0);
+            
+            // Reset polygon points on significant resize
+            annotationState.polygonPoints = [];
+          }
+        });
+        
+        resizeObserver.observe(container);
+        
+        // Setup drawing
+        setupScratchDrawing();
+        
+        // Close button
+        document.getElementById('close-scratch').onclick = toggleScratchPad;
+        
+        // Tool buttons
+        document.querySelectorAll('.scratch-tool').forEach(btn => {
+          btn.onclick = () => {
+            const previousTool = annotationState.scratchTool;
+            const newTool = btn.dataset.tool;
+            
+            // If switching TO polygon tool from another tool, start fresh
+            if (newTool === 'polygon' && previousTool !== 'polygon') {
+              annotationState.polygonPoints = [];
+            }
+            
+            annotationState.scratchTool = newTool;
+            document.querySelectorAll('.scratch-tool').forEach(b => b.style.transform = 'none');
+            btn.style.transform = 'scale(1.1)';
+          };
+        });
+        
+        // Color buttons
+        document.querySelectorAll('.scratch-color').forEach(btn => {
+          btn.onclick = () => {
+            annotationState.scratchColor = btn.dataset.color;
+            document.querySelectorAll('.scratch-color').forEach(b => b.style.transform = 'none');
+            btn.style.transform = 'scale(1.2)';
+          };
+        });
+        
+        // Clear button
+        document.getElementById('clear-scratch').onclick = () => {
+          if (confirm('Clear scratch pad?')) {
+            // Reset polygon state
+            annotationState.polygonPoints = [];
+            
+            // Redraw grid
+            drawScratchGrid();
+          }
+        };
+        
+        // Select pen by default
+        document.querySelector('[data-tool="pen"]').style.transform = 'scale(1.1)';
+        document.querySelector('[data-color="#000000"]').style.transform = 'scale(1.2)';
+        
+        // Dragging
+        makeDraggable(overlay, document.getElementById('scratch-handle'));
+      };
+
+      // Draw grid on scratch pad
+      const drawScratchGrid = () => {
+        const canvas = annotationState.scratchCanvas;
+        const ctx = annotationState.scratchCtx;
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 0.5;
+        
+        for (let x = 0; x <= canvas.width; x += 20) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        
+        for (let y = 0; y <= canvas.height; y += 20) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      };
+
+      // Setup scratch pad drawing
+      const setupScratchDrawing = () => {
+        const canvas = annotationState.scratchCanvas;
+        const ctx = annotationState.scratchCtx;
+        
+        let drawing = false;
+        let startX, startY;
+        let lastImageData = null;
+        
+        canvas.onmousedown = (e) => {
+          const rect = canvas.getBoundingClientRect();
+          
+          // Calculate scale factor between canvas actual size and display size
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          
+          // Get mouse position relative to canvas display, then scale to canvas coordinates
+          const x = (e.clientX - rect.left) * scaleX;
+          const y = (e.clientY - rect.top) * scaleY;
+          
+          const tool = annotationState.scratchTool;
+          
+          // Polygon tool uses clicks, not drag
+          if (tool === 'polygon') {
+            if (annotationState.polygonPoints.length === 0) {
+              lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            }
+            
+            annotationState.polygonPoints.push({x, y});
+            
+            // Draw preview
+            ctx.putImageData(lastImageData, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.scratchColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            
+            if (annotationState.polygonPoints.length > 1) {
+              ctx.beginPath();
+              ctx.moveTo(annotationState.polygonPoints[0].x, annotationState.polygonPoints[0].y);
+              for (let i = 1; i < annotationState.polygonPoints.length; i++) {
+                ctx.lineTo(annotationState.polygonPoints[i].x, annotationState.polygonPoints[i].y);
+              }
+              ctx.stroke();
+              
+              // Draw dots at points
+              annotationState.polygonPoints.forEach(pt => {
+                ctx.fillStyle = annotationState.scratchColor;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+              });
+            }
+            return;
+          }
+          
+          drawing = true;
+          startX = x;
+          startY = y;
+          
+          // Save state for shapes
+          lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          
+          if (tool === 'pen' || tool === 'highlighter' || tool === 'eraser') {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            if (tool === 'eraser') {
+              ctx.lineWidth = 20;
+              ctx.globalCompositeOperation = 'destination-out';
+              ctx.globalAlpha = 1.0;
+            } else {
+              ctx.lineWidth = tool === 'highlighter' ? 12 : 2;
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.strokeStyle = annotationState.scratchColor;
+              ctx.globalAlpha = tool === 'highlighter' ? 0.3 : 1.0;
+            }
+          }
+        };
+        
+        canvas.onmousemove = (e) => {
+          if (!drawing) return;
+          const rect = canvas.getBoundingClientRect();
+          
+          // Calculate scale factor
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          
+          const x = (e.clientX - rect.left) * scaleX;
+          const y = (e.clientY - rect.top) * scaleY;
+          
+          const tool = annotationState.scratchTool;
+          
+          if (tool === 'pen' || tool === 'highlighter' || tool === 'eraser') {
+            ctx.lineTo(x, y);
+            ctx.stroke();
+          } else {
+            // Shapes - preview
+            ctx.putImageData(lastImageData, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.scratchColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            
+            const width = x - startX;
+            const height = y - startY;
+            
+            if (tool === 'line') {
+              ctx.beginPath();
+              ctx.moveTo(startX, startY);
+              ctx.lineTo(x, y);
+              ctx.stroke();
+            } else if (tool === 'circle') {
+              const radius = Math.sqrt(width * width + height * height);
+              ctx.beginPath();
+              ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+              ctx.stroke();
+            } else if (tool === 'rectangle') {
+              ctx.strokeRect(startX, startY, width, height);
+            } else if (tool === 'triangle') {
+              ctx.beginPath();
+              ctx.moveTo(startX, startY);
+              ctx.lineTo(x, y);
+              ctx.lineTo(startX - width, y);
+              ctx.closePath();
+              ctx.stroke();
+            }
+          }
+        };
+        
+        canvas.onmouseup = () => {
+          drawing = false;
+          ctx.closePath();
+          ctx.globalAlpha = 1.0;
+          ctx.globalCompositeOperation = 'source-over';
+          lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        };
+        
+        canvas.onmouseleave = () => {
+          drawing = false;
+        };
+        
+        // Double-click to finish polygon
+        canvas.ondblclick = () => {
+          if (annotationState.scratchTool === 'polygon' && annotationState.polygonPoints.length > 2) {
+            ctx.putImageData(lastImageData, 0, 0);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = annotationState.scratchColor;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            
+            // Draw final polygon
+            ctx.beginPath();
+            ctx.moveTo(annotationState.polygonPoints[0].x, annotationState.polygonPoints[0].y);
+            for (let i = 1; i < annotationState.polygonPoints.length; i++) {
+              ctx.lineTo(annotationState.polygonPoints[i].x, annotationState.polygonPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+            
+            // Reset
+            annotationState.polygonPoints = [];
+            lastImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          }
+        };
+        
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+          });
+          canvas.dispatchEvent(mouseEvent);
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          canvas.dispatchEvent(new MouseEvent('mouseup'));
+        }, { passive: false });
+      };
+
+      // Make element draggable
+      const makeDraggable = (element, handle) => {
+        let isDragging = false;
+        let startX, startY;
+        
+        handle.onmousedown = (e) => {
+          if (e.target.id === 'close-scratch') return;
+          isDragging = true;
+          startX = e.clientX - element.offsetLeft;
+          startY = e.clientY - element.offsetTop;
+        };
+        
+        document.onmousemove = (e) => {
+          if (!isDragging) return;
+          element.style.left = (e.clientX - startX) + 'px';
+          element.style.top = (e.clientY - startY) + 'px';
+          element.style.right = 'auto';
+          element.style.bottom = 'auto';
+        };
+        
+        document.onmouseup = () => {
+          isDragging = false;
+        };
+      };
+
+      console.log('✅ Section 13: Direct Passage Annotation + Scratch Pad loaded');
+
+/* === SECTION 14: ADAPTIVE DIFFICULTY SYSTEM (MINIMAL) === */
+
+      // Adaptive difficulty system
+      const adaptiveDifficulty = {
+        currentLevel: 5,        // Scale 1-10 (5 = baseline ACT difficulty)
+        history: [],            // Last 3 episode difficulties
+        performanceHistory: [], // Last 3 episode scores
+        
+        // Calculate next difficulty based on performance
+        adjustDifficulty: function(performance) {
+          let adjustment = 0;
+          
+          if (performance >= 90) {
+            adjustment = 1;  // Mastery: level up!
+          } else if (performance >= 75) {
+            adjustment = 0;  // Proficient: maintain
+          } else if (performance >= 60) {
+            adjustment = -1; // Developing: easier
+          } else {
+            adjustment = -2; // Struggling: much easier
+          }
+          
+          this.currentLevel = Math.max(1, Math.min(10, this.currentLevel + adjustment));
+          this.history.push(this.currentLevel);
+          
+          // Keep only last 3
+          if (this.history.length > 3) {
+            this.history.shift();
+          }
+          
+          return this.currentLevel;
+        },
+        
+        // Get difficulty trend
+        getTrend: function() {
+          if (this.history.length < 2) return 'stable';
+          
+          const recent = this.history.slice(-2);
+          if (recent[1] > recent[0]) return 'rising';
+          if (recent[1] < recent[0]) return 'declining';
+          return 'stable';
+        },
+        
+        // Get difficulty descriptor for display
+        getDifficultyDescriptor: function() {
+          const descriptors = {
+            1: 'Basic fundamentals, Grade 8-9, ACT 16-19',
+            2: 'Foundational, Grade 9-10, ACT 20-23',
+            3: 'Intermediate, Grade 10, ACT 24-26',
+            4: 'Solid, Grade 10-11, ACT 27-29',
+            5: 'Standard ACT, Grade 11, ACT 28-30',
+            6: 'Challenging, Grade 11-12, ACT 31-33',
+            7: 'Advanced, Grade 12, ACT 34-35',
+            8: 'Highly Advanced, College-level, ACT 35-36',
+            9: 'Expert, Advanced College, Perfect Score',
+            10: 'Master, Graduate-level reasoning'
+          };
+          return descriptors[this.currentLevel] || descriptors[5];
+        }
+      };
+
+      // Reputation system
+      const reputationSystem = {
+        score: 0,               // -100 to +100
+        title: 'Apprentice',
+        relationshipScores: {},
+        
+        // Update reputation based on performance tier
+        updateReputation: function(tier) {
+          const changes = {
+            mastery: 15,
+            proficient: 5,
+            developing: 0,
+            struggling: -5
+          };
+          
+          this.score += changes[tier];
+          this.score = Math.max(-100, Math.min(100, this.score));
+          this.updateTitle();
+          
+          return this.score;
+        },
+        
+        // Update title based on score
+        updateTitle: function() {
+          if (this.score >= 80) {
+            this.title = 'Master Scholar';
+          } else if (this.score >= 60) {
+            this.title = 'Renowned Expert';
+          } else if (this.score >= 40) {
+            this.title = 'Skilled Practitioner';
+          } else if (this.score >= 20) {
+            this.title = 'Rising Scholar';
+          } else if (this.score >= 0) {
+            this.title = 'Dedicated Student';
+          } else if (this.score >= -20) {
+            this.title = 'Struggling Apprentice';
+          } else {
+            this.title = 'Novice Learner';
+          }
+        },
+        
+        // Update relationship with NPC
+        updateRelationship: function(npcId, change) {
+          if (!this.relationshipScores[npcId]) {
+            this.relationshipScores[npcId] = 50;
+          }
+          this.relationshipScores[npcId] += change;
+          this.relationshipScores[npcId] = Math.max(0, Math.min(100, this.relationshipScores[npcId]));
+        }
+      };
+
+      // Calculate performance tier (used by Character Stats panel)
+      const calculatePerformanceTier = (percentage) => {
+        if (percentage >= 90) return 'mastery';
+        if (percentage >= 75) return 'proficient';
+        if (percentage >= 60) return 'developing';
+        return 'struggling';
+      };
+
+      console.log('✅ Section 14: Adaptive Difficulty System (Minimal) loaded');
+
+/* === SECTION 15: ENDING SYSTEM v2 — with Cutscene Support === */
+
+      // Display episode ending and apply consequences
+      const completeEpisode = async () => {
+        const percentage = sessionStats.calculateAccuracy();
+        const tier = calculatePerformanceTier(percentage);
+
+        console.log(`Episode complete! Accuracy: ${percentage}%, Tier: ${tier}`);
+
+        // ── GENERATE AI ENDING NARRATIVE ────────────────────────────
+        let aiEnding = '';
+        if (typeof generateEpisodeEnding === 'function') {
+          try {
+            const endingContext = {
+              tier:           tier,
+              percentage:     percentage,
+              totalQuestions: sessionStats.totalQuestions,
+              correctAnswers: sessionStats.correctAnswers,
+              bestStreak:     sessionStats.bestStreak,
+              playerActions:  episodeNarrative.playerActions || [],
+              tonalShift:     episodeNarrative.tonalShift || 'neutral'
+            };
+            aiEnding = await generateEpisodeEnding(endingContext);
+          } catch (error) {
+            console.error('AI ending generation failed:', error);
+          }
+        }
+
+        // ── APPLY CONSEQUENCES ───────────────────────────────────────
+        const consequences = applyEndingConsequences(tier, percentage);
+
+        // ── CUTSCENE before results screen ───────────────────────────
+        const cutsceneOn    = currentEpisode.cutsceneCompletionEnabled !== false;
+        const cutsceneStyle = currentEpisode.completionCutsceneStyle || 'graphic_novel';
+
+        const showResults = () => {
+          displayEndingScreen(tier, percentage, consequences, aiEnding);
+        };
+
+        if (cutsceneOn && (typeof playGraphicNovelCutscene === 'function' || typeof playCinematicCutscene === 'function')) {
+          const endingContext = { percentage, passed: percentage >= 60 };
+
+          if (cutsceneStyle === 'graphic_novel' && typeof playGraphicNovelCutscene === 'function') {
+            await playGraphicNovelCutscene(
+              currentEpisode,
+              endingContext,
+              aiEnding || `${player.name} has completed the adventure.`,
+              showResults
+            );
+          } else if (typeof playCinematicCutscene === 'function') {
+            const performanceLabel = percentage >= 80 ? 'exceptional' :
+                                     percentage >= 60 ? 'solid'       :
+                                     percentage >= 40 ? 'struggling'  : 'difficult';
+            await playCinematicCutscene(
+              { passed: percentage >= 60, isCompletion: true, performanceLabel },
+              aiEnding || `${player.name} has completed the adventure.`,
+              showResults
+            );
+          } else {
+            showResults();
+          }
+        } else {
+          showResults();
+        }
+
+        // ── SAVE PROGRESS ────────────────────────────────────────────
+        if (typeof savePlayerProgress === 'function') {
+          await savePlayerProgress();
+        }
+      };
+
+      // Apply ending consequences (XP, gold, reputation, difficulty)
+      const applyEndingConsequences = (tier, percentage) => {
+        const consequences = {
+          mastery: {
+            xpBonus: 150,
+            gold: 100,
+            reputationChange: 15,
+            difficultyAdjustment: 1,
+            message: '🌟 Exceptional Performance!'
+          },
+          proficient: {
+            xpBonus: 100,
+            gold: 60,
+            reputationChange: 5,
+            difficultyAdjustment: 0,
+            message: '✅ Solid Achievement!'
+          },
+          developing: {
+            xpBonus: 60,
+            gold: 40,
+            reputationChange: 0,
+            difficultyAdjustment: -1,
+            message: '📚 Making Progress'
+          },
+          struggling: {
+            xpBonus: 30,
+            gold: 20,
+            reputationChange: -5,
+            difficultyAdjustment: -2,
+            message: '🆘 Building Foundations'
+          }
+        };
+
+        const consequence = consequences[tier];
+
+        // Award XP bonus
+        player.xp += consequence.xpBonus;
+
+        // Update reputation
+        reputationSystem.updateReputation(tier);
+
+        // Adjust difficulty for next episode
+        adaptiveDifficulty.adjustDifficulty(percentage);
+        adaptiveDifficulty.performanceHistory.push(percentage);
+
+        // Keep only last 3 performances
+        if (adaptiveDifficulty.performanceHistory.length > 3) {
+          adaptiveDifficulty.performanceHistory.shift();
+        }
+
+        return consequence;
+      };
+
+      // Display ending screen with results
+      const displayEndingScreen = (tier, percentage, consequences, aiEnding = '') => {
+        let resultsContainer = document.getElementById('results-container');
+
+        if (!resultsContainer) {
+          console.log('Results container not found, creating one');
+          let resultsScreen = document.getElementById('results-screen');
+          if (!resultsScreen) {
+            resultsScreen = document.createElement('div');
+            resultsScreen.id = 'results-screen';
+            resultsScreen.className = 'screen';
+            resultsScreen.innerHTML = '<div class="screen-content"><div id="results-container"></div></div>';
+            document.body.appendChild(resultsScreen);
+          }
+          resultsContainer = document.getElementById('results-container');
+        }
+
+        if (!resultsContainer) {
+          console.error('Could not create results container');
+          showScreen('episodeSelection');
+          alert(`Episode Complete! ${percentage}% accuracy. +${consequences.xpBonus} XP!`);
+          return;
+        }
+
+        const tierColors = {
+          mastery:    '#2ecc71',
+          proficient: '#3498db',
+          developing: '#f39c12',
+          struggling: '#e74c3c'
+        };
+        const tierColor = tierColors[tier];
+
+        const narratives = {
+          mastery:    `Outstanding work! You've demonstrated mastery of the material with ${percentage}% accuracy. Your advanced understanding sets you apart. The challenge level will increase for your next adventure.`,
+          proficient: `Well done! You've shown solid understanding with ${percentage}% accuracy. You're consistently performing well. The difficulty will remain at your current level.`,
+          developing: `You're making progress with ${percentage}% accuracy. Some concepts need reinforcement, but you're on the right track. The next episode will be slightly easier to help build confidence.`,
+          struggling: `This was challenging, with ${percentage}% accuracy. Let's build stronger foundations with structured support. The next episode will be more accessible to help you succeed.`
+        };
+
+        resultsContainer.innerHTML = `
+          <div style="padding: 30px; max-width: 800px; margin: 0 auto;">
+            <h2 style="
+              font-family: 'Cinzel', serif;
+              color: ${tierColor};
+              font-size: 32px;
+              text-align: center;
+              margin-bottom: 20px;
+            ">${consequences.message}</h2>
+
+            <!-- Performance Summary -->
+            <div style="
+              background: linear-gradient(145deg, #2c3e50, #34495e);
+              border: 2px solid #e67e22;
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #f39c12; margin-bottom: 15px;">Your Performance</h3>
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Accuracy</div>
+                  <div style="color: ${tierColor}; font-size: 28px; font-weight: bold;">${percentage}%</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Questions</div>
+                  <div style="color: white; font-size: 28px; font-weight: bold;">${sessionStats.correctAnswers}/${sessionStats.totalQuestions}</div>
+                </div>
+              </div>
+            </div>
+
+            ${aiEnding ? `
+            <!-- AI Generated Ending Narrative -->
+            <div style="
+              background: linear-gradient(145deg, rgba(52,152,219,0.2), rgba(41,128,185,0.3));
+              border: 2px solid #3498db;
+              border-radius: 10px;
+              padding: 25px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #3498db; margin-bottom: 15px; font-family: 'Cinzel', serif;">
+                📖 Your Journey's End
+              </h3>
+              <p style="color: #ecf0f1; font-size: 16px; line-height: 1.8; margin: 0; font-style: italic;">
+                ${aiEnding}
+              </p>
+            </div>
+            ` : ''}
+
+            <!-- Narrative -->
+            <div style="
+              background: rgba(52,73,94,0.6);
+              border-left: 4px solid ${tierColor};
+              padding: 20px;
+              margin-bottom: 30px;
+              border-radius: 5px;
+            ">
+              <p style="color: #ecf0f1; font-size: 16px; line-height: 1.6; margin: 0;">
+                ${narratives[tier]}
+              </p>
+            </div>
+
+            <!-- Rewards -->
+            <div style="
+              background: linear-gradient(145deg, #2c3e50, #34495e);
+              border: 2px solid #f39c12;
+              border-radius: 10px;
+              padding: 20px;
+              margin-bottom: 30px;
+            ">
+              <h3 style="color: #f39c12; margin-bottom: 15px;">Rewards Earned</h3>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Bonus XP</div>
+                  <div style="color: #3498db; font-size: 24px; font-weight: bold;">+${consequences.xpBonus}</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Gold</div>
+                  <div style="color: #f39c12; font-size: 24px; font-weight: bold;">+${consequences.gold}</div>
+                </div>
+                <div>
+                  <div style="color: #95a5a6; font-size: 14px;">Reputation</div>
+                  <div style="color: ${consequences.reputationChange >= 0 ? '#2ecc71' : '#e74c3c'}; font-size: 24px; font-weight: bold;">
+                    ${consequences.reputationChange >= 0 ? '+' : ''}${consequences.reputationChange}
+                  </div>
+                </div>
+              </div>
+            </div>
