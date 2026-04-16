@@ -1,0 +1,1015 @@
+
+      // -------------------------------------------------------
+      // START EPISODE
+      // -------------------------------------------------------
+      const startEpisode = async (episodeId) => {
+        if (!player || !player.name || !player.className) {
+          console.error("Player data incomplete.");
+          showScreen('characterSelect');
+          return;
+        }
+
+        currentEpisode = episodes.find(ep => ep.id === episodeId);
+        if (!currentEpisode) { console.error("Episode not found:", episodeId); return; }
+
+        currentEncounterIndex       = 0;
+        sessionStats.totalQuestions = 0;
+        sessionStats.correctAnswers = 0;
+        sessionStats.currentStreak  = 0;
+        sessionStats.bestStreak     = 0;
+        sessionStats.startXP        = player.xp || 0;
+        window._episodeUsedQuestions = new Set(); // Track used questions across encounters
+
+        resetEpisodeAbilities();
+        if (typeof resetEpisodeNarrative === 'function') resetEpisodeNarrative(currentEpisode);
+
+        document.getElementById('hud-player-name').textContent  = player.name;
+        document.getElementById('hud-player-class').textContent = player.className;
+        document.getElementById('player-avatar').textContent    = getClassAvatar(player.className);
+        updatePlayerStats();
+
+        showScreen('gamePlay');
+
+        // Show diamond loader immediately
+        if (typeof showNarrativeLoading === 'function') {
+          showNarrativeLoading('Conjuring your story…');
+        }
+
+        // STEP 1: Generate AI episode opening narrative
+        if (typeof generateEpisodeOpening === 'function') {
+          try {
+            await generateEpisodeOpening(currentEpisode);
+          } catch (error) {
+            console.error('Episode opening generation failed:', error);
+          }
+        }
+
+        // STEP 2: Load first encounter — skip overwriting narrative-text
+        // since generateEpisodeOpening already set it
+        loadEncounter(true);
+      };
+
+      // -------------------------------------------------------
+      // ENCOUNTER — no approach selection, all enabled banks used
+      // isOpening flag = true only on first encounter so we
+      // don't overwrite the AI-generated episode opening narrative
+      // -------------------------------------------------------
+      const loadEncounter = async (isOpening = false) => {
+        feedbackBox.style.display = 'none';
+        document.getElementById('next-encounter-box').style.display = 'none';
+        document.getElementById('challenge-box').style.display      = 'none';
+        approachSelectionBox.style.display = 'none';
+        selectedApproach = null;
+        player.activeEffects.eliminatedAnswers = [];
+        player.activeEffects.secondLookUsed    = false;
+
+        if (!currentEpisode || !currentEpisode.encounters || currentEncounterIndex >= currentEpisode.encounters.length) {
+          await completeEpisode(); return;
+        }
+
+        const encounter = currentEpisode.encounters[currentEncounterIndex];
+
+        // Update narrative system with current encounter context
+        if (typeof window.updateNarrativeEncounter === 'function') {
+          window.updateNarrativeEncounter(
+            currentEncounterIndex,
+            encounter.title || '',
+            encounter.narrative || ''
+          );
+        }
+
+        // Only set raw narrative for encounters after the first —
+        // the opening is already displayed by generateEpisodeOpening
+        if (!isOpening) {
+          document.getElementById('narrative-text').textContent = encounter.narrative;
+        }
+
+        // Pull from ALL enabled banks regardless of approach
+        const selectedBankIds = currentEpisode.selectedQuestionBanks || [];
+
+        // Fall back to all loaded banks if none specified
+        const banksToUse = selectedBankIds.length > 0
+          ? Object.entries(questionBanks).filter(([id]) => selectedBankIds.includes(id))
+          : Object.entries(questionBanks);
+
+        let allQuestions = [];
+        banksToUse.forEach(([id, bank]) => {
+          if (bank.questions && bank.questions.length > 0) {
+            allQuestions = allQuestions.concat(bank.questions);
+          }
+        });
+
+        if (allQuestions.length === 0) {
+          console.warn('No questions found in enabled banks — check episode configuration.');
+          alert('No questions found for this encounter. Please check the episode setup in the CMS.');
+          return;
+        }
+
+        const requestedCount = encounter.qCount || encounter.questionsPerApproach || 5;
+
+        // Filter out questions already used in previous encounters this episode
+        if (!window._episodeUsedQuestions) window._episodeUsedQuestions = new Set();
+        const unusedQuestions = allQuestions.filter((q, idx) => {
+          const qKey = q.id || q.text || idx;
+          return !window._episodeUsedQuestions.has(qKey);
+        });
+
+        // If not enough unused questions, fall back to full pool (better than too few)
+        const poolToUse = unusedQuestions.length >= requestedCount ? unusedQuestions : allQuestions;
+        if (unusedQuestions.length < requestedCount) {
+          console.warn(`Only ${unusedQuestions.length} unused questions — reusing some from full pool`);
+        }
+
+        currentQuestionSet = [...poolToUse]
+          .sort(() => 0.5 - Math.random())
+          .slice(0, Math.min(requestedCount, poolToUse.length));
+
+        // Mark selected questions as used for this episode
+        currentQuestionSet.forEach((q, idx) => {
+          const qKey = q.id || q.text || idx;
+          window._episodeUsedQuestions.add(qKey);
+        });
+
+        console.log(`✅ Encounter ${currentEncounterIndex}: ${currentQuestionSet.length} questions selected, ${window._episodeUsedQuestions.size} total used this episode`);
+
+        currentQuestionIndex = 0;
+        selectedApproach = 'General';
+        document.getElementById('challenge-box').style.display = 'flex';
+        setTimeout(() => loadQuestion(), 0);
+      };
+
+      console.log('Section 11: Character Select, Teacher Routing & Episode Management loaded');
+ 	
+/* === SECTION 12: Question Loading & Answer Processing === */
+/* v4: handles both array and object options formats */
+      let lastAbilityUsed = null; // Track last ability used for AI narration
+      let consecutiveFailures = 0; // Track consecutive wrong answers for teaching moments
+      let encounterStats = { correct: 0, total: 0 }; // Reset each encounter in loadEncounter
+      
+      const loadQuestion = () => {
+        feedbackBox.style.display = 'none';
+        submitAnswerBtn.style.display = 'none';
+        submitAnswerBtn.disabled = false;
+        selectedAnswerIndex = null;
+        lastAbilityUsed = null; // Reset for each question
+        
+        // CRITICAL: Clear ability flags between questions
+        player.activeEffects.eliminatedAnswers = [];
+        
+        // Check if we're at the end of questions
+        if (currentQuestionIndex >= currentQuestionSet.length) {
+          if (player.activeEffects.pushingThrough && player.focus === 0) {
+            awardLastStandAchievement();
+          }
+          document.getElementById('challenge-box').style.display = 'none';
+          document.getElementById('next-encounter-box').style.display = 'block';
+          return;
+        }
+        
+        // ======= HALFWAY POINT NARRATIVE =======
+        const totalQuestions = currentQuestionSet.length;
+        const halfway = Math.floor(totalQuestions / 2);
+        
+        if (currentQuestionIndex === halfway && totalQuestions >= 6) {
+          if (typeof generateHalfwayPoint === 'function') {
+            setTimeout(async () => {
+              try {
+                const accuracy = sessionStats.calculateAccuracy();
+                const halfwayNarrative = await generateHalfwayPoint({
+                  questionsCompleted: currentQuestionIndex,
+                  questionsRemaining: totalQuestions - currentQuestionIndex,
+                  accuracy: accuracy,
+                  currentStreak: sessionStats.currentStreak
+                });
+                if (halfwayNarrative) {
+                  showHalfwayMoment(halfwayNarrative);
+                }
+              } catch (error) {
+                console.error('Halfway point generation failed:', error);
+              }
+            }, 100);
+          }
+        }
+        // ======================================
+        
+        // Overcharge decay
+        if (player.activeEffects.lastAnswerCorrect && currentQuestionIndex > 0) {
+          applyOverchargeDecay();
+        }
+        
+        // Second Look recharge
+        if (player.className === 'Empath' && player.activeEffects.secondLookWasted) {
+          if (player.abilities.secondLook.uses < player.abilities.secondLook.maxUses) {
+            player.abilities.secondLook.uses++;
+            showNotification('Second Look recharged!', 'ability-used');
+          }
+          player.activeEffects.secondLookWasted = false;
+        }
+
+        const q = currentQuestionSet[currentQuestionIndex];
+
+        // FIX: handle both array options and object options {A:..., B:..., C:..., D:...}
+        if (!q || (!Array.isArray(q.options) && (typeof q.options !== 'object' || Object.keys(q.options).length === 0))) {
+          console.error("Invalid question:", q);
+          currentQuestionIndex++;
+          loadQuestion();
+          return;
+        }
+
+        document.getElementById('question-title').textContent = 
+          `Question ${currentQuestionIndex + 1} of ${currentQuestionSet.length}`;
+        
+        let questionHTML = q.text || q.question || '';
+        if (q.questionImage) {
+          questionHTML = `<img src="${q.questionImage}" alt="Question">${questionHTML}`;
+        }
+        document.getElementById('question-text').innerHTML = questionHTML;
+        
+        // Passage display
+        const passageContainer = document.getElementById('passage-container');
+        const passageText = q.passage || q.passageContext || '';
+        
+        if (passageText || q.passageImage || q.figureImage || q.tableImage) {
+          passageContainer.style.display = 'block';
+          let passageHTML = passageText;
+          if (q.passageImage) {
+            passageHTML = `<img src="${q.passageImage}" alt="Passage">${passageHTML}`;
+          }
+          if (q.figureImage) {
+            passageHTML += `<div style="margin: 15px 0; text-align: center;">
+              <img src="${q.figureImage}" alt="Figure" style="max-width: 100%; border: 2px solid #4a6c8b; border-radius: 5px;">
+            </div>`;
+          }
+          if (q.tableImage) {
+            passageHTML += `<div style="margin: 15px 0; text-align: center;">
+              <img src="${q.tableImage}" alt="Table" style="max-width: 100%; border: 2px solid #4a6c8b; border-radius: 5px;">
+            </div>`;
+          }
+          document.getElementById('passage-content').innerHTML = passageHTML;
+        } else {
+          passageContainer.style.display = 'none';
+        }
+
+        // Answer options — normalize to array
+        const answerOptionsDiv = document.getElementById('answer-options');
+        answerOptionsDiv.innerHTML = '';
+
+        const optionsArray = Array.isArray(q.options)
+          ? q.options
+          : Object.values(q.options);
+
+        optionsArray.forEach((opt, index) => {
+          const optBtn = document.createElement('button');
+          optBtn.className = 'answer-option';
+          optBtn.innerHTML = opt;
+          optBtn.dataset.index = index;
+          optBtn.onclick = () => {
+            answerOptionsDiv.querySelectorAll('.answer-option').forEach(btn => 
+              btn.classList.remove('selected'));
+            optBtn.classList.add('selected');
+            selectedAnswerIndex = index;
+            submitAnswerBtn.style.display = 'block';
+          };
+          answerOptionsDiv.appendChild(optBtn);
+        });
+
+        addAbilityContainer();
+        
+        if (typeof addAnnotationButtons === 'function') {
+          addAnnotationButtons();
+        }
+      };
+
+      const addAbilityContainer = () => {
+        const existingContainer = document.getElementById('ability-container');
+        if (existingContainer) existingContainer.remove();
+
+        const abilityContainer = document.createElement('div');
+        abilityContainer.id = 'ability-container';
+        abilityContainer.innerHTML = `
+          <h4 style="margin: 0 0 10px 0; color: #e67e22;">Class Abilities</h4>
+          <div id="class-abilities-container" style="display: flex; gap: 10px; flex-wrap: wrap;"></div>
+        `;
+        
+        const questionContainer = document.getElementById('question-container');
+        const answerOptions = document.getElementById('answer-options');
+        questionContainer.insertBefore(abilityContainer, answerOptions);
+        
+        renderClassAbilities();
+      };
+
+      const checkAnswer = async () => {
+        if (submitAnswerBtn.disabled) return;
+        
+        const q = currentQuestionSet[currentQuestionIndex];
+
+        // FIX: compute correct index for both array and object options
+        const correctIndex = Array.isArray(q.options)
+          ? q.correct
+          : Object.keys(q.options).indexOf(q.correct);
+        const isCorrect = selectedAnswerIndex === correctIndex;
+        
+        submitAnswerBtn.disabled = true;
+        submitAnswerBtn.style.display = 'none';
+        
+        const abilityButtons = document.querySelectorAll('.ability-btn');
+        abilityButtons.forEach(btn => {
+          btn.disabled = true;
+          btn.classList.add('disabled');
+        });
+        
+        sessionStats.totalQuestions++;
+
+        // ── ENCOUNTER STATS TRACKING ──
+        encounterStats.total++;
+        if (isCorrect) encounterStats.correct++;
+        // ─────────────────────────────
+
+        const answerButtons = document.querySelectorAll('#answer-options .answer-option');
+        
+        // Handle Second Look
+        if (!isCorrect && player.activeEffects.secondLookUsed) {
+          player.activeEffects.secondLookUsed = false;
+          feedbackBox.style.display = 'block';
+          feedbackBox.innerHTML = `
+            <h4>Second Look Activated!</h4>
+            <p style="font-style: italic; color: #9b59b6;">Your empathic nature gives you another chance!</p>
+            <button id="second-chance-btn" class="game-btn">Try Again</button>
+          `;
+          document.getElementById('second-chance-btn').onclick = () => {
+            feedbackBox.style.display = 'none';
+            loadQuestion();
+          };
+          return;
+        }
+        
+        if (isCorrect && player.activeEffects.secondLookUsed) {
+          player.activeEffects.secondLookWasted = true;
+          player.activeEffects.secondLookUsed = false;
+        }
+        
+        player.activeEffects.lastAnswerCorrect = isCorrect;
+
+        // Highlight answers — use correctIndex
+        answerButtons.forEach((btn, index) => {
+          btn.disabled = true;
+          if (index === correctIndex) {
+            btn.classList.add('correct');
+          } else if (index === selectedAnswerIndex && !isCorrect) {
+            btn.classList.add('incorrect');
+          }
+        });
+
+        // Trophy effects
+        if (!isCorrect && player.activeEffects.forgivenError) {
+          player.activeEffects.forgivenError = false;
+          feedbackBox.style.display = 'block';
+          feedbackBox.innerHTML = `
+            <h4>🦵💡 Leg Lamp Activated!</h4>
+            <p>No Focus lost!</p>
+            <button id="forgiven-next-btn" class="game-btn">Continue</button>
+          `;
+          document.getElementById('forgiven-next-btn').onclick = () => {
+            currentQuestionIndex++;
+            loadQuestion();
+          };
+          return;
+        }
+
+        if (!isCorrect && player.activeEffects.autoCorrectNext) {
+          player.activeEffects.autoCorrectNext = false;
+          sessionStats.correctAnswers++;
+          sessionStats.currentStreak++;
+          if (sessionStats.currentStreak > sessionStats.bestStreak) {
+            sessionStats.bestStreak = sessionStats.currentStreak;
+          }
+          await awardXP(XP_PER_CORRECT);
+          feedbackBox.style.display = 'block';
+          feedbackBox.innerHTML = `
+            <h4>🗡️ Liquid Shadow Activated!</h4>
+            <p>Corrected! Full XP gained!</p>
+            ${q.explanation ? `<p>${q.explanation}</p>` : ''}
+            <button id="shadow-next-btn" class="game-btn">Continue</button>
+          `;
+          document.getElementById('shadow-next-btn').onclick = () => {
+            currentQuestionIndex++;
+            loadQuestion();
+          };
+          return;
+        }
+
+        // Check for comeback moment BEFORE processing (capture state before reset)
+        const hadConsecutiveFailures = consecutiveFailures;
+
+        // Declare focusLoss at outer scope so AI response block can reference it
+        let focusLoss = 0;
+
+        // Normal processing
+        if (isCorrect) {
+          sessionStats.correctAnswers++;
+          sessionStats.currentStreak++;
+          if (sessionStats.currentStreak > sessionStats.bestStreak) {
+            sessionStats.bestStreak = sessionStats.currentStreak;
+          }
+          
+          consecutiveFailures = 0;
+          
+          let xpAmount = XP_PER_CORRECT;
+          
+          if (player.activeEffects.doubleXPNext) {
+            xpAmount *= (player.activeEffects.powerStrikeMultiplier || 2);
+            player.activeEffects.powerStrikeMultiplier = 2; // reset
+            player.activeEffects.doubleXPNext = false;
+            showNotification('🔥 Double XP!', 'ability-used');
+          }
+          
+          if (player.activeEffects.bonusXPDuration && player.activeEffects.bonusXPDuration > 0) {
+            xpAmount *= player.activeEffects.bonusXP || 1;
+            player.activeEffects.bonusXPDuration--;
+            if (player.activeEffects.bonusXPDuration === 0) {
+              delete player.activeEffects.bonusXP;
+            }
+          }
+          
+          if (player.activeEffects.xpPenalty) {
+            xpAmount = Math.floor(xpAmount * player.activeEffects.xpPenalty);
+          }
+          
+          // deathMark (Infiltrator L15) — 5x XP on next correct answer
+          if ((player.activeEffects || {}).deathMarkActive) {
+            xpAmount *= 5;
+            player.activeEffects.deathMarkActive = false;
+            showNotification('💀 Death Mark: 5x XP!', 'xp-gain');
+          }
+          // resonance (Empath L15) — double all Focus restoration this encounter
+          // (applied in restoreFocusOnCorrect via flag check)
+
+          await awardXP(xpAmount);
+
+          // collectiveWill (Empath L15) — restore 50 Focus on streak of 5
+          if ((player.activeEffects || {}).collectiveWillActive) {
+            const streak = sessionStats ? sessionStats.currentStreak : 0;
+            if (streak >= 5) {
+              const maxFocus = window.getMaxFocus ? window.getMaxFocus(window.getPlayerLevel()) : 100;
+              player.focus = Math.min(maxFocus, (player.focus || 0) + 50);
+              player.activeEffects.collectiveWillActive = false;
+              showNotification('Collective Will: +50 Focus!', 'xp-gain');
+              updatePlayerStats();
+            }
+          }
+
+          // ── PASSIVE UPGRADE EFFECTS ON CORRECT ANSWER ───────────────
+          const passiveUpgrades = player.abilityUpgrades || {};
+          const currentStreak = sessionStats ? sessionStats.currentStreak : 0;
+
+          // manaRegen (Arcanist L5) — restore 1 ability use after 3 correct in a row
+          if (passiveUpgrades.tier1 === 'manaRegen' && currentStreak > 0 && currentStreak % 3 === 0) {
+            const rechargeKeys = Object.keys(player.abilities).filter(k =>
+              player.abilities[k].uses >= 0 && player.abilities[k].uses < (player.abilities[k].maxUses || 3)
+            );
+            if (rechargeKeys.length) {
+              const key = rechargeKeys[Math.floor(Math.random() * rechargeKeys.length)];
+              player.abilities[key].uses++;
+              showNotification('Mana Regen: +1 ability use restored!', 'ability-used');
+            }
+          }
+
+          // groupHealing (Empath L10) — +5 Focus for every question in 3+ streak
+          if (passiveUpgrades.tier2 === 'groupHealing' && currentStreak >= 3) {
+            const maxFocus = window.getMaxFocus ? window.getMaxFocus(window.getPlayerLevel ? window.getPlayerLevel() : 1) : 100;
+            player.focus = Math.min(maxFocus, (player.focus || 0) + 5);
+            showNotification('+5 Focus — Group Healing!', 'xp-gain');
+            updatePlayerStats();
+          }
+
+          // survivalInstinct (Pathfinder L10) — auto +5 Focus when dropping below 30
+          // (also checked on wrong answer path below)
+          restoreFocusOnCorrect();
+        } else {
+          sessionStats.currentStreak = 0;
+          consecutiveFailures++;
+          
+          if (player.activeEffects.pushingThrough && player.focus === 0) {
+            feedbackBox.style.display = 'block';
+            feedbackBox.innerHTML = `
+              <h4>⚠️ Exhaustion Overwhelms You!</h4>
+              <p>You must rest.</p>
+              <button id="forced-rest-btn" class="game-btn">Rest (+50 Focus, -50% XP)</button>
+            `;
+            document.getElementById('forced-rest-btn').onclick = async () => {
+              player.focus = 50;
+              player.activeEffects.pushingThrough = false;
+              player.activeEffects.xpPenalty = 0.5;
+              updatePlayerStats();
+              currentQuestionIndex++;
+              loadQuestion();
+            };
+            return;
+          }
+          
+          // Check for ability upgrades that reduce focus loss
+          focusLoss = FOCUS_LOSS_PER_INCORRECT;
+          const upgrades = player.abilityUpgrades || {};
+
+          // Signature effects that block focus loss entirely
+          const fx = player.activeEffects || {};
+          if (fx.fortressStanceCount > 0) {
+            focusLoss = 0;
+            player.activeEffects.fortressStanceCount--;
+            showNotification(`Fortress Stance: No Focus lost! (${player.activeEffects.fortressStanceCount} remaining)`, 'ability-used');
+          } else if (fx.timeStopCount > 0) {
+            focusLoss = 0;
+            player.activeEffects.timeStopCount--;
+            showNotification(`Time Stop: Focus frozen! (${player.activeEffects.timeStopCount} remaining)`, 'ability-used');
+          } else if (fx.shadowCloakActive) {
+            focusLoss = 0;
+            showNotification('Shadow Cloak: Focus shielded!', 'ability-used');
+          } else if (fx.phantomStrikeActive) {
+            focusLoss = 0;
+            player.activeEffects.phantomStrikeActive = false;
+            showNotification('Phantom Strike: No Focus penalty!', 'ability-used');
+          } else if (fx.enduranceActive && player.focus - focusLoss < 10) {
+            focusLoss = Math.max(0, player.focus - 10);
+            showNotification('Endurance: Focus held at 10!', 'ability-used');
+          } else {
+            // Standard upgrade reductions
+            if (upgrades.tier1 === 'ironWill') focusLoss = Math.max(0, focusLoss - 5);
+            if (upgrades.tier1 === 'poisonBlade' && player.focus < 40) focusLoss = Math.ceil(focusLoss / 2);
+            if (upgrades.tier2 === 'arcaneShield' && !fx.arcaneShieldUsed) {
+              focusLoss = -3;
+              player.activeEffects.arcaneShieldUsed = true;
+            }
+          }
+          // undying (Empath L15) — survive exhaustion at 1 Focus
+          if (fx.undyingActive && player.focus - focusLoss <= 0) {
+            focusLoss = player.focus - 1;
+            player.activeEffects.undyingActive = false;
+            showNotification('Undying: Survived at 1 Focus!', 'ability-used');
+          }
+          // Undying Will (Prestige L20) — survive exhaustion once per episode
+          if (player.undyingWillActive && !fx.undyingWillUsedThisEpisode && player.focus - focusLoss <= 0) {
+            focusLoss = player.focus - 1;
+            player.activeEffects.undyingWillUsedThisEpisode = true;
+            showNotification('⚡ Undying Will: Survived at 1 Focus!', 'ability-used');
+          }
+          player.focus -= focusLoss;
+
+          // survivalInstinct (Pathfinder L10) — auto +5 Focus when dropping below 30
+          const survivalUpgrades = player.abilityUpgrades || {};
+          if (survivalUpgrades.tier2 === 'survivalInstinct' && player.focus < 30 && player.focus > 0
+              && !player.activeEffects.survivalInstinctUsed) {
+            player.activeEffects.survivalInstinctUsed = true;
+            player.focus = Math.min(30, player.focus + 5);
+            showNotification('Survival Instinct: +5 Focus!', 'ability-used');
+          }
+          if (player.focus <= 0) {
+            player.focus = 0;
+            updatePlayerStats();
+            await handleFocusExhaustion();
+          } else {
+            updatePlayerStats();
+          }
+        }
+
+        // ALWAYS show feedback with Next button
+        feedbackBox.style.display = 'block';
+        
+        const dynamicFeedback = getDynamicFeedback(isCorrect, selectedApproach || 'General');
+        const resultText = isCorrect ? 
+          `Correct! Well done, ${player.name}!` : 
+          `Incorrect, ${player.name}. Learn from this.`;
+        
+        feedbackBox.innerHTML = `
+          <h4>${resultText}</h4>
+          <p style="font-style: italic; color: #f0e6d3; margin: 10px 0;">
+            <em>Generating narrative response...</em>
+          </p>
+          <p style="font-style: italic; color: #e67e22;">${dynamicFeedback}</p>
+          ${q.explanation ? `<p>${q.explanation}</p>` : ''}
+        `;
+        
+        // ======= GENERATE AI RESPONSE TO ANSWER =======
+        let aiResponse = '';
+        if (typeof generateQuestionResponse === 'function') {
+          try {
+            const questionResult = {
+              isCorrect: isCorrect,
+              questionNumber: currentQuestionIndex + 1,
+              totalQuestions: currentQuestionSet.length,
+              abilityUsed: lastAbilityUsed || 'none',
+              focusChange: isCorrect ? 0 : -focusLoss,
+              streak: sessionStats.currentStreak,
+              currentFocus: player.focus
+            };
+            
+            aiResponse = await generateQuestionResponse(questionResult);
+            
+            if (typeof trackPlayerAction === 'function') {
+              const action = isCorrect ? 
+                `Answered Q${questionResult.questionNumber} correctly` :
+                `Failed Q${questionResult.questionNumber}`;
+              trackPlayerAction(action);
+            }
+            
+            if (typeof updateTonalShift === 'function') {
+              updateTonalShift();
+            }
+            
+            // ======= STREAK MILESTONE =======
+            if (isCorrect && sessionStats.currentStreak >= 3) {
+              if (sessionStats.currentStreak === 3 || sessionStats.currentStreak === 5 || sessionStats.currentStreak % 10 === 0) {
+                if (typeof generateStreakMilestone === 'function') {
+                  setTimeout(async () => {
+                    try {
+                      const streakNarrative = await generateStreakMilestone(sessionStats.currentStreak);
+                      if (streakNarrative) {
+                        showStreakMilestone(sessionStats.currentStreak, streakNarrative);
+                      }
+                    } catch (error) {
+                      console.error('Streak milestone generation failed:', error);
+                    }
+                  }, 500);
+                }
+              }
+            }
+            // ================================
+            
+            // ======= TEACHING MOMENTS =======
+            if (isCorrect && hadConsecutiveFailures >= 3) {
+              if (typeof generateComebackCoaching === 'function') {
+                setTimeout(async () => {
+                  try {
+                    const coachingMessage = await generateComebackCoaching(hadConsecutiveFailures);
+                    if (coachingMessage) {
+                      showTeachingMoment(coachingMessage, 'success');
+                    }
+                  } catch (error) {
+                    console.error('Comeback coaching generation failed:', error);
+                  }
+                }, 1000);
+              }
+            }
+            
+            if (!isCorrect && consecutiveFailures >= 3) {
+              if (typeof generateStruggleHint === 'function') {
+                setTimeout(async () => {
+                  try {
+                    const abilityDisplayNames = {
+                      powerStrike: 'Power Strike', tacticalAnalysis: 'Tactical Analysis',
+                      empoweredSpell: 'Empowered Spell', arcaneKnowledge: 'Arcane Knowledge',
+                      eliminate: 'Eliminate', shadowStep: 'Shadow Step',
+                      secondLook: 'Second Look', emotionalInsight: 'Emotional Insight',
+                      keenEye: 'Keen Eye', trailBlazer: 'Trail Blazer'
+                    };
+                    const hintMessage = await generateStruggleHint({
+                      consecutiveFailures: consecutiveFailures,
+                      availableAbilities: Object.keys(player.abilities)
+                        .filter(key => player.abilities[key].uses > 0)
+                        .map(key => abilityDisplayNames[key] || key)
+                    });
+                    if (hintMessage) {
+                      showTeachingMoment(hintMessage, 'struggle');
+                    }
+                  } catch (error) {
+                    console.error('Struggle hint generation failed:', error);
+                  }
+                }, 1000);
+              }
+            }
+            // ================================
+          } catch (error) {
+            console.error('AI response generation failed:', error);
+          }
+        }
+        // ===============================================
+        
+        feedbackBox.innerHTML = `
+          <h4>${resultText}</h4>
+          ${aiResponse ? `<p style="font-style: italic; color: #f0e6d3; margin: 10px 0; padding: 10px; background: rgba(52, 152, 219, 0.1); border-left: 3px solid #3498db;">${aiResponse}</p>` : ''}
+          <p style="font-style: italic; color: #e67e22;">${dynamicFeedback}</p>
+          ${q.explanation ? `<p>${q.explanation}</p>` : ''}
+          <button id="next-q-btn" class="game-btn">Next Challenge</button>
+        `;
+        
+        document.getElementById('next-q-btn').onclick = () => {
+          currentQuestionIndex++;
+          loadQuestion();
+        };
+      };
+
+      const showCompletionScreen = () => {
+        const totalXP = (player.xp || 0) - sessionStats.startXP;
+        const accuracy = sessionStats.calculateAccuracy();
+
+        document.getElementById('completion-message').textContent = 
+          `Congratulations, ${player.name}! Adventure complete!`;
+        
+        document.getElementById('total-xp').textContent = totalXP;
+        document.getElementById('total-questions').textContent = sessionStats.totalQuestions;
+        document.getElementById('correct-answers').textContent = sessionStats.correctAnswers;
+        document.getElementById('accuracy').textContent = `${accuracy}%`;
+        
+        const progressFill = document.getElementById('episode-progress');
+        setTimeout(() => progressFill.style.width = '100%', 100);
+
+        showScreen('completion');
+      };
+
+      googleLoginBtn.addEventListener('click', () => {
+        isTestMode = false;
+        signInWithPopup(auth, new GoogleAuthProvider())
+          .then((result) => { handleAuthState(result.user); })
+          .catch((error) => { console.warn('Google sign-in error:', error.code); });
+      });
+      
+      bypassLoginBtn.addEventListener('click', () => {
+        isTestMode = true;
+        handleAuthState({ uid: 'testUser123' });
+      });
+      
+      classCards.forEach(card => card.addEventListener('click', () => { 
+        classCards.forEach(c => c.classList.remove('active')); 
+        card.classList.add('active'); 
+      }));
+      
+      startGameBtn.addEventListener('click', async () => {
+        const name = document.getElementById('player-name-input').value.trim();
+        const className = document.querySelector('.class-card.active').dataset.class;
+
+        if (!name) return alert('Please enter a name for your hero.');
+        
+        if (!player || !player.uid) {
+          console.error("Player UID is missing. Cannot save character.");
+          alert("An error occurred. Please try logging in again.");
+          return handleAuthState(null);
+        }
+
+        startGameBtn.disabled = true;
+        startGameBtn.textContent = 'Creating Hero...';
+
+        const playerData = { 
+          name, className, 
+          xp: player.xp || 0, 
+          focus: player.focus || 100 
+        };
+        
+        try {
+          if (isTestMode) {
+            player = { ...player, ...playerData };
+            initializePlayerAbilities();
+            await loadGameContent();
+            showScreen('episodeSelection');
+          } else {
+            await setDoc(doc(db, "players", player.uid), playerData);
+            player = { ...player, ...playerData };
+            initializePlayerAbilities();
+            await loadGameContent();
+            showScreen('episodeSelection');
+          }
+        } catch (error) {
+          console.error("Error saving player:", error);
+          alert("Could not save character. Please try again.");
+        } finally {
+          startGameBtn.disabled = false;
+          startGameBtn.textContent = 'Begin Adventure';
+        }
+      });
+
+      // ── NEXT ENCOUNTER BUTTON — pass/fail logic + AI transition ──
+      nextEncounterBtn.addEventListener('click', async () => {
+        const encounter   = currentEpisode.encounters[currentEncounterIndex];
+        const totalQ      = encounterStats.total;
+        const correctQ    = encounterStats.correct;
+        const accuracy    = totalQ > 0 ? Math.round((correctQ / totalQ) * 100) : 0;
+        const threshold   = encounter.successThreshold || {};
+        const minAccuracy = threshold.minAccuracy != null ? threshold.minAccuracy : 60;
+        const minCorrect  = threshold.minCorrect  != null ? threshold.minCorrect  : null;
+
+        const passedAccuracy   = accuracy >= minAccuracy;
+        const passedMinCorrect = minCorrect === null || correctQ >= minCorrect;
+        const passed           = passedAccuracy && passedMinCorrect;
+
+        const performanceLabel = accuracy >= 80 ? 'exceptional' :
+                                 accuracy >= 60 ? 'solid'       :
+                                 accuracy >= 40 ? 'struggling'  : 'difficult';
+
+        const isLastEncounter = currentEncounterIndex >= currentEpisode.encounters.length - 1;
+        // Capture next encounter BEFORE incrementing index
+        const nextEncounterIndex = currentEncounterIndex + 1;
+        const nextEncounterData  = !isLastEncounter
+          ? currentEpisode.encounters[nextEncounterIndex]
+          : null;
+
+        const transitionContext = {
+          encounterTitle:    encounter.title || `Encounter ${currentEncounterIndex + 1}`,
+          encounterIndex:    currentEncounterIndex,
+          nextEncounterTitle: nextEncounterData ? (nextEncounterData.title || `Encounter ${nextEncounterIndex + 1}`) : null,
+          nextEncounterDesc:  nextEncounterData ? (nextEncounterData.narrative || nextEncounterData.description || '') : null,
+          correctAnswers:    correctQ,
+          totalQuestions:    totalQ,
+          accuracy:          accuracy,
+          passed:            passed,
+          minAccuracy:       minAccuracy,
+          minCorrect:        minCorrect,
+          performanceLabel:  performanceLabel,
+          isLastEncounter:   isLastEncounter
+        };
+
+        currentEncounterIndex++;
+
+        // ── CUTSCENE between encounters ──────────────────────────────
+        const cutsceneOn    = currentEpisode.cutsceneEncountersEnabled !== false;
+        const cutsceneStyle = currentEpisode.encounterCutsceneStyle || 'cinematic';
+
+        if (cutsceneOn && typeof playCinematicCutscene === 'function') {
+          let transitionNarrative = passed
+            ? `${player.name} presses forward, their recent success lending them confidence.`
+            : `${player.name} regathers their resolve after a difficult trial.`;
+
+          if (typeof generateEncounterTransition === 'function') {
+            try {
+              showNarrativeLoading(passed ? 'The story continues…' : 'A new path unfolds…');
+              transitionNarrative = await generateEncounterTransition(transitionContext);
+            } catch (err) {
+              console.error('Transition narrative failed:', err);
+              hideNarrativeLoading();
+            }
+          }
+
+          if (cutsceneStyle === 'graphic_novel' && typeof playGraphicNovelCutscene === 'function') {
+            await playGraphicNovelCutscene(
+              currentEpisode,
+              { percentage: accuracy, passed },
+              transitionNarrative,
+              () => loadEncounter()
+            );
+          } else {
+            await playCinematicCutscene(
+              transitionContext,
+              transitionNarrative,
+              () => loadEncounter()
+            );
+          }
+
+        } else {
+          if (typeof showNarrativeLoading === 'function') {
+            showNarrativeLoading(passed ? 'The story continues…' : 'A new path unfolds…');
+          }
+          if (typeof generateEncounterTransition === 'function') {
+            try {
+              await generateEncounterTransition(transitionContext);
+            } catch (error) {
+              console.error('Encounter transition narrative failed:', error);
+              if (typeof hideNarrativeLoading === 'function') hideNarrativeLoading();
+            }
+          } else {
+            if (typeof hideNarrativeLoading === 'function') hideNarrativeLoading();
+          }
+          loadEncounter();
+        }
+      });
+      // ─────────────────────────────────────────────────────────────
+      
+      submitAnswerBtn.addEventListener('click', checkAnswer);
+
+      chooseAnotherAdventureBtn.addEventListener('click', () => {
+        showScreen('episodeSelection');
+      });
+
+      exitToMenuBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to exit? Your progress has been saved.')) {
+          showScreen('episodeSelection');
+        }
+      });
+      
+      // Authentication state management
+      onAuthStateChanged(auth, (user) => {
+        if (!isTestMode) {
+          handleAuthState(user);
+        }
+      });
+      
+         }
+
+    // Initialize the game when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initializeGame);
+    } else {
+      initializeGame();
+    }
+	
+/* === SECTION 13: Direct Passage Annotation + Scratch Pad === */
+      
+      // Annotation state
+      let annotationState = {
+        isDrawing: false,
+        currentTool: 'highlighter',
+        currentColor: '#ffeb3b',
+        lineWidth: 2,
+        passageCanvas: null,
+        passageCtx: null,
+        scratchOverlay: null,
+        scratchCanvas: null,
+        scratchCtx: null,
+        polygonPoints: []  // For freeform polygon tool
+      };
+
+      // Add annotation buttons
+      const addAnnotationButtons = () => {
+        const questionContainer = document.getElementById('question-container');
+        if (!questionContainer) return;
+        
+        // Remove existing buttons
+        document.getElementById('annotate-passage-btn')?.remove();
+        document.getElementById('scratch-pad-btn')?.remove();
+        
+        const passageContainer = document.getElementById('passage-container');
+        const answerOptions = document.getElementById('answer-options');
+        
+        // Annotate Passage button (if passage exists)
+        if (passageContainer && passageContainer.style.display !== 'none') {
+          const passageBtn = document.createElement('button');
+          passageBtn.id = 'annotate-passage-btn';
+          passageBtn.className = 'game-btn';
+          passageBtn.style.cssText = `
+            margin: 15px 0 5px 0;
+            width: 100%;
+            background: linear-gradient(145deg, #e67e22, #d35400);
+            font-size: 14px;
+            padding: 12px;
+          `;
+          passageBtn.innerHTML = '✏️ Annotate Passage';
+          passageBtn.onclick = togglePassageAnnotation;
+          
+          if (answerOptions) {
+            questionContainer.insertBefore(passageBtn, answerOptions);
+          }
+        }
+        
+        // Scratch Pad button
+        const scratchBtn = document.createElement('button');
+        scratchBtn.id = 'scratch-pad-btn';
+        scratchBtn.className = 'game-btn';
+        scratchBtn.style.cssText = `
+          margin: 5px 0 15px 0;
+          width: 100%;
+          background: linear-gradient(145deg, #9b59b6, #8e44ad);
+          font-size: 14px;
+          padding: 12px;
+        `;
+        scratchBtn.innerHTML = '📐 Scratch Pad';
+        scratchBtn.onclick = toggleScratchPad;
+        
+        if (answerOptions) {
+          questionContainer.insertBefore(scratchBtn, answerOptions);
+        }
+      };
+
+      // Toggle passage annotation overlay
+      const togglePassageAnnotation = () => {
+        const passageContainer = document.getElementById('passage-container');
+        if (!passageContainer) return;
+        
+        const existing = document.getElementById('passage-annotation-canvas');
+        
+        if (existing) {
+          // Remove annotation mode
+          existing.remove();
+          document.getElementById('passage-toolbar')?.remove();
+          document.getElementById('annotate-passage-btn').innerHTML = '✏️ Annotate Passage';
+        } else {
+          // Create annotation canvas overlay
+          const canvas = document.createElement('canvas');
+          canvas.id = 'passage-annotation-canvas';
+          canvas.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+            cursor: crosshair;
+            z-index: 100;
+          `;
+          
+          // Make passage container relative
+          passageContainer.style.position = 'relative';
+          passageContainer.appendChild(canvas);
+          
+          // Set canvas size
+          canvas.width = passageContainer.offsetWidth;
+          canvas.height = passageContainer.offsetHeight;
+          
+          annotationState.passageCanvas = canvas;
+          annotationState.passageCtx = canvas.getContext('2d');
+          
+          // Add compact toolbar
+          addPassageToolbar();
+          
+          // Setup drawing
+          setupPassageDrawing();
+          
+          // Update button
+          document.getElementById('annotate-passage-btn').innerHTML = '✅ Done Annotating';
+        }
+      };
