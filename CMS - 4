@@ -1,0 +1,1011 @@
+
+// ─────────────────────────────────────────────────────────────────────────
+// PARSE GEMINI RESPONSE — extract JSON array of questions
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.parseGeminiQuestionResponse = function(responseText) {
+  if (!responseText) return [];
+
+  try {
+    // Strip markdown code fences
+    let clean = responseText
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    // Find the outermost JSON array
+    const start = clean.indexOf('[');
+    const end   = clean.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) {
+      clean = clean.substring(start, end + 1);
+    }
+
+    // Attempt repair before parsing
+    clean = this.repairJsonString(clean);
+
+    const parsed = JSON.parse(clean);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map((q, i) => {
+      let options = q.options || {};
+      if (Array.isArray(options)) {
+        const letters = ['A','B','C','D','E','F','G','H','J'];
+        const obj = {};
+        options.forEach((text, idx) => { obj[letters[idx]] = text; });
+        options = obj;
+      }
+      return {
+        questionNumber: q.questionNumber || (i + 1),
+        testType:       q.testType || 'General',
+        text:           q.text || q.question || '',
+        question:       q.text || q.question || '',
+        passageContext: q.passageContext || q.passage || '',
+        passage:        q.passageContext || q.passage || '',
+        options:        options,
+        correct:        q.correct || q.correctAnswer || 'A',
+        explanation:    q.explanation || '',
+        extractedAt:    new Date().toISOString()
+      };
+    }).filter(q => q.text.trim() !== '');
+
+  } catch (parseErr) {
+    console.error('❌ JSON parse failed, attempting recovery:', parseErr);
+    return this.recoverQuestionsFromText(responseText);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// JSON REPAIR — fix common Gemini malformed JSON issues
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.repairJsonString = function(str) {
+  try {
+    JSON.parse(str);
+    return str; // Already valid
+  } catch(e) {
+    let fixed = str;
+
+    // 1. Remove stray control characters (keep \n \r \t)
+    fixed = fixed.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
+    // 2. Fix smart/curly quotes → straight quotes
+    fixed = fixed
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201C\u201D]/g, '"');
+
+    // 3. Fix trailing commas before ] or }
+    fixed = fixed.replace(/,\s*([\]}])/g, '$1');
+
+    // 4. Fix unescaped backslashes
+    fixed = fixed.replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+
+    try {
+      JSON.parse(fixed);
+      return fixed;
+    } catch(e2) {
+      console.warn('⚠️ Basic repair failed, trying object extraction...');
+      const recovered = JSON.stringify(this.extractJsonObjects(str));
+      return recovered;
+    }
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// EXTRACT JSON OBJECTS — pull valid question objects out one by one
+// Handles cases where one malformed question breaks the whole array
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.extractJsonObjects = function(str) {
+  const questions = [];
+  let depth    = 0;
+  let inString = false;
+  let escape   = false;
+  let objStart = -1;
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+
+    if (escape)              { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"')          { inString = !inString; continue; }
+    if (inString)            continue;
+
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        const objStr = str.substring(objStart, i + 1);
+        try {
+          const obj = JSON.parse(objStr);
+          if (obj.text || obj.question) questions.push(obj);
+        } catch(e) {
+          // Skip malformed individual object
+        }
+        objStart = -1;
+      }
+    }
+  }
+
+  console.log(`🔧 Object extraction recovered ${questions.length} questions`);
+  return questions;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// RECOVERY PARSER — last resort plain-text extraction
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.recoverQuestionsFromText = function(text) {
+  const questions = [];
+  const questionBlocks = text.split(/(?=\b(?:Question\s+)?\d+[\.\)]\s)/i);
+
+  questionBlocks.forEach((block, i) => {
+    const lines = block.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 3) return;
+
+    const questionText = lines[0].replace(/^\d+[\.\)]\s*/, '').trim();
+    if (!questionText) return;
+
+    const options = {};
+    const optionRegex = /^([A-HJ])[\.\)]\s+(.+)/i;
+    let correct = 'A';
+
+    lines.slice(1).forEach(line => {
+      const match = line.match(optionRegex);
+      if (match) {
+        const letter = match[1].toUpperCase();
+        options[letter] = match[2].trim();
+        if (line.includes('*') || line.toLowerCase().includes('correct')) {
+          correct = letter;
+        }
+      }
+    });
+
+    if (Object.keys(options).length >= 2) {
+      questions.push({
+        questionNumber: i + 1,
+        testType:       'General',
+        text:           questionText,
+        question:       questionText,
+        passageContext: '',
+        passage:        '',
+        options,
+        correct,
+        explanation:    '',
+        extractedAt:    new Date().toISOString()
+      });
+    }
+  });
+
+  return questions;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// FILE HELPERS
+// ─────────────────────────────────────────────────────────────────────────
+
+CMSApp.prototype.readFileAsText = function(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result || '');
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+};
+
+CMSApp.prototype.fileToBase64 = function(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => {
+      const result = e.target.result;
+      resolve(result.split(',')[1] || result);
+    };
+    reader.onerror = () => reject(new Error('Failed to read file as base64'));
+    reader.readAsDataURL(file);
+  });
+};
+
+CMSApp.prototype.extractTextFromPDF = async function(file) {
+  if (typeof pdfjsLib === 'undefined') {
+    console.warn('pdf.js not loaded, reading as text');
+    return this.readFileAsText(file);
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf         = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    const maxPages  = 10;
+    const pageCount = Math.min(pdf.numPages, maxPages);
+    const textParts = [];
+
+    for (let p = 1; p <= pageCount; p++) {
+      const page    = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(' ');
+      textParts.push(pageText);
+    }
+
+    const fullText = textParts.join('\n\n');
+    console.log(`📄 Extracted ${fullText.length} chars from ${pageCount} PDF pages`);
+
+    if (pdf.numPages > maxPages) {
+      this.showAlert(`PDF has ${pdf.numPages} pages — only first ${maxPages} pages processed.`, 'warning');
+    }
+
+    return fullText;
+  } catch (err) {
+    console.error('PDF extraction error:', err);
+    throw new Error('Could not read PDF: ' + err.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// INITIALIZE ULTIMATE PARSER (called from init, sets this.geminiModel)
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.initializeUltimateParser = function() {
+  const apiKey = this.getStoredApiKey ? this.getStoredApiKey() : null;
+  if (!apiKey) {
+    console.warn('⚠️ No Gemini API key found — Ultimate Parser disabled');
+    this.parserReady = false;
+    return;
+  }
+
+  try {
+    if (typeof window.GoogleGenerativeAI !== 'undefined') {
+      const genAI      = new window.GoogleGenerativeAI(apiKey);
+      this.geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      this.parserReady = true;
+      console.log('✅ Ultimate Parser initialized: gemini-2.0-flash');
+    } else {
+      console.warn('⚠️ GoogleGenerativeAI SDK not loaded yet — retrying in 1s');
+      this.parserReady = false;
+      setTimeout(() => this.initializeUltimateParser(), 1000);
+    }
+  } catch (err) {
+    console.error('❌ Error initializing parser:', err);
+    this.parserReady = false;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// FETCH TEACHER API KEY from Cloud Function (called at auth time)
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.fetchTeacherApiKey = async function() {
+  try {
+    const { getFunctions, httpsCallable } = window.firebaseV9;
+    const functions = getFunctions(this.firebaseApp);
+    const getKey    = httpsCallable(functions, 'getGeminiKey');
+    const result    = await getKey();
+    const apiKey    = result.data && result.data.key;
+    if (apiKey) {
+      this.saveApiKey(apiKey);
+      // Re-initialize model with the fresh key
+      if (typeof window.GoogleGenerativeAI !== 'undefined') {
+        const genAI      = new window.GoogleGenerativeAI(apiKey);
+        this.geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        this.parserReady = true;
+        console.log('✅ Gemini API key upgraded from Cloud Function');
+      }
+    }
+    return apiKey;
+  } catch (err) {
+    console.warn('⚠️ Could not fetch key from Cloud Function:', err);
+    this.initializeUltimateParser();
+    return null;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// LOCAL STORAGE HELPERS
+// ─────────────────────────────────────────────────────────────────────────
+CMSApp.prototype.getStoredApiKey = function() {
+  try {
+    return localStorage.getItem('gemini_api_key') ||
+           localStorage.getItem('ultimateParserApiKey') || null;
+  } catch(e) { return null; }
+};
+
+CMSApp.prototype.saveApiKey = function(key) {
+  try {
+    localStorage.setItem('gemini_api_key', key);
+    localStorage.setItem('ultimateParserApiKey', key);
+    window.GEMINI_API_KEY = key;
+    window.ULTIMATE_PARSER_CONFIG = window.ULTIMATE_PARSER_CONFIG || {};
+    window.ULTIMATE_PARSER_CONFIG.GEMINI_API_KEY = key;
+    return true;
+  } catch(e) { return false; }
+};
+
+CMSApp.prototype.getParserSettings = function() {
+  try {
+    const s = JSON.parse(localStorage.getItem('parserSettings') || '{}');
+    return { ...this.getDefaultSettings(), ...s };
+  } catch(e) { return this.getDefaultSettings(); }
+};
+
+CMSApp.prototype.saveParserSettings = function(settings) {
+  try {
+    localStorage.setItem('parserSettings', JSON.stringify(settings));
+    return true;
+  } catch(e) { return false; }
+};
+
+CMSApp.prototype.getDefaultSettings = function() {
+  return {
+    defaultExtractionMode: 'smart',
+    maxPdfPages:           10,
+    enableMultiPass:       true,
+    autoDetectTestType:    true
+  };
+};
+
+console.log('✅ Section 7 v2 COMPLETE — handleAIImportSubmit + JSON repair ready');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 8: UI METHODS & MODAL MANAGEMENT -->
+<!-- APPLICATION: CMS (teacher-cms)           -->
+<!-- Enhanced Modals, Alerts, Progress        -->
+<!-- FULLY FUNCTIONAL - ALL HANDLERS ATTACHED -->
+<!-- v2: Encounter editor integration added   -->
+<!-- ========================================= -->
+<script>
+// ================================================
+// ENHANCED UI AND MODAL MANAGEMENT METHODS
+// ================================================
+
+CMSApp.prototype.openModal = function(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'block';
+    modal.classList.add('animate-fade-in');
+    if (modalId === 'ai-import-modal') {
+      this.prepareAIImportModal();
+    }
+    console.log(`📝 Modal opened: ${modalId}`);
+  }
+};
+
+CMSApp.prototype.closeModal = function(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('animate-fade-in');
+    this.resetModalContent(modalId);
+    console.log(`❌ Modal closed: ${modalId}`);
+  }
+};
+
+CMSApp.prototype.resetModalContent = function(modalId) {
+  switch (modalId) {
+    case 'ai-import-modal':     this.resetAIImportModal();     break;
+    case 'question-bank-modal': this.resetQuestionBankModal(); break;
+    case 'episode-modal':       this.resetEpisodeModal();       break;
+    case 'genre-modal':         this.resetGenreModal();         break;
+  }
+};
+
+CMSApp.prototype.resetAIImportModal = function() {
+  if (this.elements.contentFileInput) this.elements.contentFileInput.value = '';
+  if (this.elements.answerFileInput)  this.elements.answerFileInput.value = '';
+  if (this.elements.contentPasteArea) this.elements.contentPasteArea.textContent = '';
+
+  const contentPreview = document.getElementById('content-preview');
+  const answerPreview  = document.getElementById('answer-preview');
+  if (contentPreview) contentPreview.style.display = 'none';
+  if (answerPreview)  answerPreview.style.display = 'none';
+
+  if (this.elements.contentUploadArea) this.elements.contentUploadArea.classList.remove('has-content');
+  if (this.elements.answerUploadArea)  this.elements.answerUploadArea.classList.remove('has-content');
+
+  const frameworkCheckbox = document.getElementById('framework-mode-enable');
+  if (frameworkCheckbox) frameworkCheckbox.checked = false;
+
+  const advancedToggle   = document.getElementById('advanced-settings-toggle');
+  const advancedSettings = document.getElementById('advanced-settings');
+  if (advancedToggle)   advancedToggle.checked = false;
+  if (advancedSettings) advancedSettings.style.display = 'none';
+
+  this.state.contentFile = null;
+  this.state.answerFile  = null;
+  this.state.currentImportedDocument = null;
+
+  this.hideProgress();
+  console.log('🧹 AI Import modal reset');
+};
+
+CMSApp.prototype.prepareAIImportModal = function() {
+  this.populateAIImportBankSelect();
+  this.hideProgress();
+  if (!this.parserReady) {
+    this.showAlert('Ultimate Parser is not available. Please check Settings and add your API key.', 'warning');
+  }
+};
+
+// ── QUESTION BANK MODAL ───────────────────────────
+
+CMSApp.prototype.showQuestionBankModal = function() {
+  document.getElementById('q-bank-name').value = '';
+  document.getElementById('q-bank-approach').value = '';
+  const descField = document.getElementById('q-bank-description');
+  if (descField) descField.value = '';
+  document.getElementById('question-bank-modal-title').textContent = 'Create Question Bank';
+  this.state.editingBankId = null;
+  this.openModal('question-bank-modal');
+};
+
+CMSApp.prototype.resetQuestionBankModal = function() {
+  document.getElementById('q-bank-name').value = '';
+  document.getElementById('q-bank-approach').value = '';
+  const descField = document.getElementById('q-bank-description');
+  if (descField) descField.value = '';
+  this.state.editingBankId = null;
+};
+
+// ── EPISODE MODAL ─────────────────────────────────
+
+CMSApp.prototype.showEpisodeModal = function(episode) {
+  // Reset all fields
+  document.getElementById('episode-title').value = '';
+  document.getElementById('episode-description').value = '';
+  document.getElementById('episode-active').checked = true;
+  document.querySelectorAll('.approach-checkbox').forEach(cb => cb.checked = false);
+  this.populateGenreDropdown();
+  this.state.editingEpisodeId = null;
+
+  if (episode) {
+    // ── EDIT mode: populate fields from existing episode ──
+    document.getElementById('episode-modal-title').textContent = 'Edit Episode';
+    this.state.editingEpisodeId = episode.id;
+
+    if (episode.title)       document.getElementById('episode-title').value       = episode.title;
+    if (episode.description) document.getElementById('episode-description').value = episode.description;
+    if (typeof episode.active === 'boolean') {
+      document.getElementById('episode-active').checked = episode.active;
+    }
+    if (episode.genre) {
+      const genreSelect = document.getElementById('episode-genre');
+      if (genreSelect) genreSelect.value = episode.genre;
+    }
+    if (Array.isArray(episode.approaches)) {
+      document.querySelectorAll('.approach-checkbox').forEach(cb => {
+        cb.checked = episode.approaches.includes(cb.value);
+      });
+    }
+
+    // Load question banks, then pre-check the ones assigned to this episode
+    this.loadQuestionBanksForEpisode(episode);
+
+    // Initialize encounter editor with existing encounters
+	const existingEncounters = (episode.encounters && episode.encounters.length > 0)
+	  ? episode.encounters
+  	: [];
+	console.log('🎬 initEncounterEditor called with', existingEncounters.length, 'encounters:', JSON.stringify(existingEncounters).substring(0, 200));
+this.initEncounterEditor(existingEncounters);
+
+    // ── Pre-populate cutscene settings ──────────────────────────
+    const encEnabled  = document.getElementById('cutscene-encounters-enabled');
+    const compEnabled = document.getElementById('cutscene-completion-enabled');
+    const encCinema   = document.getElementById('enc-style-cinematic');
+    const encNovel    = document.getElementById('enc-style-novel');
+    const compCinema  = document.getElementById('comp-style-cinematic');
+    const compNovel   = document.getElementById('comp-style-novel');
+
+    if (encEnabled)  encEnabled.checked  = episode.cutsceneEncountersEnabled !== false;
+    if (compEnabled) compEnabled.checked = episode.cutsceneCompletionEnabled !== false;
+
+    const encStyle  = episode.encounterCutsceneStyle  || 'cinematic';
+    const compStyle = episode.completionCutsceneStyle || 'graphic_novel';
+    if (encCinema)  encCinema.checked  = encStyle  === 'cinematic';
+    if (encNovel)   encNovel.checked   = encStyle  === 'graphic_novel';
+    if (compCinema) compCinema.checked = compStyle === 'cinematic';
+    if (compNovel)  compNovel.checked  = compStyle === 'graphic_novel';
+
+  } else {
+    // ── CREATE mode ──
+    document.getElementById('episode-modal-title').textContent = 'Create Episode';
+    this.loadQuestionBanksForEpisode();
+
+    // Initialize encounter editor with one blank row
+    this.initEncounterEditor([]);
+
+    // Reset cutscene settings to defaults
+    const encEnabled  = document.getElementById('cutscene-encounters-enabled');
+    const compEnabled = document.getElementById('cutscene-completion-enabled');
+    const encCinema   = document.getElementById('enc-style-cinematic');
+    const compNovel   = document.getElementById('comp-style-novel');
+    if (encEnabled)  encEnabled.checked  = true;
+    if (compEnabled) compEnabled.checked = true;
+    if (encCinema)   encCinema.checked   = true;
+    if (compNovel)   compNovel.checked   = true;
+  }
+
+  this.openModal('episode-modal');
+};
+
+CMSApp.prototype.resetEpisodeModal = function() {
+  document.getElementById('episode-title').value = '';
+  document.getElementById('episode-description').value = '';
+  document.getElementById('episode-active').checked = true;
+  document.getElementById('episode-genre').value = '';
+  document.querySelectorAll('.approach-checkbox').forEach(cb => cb.checked = false);
+  const togglesContainer = document.getElementById('question-banks-toggles');
+  if (togglesContainer) {
+    togglesContainer.innerHTML = '<div class="loading-state" style="text-align:center;color:#6c757d;padding:20px;">Loading question banks...</div>';
+  }
+  // Reset encounter editor to one blank row
+  this.initEncounterEditor([]);
+  this.state.editingEpisodeId = null;
+};
+
+// ── GENRE MODAL ───────────────────────────────────
+
+CMSApp.prototype.showGenreModal = function() {
+  document.getElementById('genre-name').value = '';
+  const descField    = document.getElementById('genre-description');
+  const subjectField = document.getElementById('genre-subject');
+  if (descField)    descField.value = '';
+  if (subjectField) subjectField.value = '';
+  document.getElementById('genre-modal-title').textContent = 'Create Genre';
+  this.state.editingGenreId = null;
+  this.openModal('genre-modal');
+};
+
+CMSApp.prototype.resetGenreModal = function() {
+  document.getElementById('genre-name').value = '';
+  const descField    = document.getElementById('genre-description');
+  const subjectField = document.getElementById('genre-subject');
+  if (descField)    descField.value = '';
+  if (subjectField) subjectField.value = '';
+  this.state.editingGenreId = null;
+};
+
+// ── PROGRESS ──────────────────────────────────────
+
+CMSApp.prototype.updateProgress = function(percentage, message) {
+  if (this.elements.aiProgressContainer) this.elements.aiProgressContainer.style.display = 'block';
+  if (this.elements.aiProgressFill)      this.elements.aiProgressFill.style.width = `${percentage}%`;
+  if (this.elements.aiProcessingStatus)  this.elements.aiProcessingStatus.textContent = message;
+  console.log(`📊 Progress: ${percentage}% - ${message}`);
+};
+
+CMSApp.prototype.hideProgress = function() {
+  if (this.elements.aiProgressContainer) this.elements.aiProgressContainer.style.display = 'none';
+  if (this.elements.aiProgressFill)      this.elements.aiProgressFill.style.width = '0%';
+  if (this.elements.aiProcessingStatus)  this.elements.aiProcessingStatus.textContent = 'Ultimate parser ready...';
+};
+
+CMSApp.prototype.showProcessingOverlay = function(message) {
+  const overlay = document.createElement('div');
+  overlay.className = 'processing-overlay';
+  overlay.id = 'processing-overlay';
+  overlay.innerHTML = `
+    <div class="processing-content">
+      <div class="spinner"></div>
+      <h3>${message}</h3>
+      <p style="color:#6c757d;margin-top:10px">Ultimate Parser Engine processing...</p>
+      <p style="color:#28a745;font-size:12px;margin-top:15px">⚡ 98% accuracy guaranteed</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  console.log('⏳ Processing overlay shown');
+};
+
+CMSApp.prototype.hideProcessingOverlay = function() {
+  const overlay = document.getElementById('processing-overlay');
+  if (overlay) overlay.remove();
+};
+
+// ── ALERT SYSTEM ─────────────────────────────────
+
+CMSApp.prototype.showAlert = function(message, type) {
+  type = type || 'info';
+  const colors = {
+    success: { bg: '#d4edda', border: '#c3e6cb', text: '#155724' },
+    error:   { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24' },
+    warning: { bg: '#fff3cd', border: '#ffeeba', text: '#856404' },
+    info:    { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460' }
+  };
+  const c = colors[type] || colors.info;
+
+  const existing = document.getElementById('cms-alert-toast');
+  if (existing) existing.remove();
+
+  const alert = document.createElement('div');
+  alert.id = 'cms-alert-toast';
+  alert.style.cssText = `
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    padding: 14px 20px; border-radius: 8px;
+    border: 1px solid ${c.border}; background: ${c.bg}; color: ${c.text};
+    font-size: 14px; font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 400px;
+  `;
+  alert.textContent = message;
+  document.body.appendChild(alert);
+  setTimeout(() => { if (alert.parentNode) alert.remove(); }, 4000);
+
+  console.log(`🔔 Alert (${type}): ${message}`);
+};
+
+CMSApp.prototype.showProcessing = function(message) {
+  const processingText = document.getElementById('processing-modal-text');
+  if (processingText) processingText.textContent = message;
+  this.openModal('processing-modal');
+};
+
+CMSApp.prototype.hideProcessing = function() {
+  this.closeModal('processing-modal');
+};
+
+CMSApp.prototype.showSuccess = function(message) {
+  const successText = document.getElementById('success-modal-text');
+  if (successText) successText.textContent = message;
+  this.openModal('success-modal');
+};
+
+// ── FORM EVENT LISTENERS ─────────────────────────
+
+CMSApp.prototype.attachFormEventListeners = function() {
+  console.log('📋 Attaching form event listeners...');
+
+  const qBankForm = document.getElementById('question-bank-form');
+  if (qBankForm) {
+    qBankForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      window.cmsApp.handleQuestionBankSubmit(e);
+    });
+    console.log('✅ Question bank form listener attached');
+  }
+
+  const episodeForm = document.getElementById('episode-form');
+  if (episodeForm) {
+    episodeForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      window.cmsApp.handleEpisodeSubmit(e);
+    });
+    console.log('✅ Episode form listener attached');
+  }
+
+  const genreForm = document.getElementById('genre-form');
+  if (genreForm) {
+    genreForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      window.cmsApp.handleGenreSubmit(e);
+    });
+    console.log('✅ Genre form listener attached');
+  }
+
+  console.log('✅ Form event listeners attached');
+};
+
+CMSApp.prototype.attachCancelButtonListeners = function() {
+  console.log('🔘 Attaching cancel button listeners...');
+
+  const cancelButtons = [
+    { id: 'cancel-q-bank-modal',  modal: 'question-bank-modal' },
+    { id: 'cancel-episode-modal', modal: 'episode-modal' },
+    { id: 'cancel-genre-modal',   modal: 'genre-modal' }
+  ];
+
+  cancelButtons.forEach(({ id, modal }) => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', () => this.closeModal(modal));
+      console.log(`✅ Cancel listener attached: ${id}`);
+    }
+  });
+
+  const closeAlertBtn = document.getElementById('close-alert-modal');
+  if (closeAlertBtn) closeAlertBtn.addEventListener('click', () => this.closeModal('alert-modal'));
+
+  const closeSuccessBtn = document.getElementById('close-success-modal');
+  if (closeSuccessBtn) closeSuccessBtn.addEventListener('click', () => this.closeModal('success-modal'));
+
+  console.log('✅ Cancel button listeners attached');
+};
+
+// ── BANK SELECT DROPDOWN ─────────────────────────
+
+CMSApp.prototype.populateAIImportBankSelect = function() {
+  if (!this.elements.aiSaveBankSelect) return;
+
+  this.elements.aiSaveBankSelect.innerHTML = '<option value="">Select a question bank...</option>';
+
+  const createNewOption = document.createElement('option');
+  createNewOption.value = 'CREATE_NEW';
+  createNewOption.textContent = '--- Create New Question Bank ---';
+  this.elements.aiSaveBankSelect.appendChild(createNewOption);
+
+  this.state.questionBanks.forEach(bank => {
+    const option = document.createElement('option');
+    option.value = bank.id;
+    const questionCount  = (bank.questions || []).length;
+    const lastExtraction = bank.lastExtraction;
+    option.textContent = `${bank.name || 'Untitled Bank'} (${bank.approach || 'General'}) - ${questionCount} questions${lastExtraction ? ` - Last: ${lastExtraction.testType}` : ''}`;
+    this.elements.aiSaveBankSelect.appendChild(option);
+  });
+
+  console.log('✅ AI Import bank dropdown populated');
+};
+
+// ── NAVIGATION ────────────────────────────────────
+
+CMSApp.prototype.switchPage = function(pageId) {
+  console.log('📄 Switched to page:', pageId);
+
+  document.querySelectorAll('.cms-nav-tab').forEach(tab => {
+    tab.classList.remove('active');
+    if (tab.getAttribute('data-page') === pageId) tab.classList.add('active');
+  });
+
+  document.querySelectorAll('.cms-page').forEach(page => {
+    page.style.display = 'none';
+    page.classList.remove('active');
+  });
+
+  // Try both ID patterns to be safe
+  const targetPage = document.getElementById('page-' + pageId) || document.getElementById(pageId);
+  if (targetPage) {
+    targetPage.style.display = 'block';
+    targetPage.classList.add('active');
+  }
+
+  switch (pageId) {
+    case 'dashboard':      this.loadDashboardData();   break;
+    case 'question-banks': this.loadQuestionBanks();   break;
+    case 'episodes':       this.loadEpisodes();         break;
+    case 'genres':         this.loadGenres();           break;
+    case 'analytics':      this.refreshAnalytics();     break;
+    case 'settings':       this.loadSettingsPage();     break;
+  }
+};
+
+// ── DASHBOARD ─────────────────────────────────────
+
+CMSApp.prototype.loadDashboardData = function() {
+  const stats = {
+    totalQBanks:    this.state.questionBanks.length,
+    totalEpisodes:  this.state.episodes.length,
+    activeEpisodes: this.state.episodes.filter(ep => ep.active).length
+  };
+
+  if (this.elements.dashStats.totalQBanks)    this.elements.dashStats.totalQBanks.textContent    = stats.totalQBanks;
+  if (this.elements.dashStats.totalEpisodes)  this.elements.dashStats.totalEpisodes.textContent  = stats.totalEpisodes;
+  if (this.elements.dashStats.activeEpisodes) this.elements.dashStats.activeEpisodes.textContent = stats.activeEpisodes;
+
+  this.updateDashboardParserStats();
+  console.log('✅ Dashboard data loaded');
+};
+
+CMSApp.prototype.updateNavigationCounts = function() {
+  if (this.elements.banksCount)    this.elements.banksCount.textContent    = this.state.questionBanks.length;
+  if (this.elements.episodesCount) this.elements.episodesCount.textContent = this.state.episodes.length;
+  console.log('✅ Navigation counts updated');
+};
+
+// ── UTILITIES ─────────────────────────────────────
+
+CMSApp.prototype.refreshActivity  = function() { this.showAlert('Activity refreshed!',  'success'); };
+CMSApp.prototype.refreshAnalytics = function() { this.showAlert('Analytics refreshed!', 'success'); };
+
+CMSApp.prototype.showQuickImport = function() {
+  this.populateAIImportBankSelect();
+  this.openModal('ai-import-modal');
+  console.log('🚀 Quick import modal opened');
+};
+
+window.clearContentUpload = function() {
+  if (!window.cmsApp) return;
+  window.cmsApp.elements.contentFileInput.value = '';
+  window.cmsApp.elements.contentUploadArea.classList.remove('has-content');
+  document.getElementById('content-preview').style.display = 'none';
+  window.cmsApp.state.contentFile = null;
+  window.cmsApp.state.currentImportedDocument = null;
+  console.log('🗑️ Content upload cleared');
+};
+
+window.clearAnswerUpload = function() {
+  if (!window.cmsApp) return;
+  window.cmsApp.elements.answerFileInput.value = '';
+  window.cmsApp.elements.answerUploadArea.classList.remove('has-content');
+  document.getElementById('answer-preview').style.display = 'none';
+  window.cmsApp.state.answerFile = null;
+  console.log('🗑️ Answer upload cleared');
+};
+
+// ── SYSTEM STATUS ─────────────────────────────────
+
+CMSApp.prototype.getSystemStatus = function() {
+  return {
+    parserReady:        this.parserReady,
+    firebaseConnected:  !!this.db,
+    questionBanksLoaded: this.state.questionBanks.length > 0,
+    version:            window.ULTIMATE_PARSER_CONFIG?.VERSION || '2.0',
+    successRate:        this.state.parserStats.successRate,
+    processedDocuments: this.state.parserStats.processedDocuments,
+    extractedQuestions: this.state.parserStats.extractedQuestions
+  };
+};
+
+CMSApp.prototype.logPerformanceMetric = function(operation, duration, success = true) {
+  console.log(`📈 Performance: ${operation} took ${duration}ms (${success ? 'success' : 'failed'})`);
+  if (window.gtag) {
+    window.gtag('event', 'ultimate_parser_performance', {
+      operation, duration, success,
+      version: window.ULTIMATE_PARSER_CONFIG?.VERSION
+    });
+  }
+};
+
+CMSApp.prototype.verifyInitialization = function() {
+  const status = this.getSystemStatus();
+  console.log('🔍 System Status Check:', status);
+  if (!status.parserReady)       console.warn('⚠️ Ultimate Parser not ready. Some features may be limited.');
+  if (!status.firebaseConnected) this.showAlert('❌ Database connection failed. Please refresh the page.', 'error');
+  return status.parserReady && status.firebaseConnected;
+};
+
+CMSApp.prototype.cleanup = function() {
+  console.log('🧹 Cleaning up Ultimate Parser CMS...');
+  this.state.isProcessingImport = false;
+  this.hideProcessingOverlay();
+  this.hideProgress();
+  document.querySelectorAll('.cms-modal').forEach(modal => modal.style.display = 'none');
+  console.log('✅ Cleanup complete');
+};
+
+// ── GLOBAL ERROR HANDLER ──────────────────────────
+
+window.addEventListener('error', function(e) {
+  console.error('🚨 Global error:', e.error);
+  if (window.cmsApp) window.cmsApp.handleError(e.error, 'system error');
+});
+
+window.addEventListener('beforeunload', function() {
+  if (window.cmsApp) window.cmsApp.cleanup();
+});
+
+console.log('✅ CMS Section 8 COMPLETE — UI Methods, Modals, Alerts, Navigation (v2 + encounter editor)');
+</script>
+	
+<!-- ========================================= -->
+<!-- SECTION 9: DATA MANAGEMENT METHODS      -->
+<!-- CRUD Operations + Question Editing      -->
+<!-- PURE FIREBASE V9 SYNTAX + DYNAMIC IMAGES -->
+<!-- FIXED v2:                               -->
+<!--   #3 Hover tooltip on episode banks     -->
+<!--   #4 Subject filter for question banks  -->
+<!-- ========================================= -->
+<script>
+CMSApp.prototype.loadAllData = function() {
+  console.log('\u{1F504} Loading all data for Ultimate Parser CMS (Pure Firebase v9)...');
+  return Promise.all([
+    this.loadQuestionBanks(),
+    this.loadEpisodes(),
+    this.loadGenres()
+  ]).then(() => {
+    this.updateNavigationCounts();
+    this.loadDashboardData();
+    console.log('\u2705 All data loaded successfully (Pure Firebase v9)');
+  }).catch(error => {
+    console.error('\u274C Error loading data:', error);
+    this.handleError(error, 'data loading');
+  });
+};
+
+CMSApp.prototype.loadQuestionBanks = function() {
+  return new Promise((resolve, reject) => {
+    if (!this.elements.qBankList) { resolve(); return; }
+    console.log('\u{1F504} Loading question banks (Pure Firebase v9)...');
+    this.elements.qBankList.innerHTML = '<li class="loading-state">Loading question banks...</li>';
+    const { collection, getDocs } = window.firebaseV9;
+    try {
+      getDocs(collection(this.db, 'questionBanks')).then(querySnapshot => {
+        this.state.questionBanks = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('\u{1F4DA} Found question bank:', doc.id, data);
+          this.state.questionBanks.push({ id: doc.id, ...data });
+        });
+        console.log('\u{1F4DA} Total question banks loaded:', this.state.questionBanks.length);
+        this.displayQuestionBanks();
+        this.populateAIImportBankSelect();
+        resolve();
+      }).catch(error => {
+        console.error('\u274C Error loading question banks:', error);
+        if (this.elements.qBankList) {
+          this.elements.qBankList.innerHTML = '<li class="error-state">Error loading banks. Please refresh.</li>';
+        }
+        reject(error);
+      });
+    } catch (error) {
+      console.error('\u274C Error creating collection reference:', error);
+      reject(error);
+    }
+  });
+};
+
+CMSApp.prototype.displayQuestionBanks = function() {
+  if (!this.elements.qBankList) return;
+  if (this.state.questionBanks.length === 0) {
+    this.elements.qBankList.innerHTML = '<li class="empty-state">No question banks found. Create one with Ultimate Parser!</li>';
+    return;
+  }
+  this.elements.qBankList.innerHTML = this.state.questionBanks.map(bank => {
+    const name = bank.name || 'Untitled Bank';
+    const approach = bank.approach || 'General';
+    const questions = Array.isArray(bank.questions) ? bank.questions : [];
+    const questionCount = questions.length;
+    const lastExtraction = bank.lastExtraction;
+    return `
+      <li class="cms-item">
+        <div class="cms-item-content">
+          <div class="cms-item-title">${name}</div>
+          <div class="cms-item-meta">
+            <span>\u{1F3AF} ${approach}</span>
+            <span>\u{1F4CA} ${questionCount} questions</span>
+            ${lastExtraction ? `<span>\u26A1 ${lastExtraction.testType || 'General'}</span>` : ''}
+            ${questionCount > 0 ? '<span class="parser-badge" style="font-size:10px;padding:2px 6px;">\u26A1 ULTIMATE</span>' : ''}
+          </div>
+        </div>
+        <div class="cms-item-actions">
+          <button class="view-questions-btn cms-btn cms-btn-primary" data-id="${bank.id}" title="View/Edit Questions">\u{1F4DD} Questions (${questionCount})</button>
+          <button class="edit-q-bank-btn" data-id="${bank.id}" title="Edit Bank">\u270F\uFE0F</button>
+          <button class="delete-q-bank-btn" data-id="${bank.id}" title="Delete">\u{1F5D1}\uFE0F</button>
+        </div>
+      </li>
+    `;
+  }).join('');
+  this.attachQuestionBankEventListeners();
+  console.log('\u2705 Question banks displayed with correct counts');
+};
+
+CMSApp.prototype.attachQuestionBankEventListeners = function() {
+  this.elements.qBankList.querySelectorAll('.view-questions-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bankId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (bankId) this.viewBankQuestions(bankId);
+    });
+  });
+  this.elements.qBankList.querySelectorAll('.edit-q-bank-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bankId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (bankId) this.editQuestionBank(bankId);
+    });
+  });
+  this.elements.qBankList.querySelectorAll('.delete-q-bank-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bankId = e.target.getAttribute('data-id') || e.target.closest('button').getAttribute('data-id');
+      if (bankId) this.deleteQuestionBank(bankId);
+    });
+  });
+};
+
+CMSApp.prototype.loadEpisodes = function() {
+  return new Promise((resolve, reject) => {
+    if (!this.elements.episodeList && !this.elements.allEpisodesList) { resolve(); return; }
+    console.log('\u{1F504} Loading episodes (Pure Firebase v9)...');
+    const { collection, getDocs } = window.firebaseV9;
+    try {
+      getDocs(collection(this.db, 'episodes')).then(querySnapshot => {
+        this.state.episodes = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('\u{1F3AC} Found episode:', doc.id, data);
+          this.state.episodes.push({ id: doc.id, ...data });
+        });
+        console.log('\u{1F3AC} Total episodes loaded:', this.state.episodes.length);
+        this.displayEpisodes();
+        resolve();
+      }).catch(error => {
+        console.error('\u274C Error loading episodes:', error);
+        reject(error);
+      });
+    } catch (error) {
+      console.error('\u274C Error creating collection reference:', error);
+      reject(error);
+    }
+  });
+};
