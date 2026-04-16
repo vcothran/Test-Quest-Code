@@ -1,0 +1,1022 @@
+
+// ─────────────────────────────────────────────────────────────────────────
+// PORTRAIT HISTORY GALLERY
+// Shows all saved portraits for the current character
+// ─────────────────────────────────────────────────────────────────────────
+window.showPortraitGallery = async () => {
+  if (!player || !player.uid || !player.activeCharacterId) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'portrait-gallery-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.95);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99997;padding:20px;box-sizing:border-box;overflow-y:auto;`;
+
+  overlay.innerHTML = `
+    <div style="background:linear-gradient(145deg,#1a2035,#0d1117);
+                border:2px solid rgba(201,168,76,0.3);border-radius:24px;
+                padding:36px;max-width:700px;width:100%;
+                box-shadow:0 30px 80px rgba(0,0,0,0.7);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <div>
+          <div style="font-family:'Cinzel',serif;font-size:20px;color:#c9a84c;">Portrait Hall</div>
+          <div style="font-size:13px;color:#8892a4;margin-top:4px;">${player.name}'s Journey</div>
+        </div>
+        <button onclick="document.getElementById('portrait-gallery-overlay').remove()"
+          style="background:none;border:none;color:#8892a4;cursor:pointer;font-size:24px;opacity:0.6;">✕</button>
+      </div>
+      <div id="gallery-portraits-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;">
+        <div style="color:#8892a4;font-style:italic;grid-column:1/-1;text-align:center;padding:2rem;">
+          ⏳ Loading portraits...
+        </div>
+      </div>
+      <div style="margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">
+        <button onclick="window.requestPortraitRegen()"
+          style="padding:12px 24px;background:rgba(102,126,234,0.15);
+                 border:1px solid rgba(102,126,234,0.3);border-radius:10px;
+                 color:#667eea;font-size:13px;cursor:pointer;font-family:'Cinzel',serif;">
+          🔄 Request New Portrait (${window.PORTRAIT_REGEN_COST} XP · once per ${window.PORTRAIT_REGEN_DAYS} days)
+        </button>
+      </div>
+    </div>`;
+
+  // Close on backdrop click
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  // Close on Escape
+  const galleryEsc = (e) => {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', galleryEsc); }
+  };
+  document.addEventListener('keydown', galleryEsc);
+
+  document.body.appendChild(overlay);
+
+  // Load portraits from Firestore
+  try {
+    // Fetch from subcollection first, fall back to flat portraitData collection
+    const portraitsSnap = await getDocs(
+      collection(db, 'players', player.uid, 'characters', player.activeCharacterId, 'portraits')
+    );
+
+    let portraitDocs = portraitsSnap.docs;
+
+    // If subcollection is empty, check flat portraitData collection (older portraits)
+    if (!portraitDocs.length) {
+      try {
+        const flatSnap = await getDocs(
+          query(collection(db, 'portraitData'),
+            where('uid', '==', player.uid),
+            where('characterId', '==', player.activeCharacterId))
+        );
+        if (flatSnap.docs.length) {
+          // Remap flat docs to match subcollection shape
+          portraitDocs = flatSnap.docs.map(d => ({
+            id: d.id,
+            data: () => ({
+              level: d.data().level || 0,
+              url: d.data().dataUrl || d.data().url || '',
+              path: d.data().path || '',
+              description: '',
+              generatedAt: d.data().createdAt || null,
+              milestone: window.PORTRAIT_MILESTONES && window.PORTRAIT_MILESTONES.includes(d.data().level)
+            })
+          }));
+          console.log('📸 Loaded', portraitDocs.length, 'portraits from portraitData fallback');
+        }
+      } catch(fe) { console.warn('portraitData fallback failed:', fe); }
+    }
+
+    const grid = document.getElementById('gallery-portraits-grid');
+    if (!portraitDocs.length) {
+      grid.innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:2rem;">
+          <div style="color:#8892a4;font-style:italic;margin-bottom:20px;">No portraits yet — paint your legend!</div>
+          <button onclick="document.getElementById('portrait-gallery-overlay').remove(); window.showPortraitCreationScreen('${player.activeCharacterId}','${player.name}','${player.className}');"
+            style="padding:14px 28px;background:linear-gradient(135deg,#667eea,#764ba2);
+                   border:none;border-radius:12px;color:white;font-size:15px;
+                   font-weight:700;cursor:pointer;font-family:'Cinzel',serif;">
+            🎨 Create My First Portrait
+          </button>
+        </div>`;
+      return;
+    }
+
+    const sortedDocs = portraitDocs.slice().sort((a,b) => (a.data().level||0) - (b.data().level||0));
+    const activeUrl = player.currentPortraitUrl || '';
+
+    // Store portrait URLs in a lookup so onclick doesn't embed giant base64 strings inline
+    window._galleryPortraits = sortedDocs.map(d => {
+      const p = d.data();
+      return {
+        url: p.url && (p.url.startsWith('data:')||p.url.startsWith('http')) ? p.url : 'data:image/jpeg;base64,'+p.url,
+        docId: d.id,
+        level: p.level,
+        milestone: p.milestone,
+        generatedAt: p.generatedAt
+      };
+    });
+
+    grid.innerHTML = window._galleryPortraits.map((p, idx) => {
+      const date = p.generatedAt?.toDate ? p.generatedAt.toDate().toLocaleDateString()
+                 : p.generatedAt ? new Date(p.generatedAt).toLocaleDateString() : '—';
+      const isActive = activeUrl && p.url === activeUrl;
+      return `
+        <div style="text-align:center;">
+          <div style="position:relative;display:inline-block;width:100%;">
+            <img src="${p.url}" alt="Level ${p.level} portrait"
+              style="width:100%;border-radius:10px;border:3px solid ${isActive ? '#27ae60' : p.milestone ? '#c9a84c' : 'rgba(255,255,255,0.12)'};
+                     box-shadow:0 4px 16px rgba(0,0,0,0.4);cursor:pointer;"
+              onclick="window.viewPortraitFull(window._galleryPortraits[${idx}].url,'${player.name}','Level ${p.level}')">
+            ${isActive ? `<div style="position:absolute;top:6px;left:6px;background:#27ae60;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;font-family:'Cinzel',serif;">✓ ACTIVE</div>` : ''}
+            ${p.milestone ? `<div style="position:absolute;top:6px;right:6px;background:#c9a84c;color:#000;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;font-family:'Cinzel',serif;">MILESTONE</div>` : ''}
+          </div>
+          <div style="font-family:'Cinzel',serif;font-size:12px;color:#c9a84c;margin-top:8px;">Level ${p.level}</div>
+          <div style="font-size:10px;color:#4a5568;margin-top:2px;">${date}</div>
+          ${isActive
+            ? `<div style="margin-top:8px;padding:6px 10px;background:rgba(39,174,96,0.15);border:1px solid #27ae60;border-radius:8px;font-size:10px;color:#27ae60;font-family:'Cinzel',serif;">Active Portrait</div>`
+            : `<button onclick="window.setActivePortrait(window._galleryPortraits[${idx}].url, window._galleryPortraits[${idx}].docId)"
+                style="margin-top:8px;padding:6px 14px;background:linear-gradient(135deg,#2c3e50,#34495e);
+                       border:1px solid rgba(201,168,76,0.4);border-radius:8px;color:#c9a84c;
+                       font-size:10px;font-family:'Cinzel',serif;cursor:pointer;width:100%;">
+                ⚡ Set as Active
+              </button>`}
+        </div>`;
+    }).join('');
+  } catch(e) {
+    console.error('Failed to load portraits:', e);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// SET ACTIVE PORTRAIT — player chooses which portrait to display
+// ─────────────────────────────────────────────────────────────────────────
+window.setActivePortrait = async (url, docId) => {
+  console.log('⚡ setActivePortrait called, uid:', player && player.uid, 'docId:', docId);
+  if (!player || !player.uid) { console.warn('setActivePortrait: no player'); return; }
+  try {
+    // Update player object
+    player.currentPortraitUrl = url;
+    // Save to character doc and top-level player doc
+    const portraitUpdate = { currentPortraitUrl: url };
+    await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId),
+      portraitUpdate, { merge: true });
+    console.log('✅ Character doc updated');
+    await setDoc(doc(db, 'players', player.uid),
+      portraitUpdate, { merge: true });
+    console.log('✅ Player doc updated');
+    // Update HUD thumbnail — use window reference to avoid scope issues
+    if (window.updateHUDPortrait) window.updateHUDPortrait();
+    // Show notification safely
+    if (typeof showNotification === 'function') {
+      showNotification('✨ Portrait updated!', 'xp-gain');
+    } else if (window.showNotification) {
+      window.showNotification('✨ Portrait updated!', 'xp-gain');
+    }
+    // Refresh gallery to show new active state
+    const gallery = document.getElementById('portrait-gallery-overlay');
+    if (gallery) gallery.remove();
+    setTimeout(() => window.showPortraitGallery(), 200);
+    console.log('✅ Active portrait set:', docId);
+  } catch(e) { console.error('Could not set active portrait:', e); }
+};
+
+window.viewPortraitFull = (url, name, label) => {
+  const modal = document.createElement('div');
+  modal.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.95);display:flex;align-items:center;justify-content:center;z-index:99999;cursor:pointer;`;
+  modal.onclick = () => modal.remove();
+  modal.innerHTML = `
+    <div style="text-align:center;max-width:400px;padding:20px;">
+      <img src="${url && (url.startsWith('data:')||url.startsWith('http')) ? url : 'data:image/jpeg;base64,'+url}" style="width:100%;border-radius:16px;border:3px solid #c9a84c;box-shadow:0 0 60px rgba(201,168,76,0.3);">
+      <div style="font-family:'Cinzel',serif;color:#c9a84c;margin-top:16px;font-size:16px;">${name}</div>
+      <div style="color:#8892a4;font-size:12px;margin-top:4px;">${label}</div>
+      <div style="color:#4a5568;font-size:11px;margin-top:16px;">Tap anywhere to close</div>
+    </div>`;
+  document.body.appendChild(modal);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// RATE-LIMITED STUDENT REGENERATION REQUEST
+// ─────────────────────────────────────────────────────────────────────────
+window.requestPortraitRegen = async () => {
+  if (!player || !player.uid || !player.activeCharacterId) return;
+
+  // Check XP
+  if ((player.xp || 0) < window.PORTRAIT_REGEN_COST) {
+    alert(`You need ${window.PORTRAIT_REGEN_COST} XP to request a new portrait. Keep playing to earn more!`);
+    return;
+  }
+
+  // Check cooldown from Firestore
+  try {
+    const charSnap = await getDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId));
+    if (charSnap.exists()) {
+      const lastRegen = charSnap.data().lastPortraitRegen;
+      if (lastRegen) {
+        const daysSince = (Date.now() - new Date(lastRegen).getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSince < window.PORTRAIT_REGEN_DAYS) {
+          const daysLeft = Math.ceil(window.PORTRAIT_REGEN_DAYS - daysSince);
+          alert(`You can request a new portrait in ${daysLeft} day${daysLeft > 1 ? 's' : ''}. Your portrait refreshes every ${window.PORTRAIT_REGEN_DAYS} days.`);
+          return;
+        }
+      }
+    }
+  } catch(e) { console.warn('Cooldown check failed:', e); }
+
+  // Close gallery and open the full portrait creation screen
+  // Pre-populate with existing portrait fields so student sees their current settings
+  const gallery = document.getElementById('portrait-gallery-overlay');
+  if (gallery) gallery.remove();
+
+  // Open the full creation screen — it has all genre/style/gear/hair/eyes/skin fields
+  // Override confirmPortraitAndContinue to also handle XP deduction and cooldown save
+  window._regenMode = true;
+  window.showPortraitCreationScreen(
+    player.activeCharacterId,
+    player.name,
+    player.className
+  );
+
+  // Pre-populate fields with existing portrait data after screen renders
+  setTimeout(() => {
+    const pf = player.portraitEditedFields || {};
+    const cv = window.CLASS_VISUALS ? (window.CLASS_VISUALS[player.className] || {}) : {};
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && val) el.value = val;
+    };
+    setVal('portrait-field-style',  pf.style  || cv.style  || '');
+    setVal('portrait-field-gear',   pf.gear   || cv.gear   || '');
+    setVal('portrait-field-weapon', pf.weapon || cv.weapon || '');
+    setVal('portrait-field-aura',   pf.aura   || cv.aura   || '');
+    setVal('portrait-field-hair',   player.portraitHair || '');
+    setVal('portrait-field-eyes',   player.portraitEyes || '');
+    setVal('portrait-field-skin',   player.portraitSkin || '');
+    setVal('portrait-description-input', player.portraitDescription || '');
+
+    // Update the heading to reflect regen context
+    const heading = document.querySelector('#portrait-creation-overlay [style*="Cinzel"]');
+    const costEl = document.createElement('div');
+    costEl.style.cssText = 'font-size:12px;color:#c9a84c;text-align:center;margin-top:-12px;margin-bottom:16px;';
+    costEl.textContent = `🔄 Updating your portrait — costs ${window.PORTRAIT_REGEN_COST} XP`;
+    const genreLabel = document.querySelector('#portrait-creation-overlay label');
+    if (genreLabel) genreLabel.parentNode.insertBefore(costEl, genreLabel);
+  }, 200);
+};
+
+// Regen XP deduction and cooldown are handled inline in confirmPortraitAndContinue above via _regenMode flag
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK INTO LEVEL-UP — trigger milestone portrait after upgrade choice
+// ─────────────────────────────────────────────────────────────────────────
+window._origCheckLevelUp = window.checkForLevelUp;
+window.checkForLevelUp = () => {
+  if (!player) return;
+  const oldLevel = window._lastKnownLevel || 1;
+  window._origCheckLevelUp();
+  const newLevel = window.getLevelData(player.xp).level;
+  if (newLevel > oldLevel && window.PORTRAIT_MILESTONES.includes(newLevel) && newLevel > 1) {
+    // Delay portrait generation until after ability upgrade choice is dismissed
+    setTimeout(() => window.triggerMilestonePortrait(newLevel), 5000);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK INTO CHARACTER CREATION — show portrait screen after csDoCreate
+// ─────────────────────────────────────────────────────────────────────────
+// Poll for csDoCreate to be available then wrap it
+window._portraitHookInterval = setInterval(() => {
+  if (typeof window.csDoCreate === 'function' && !window._portraitHookDone) {
+    window._portraitHookDone = true;
+    clearInterval(window._portraitHookInterval);
+    const origCsDoCreate = window.csDoCreate;
+    window.csDoCreate = async () => {
+      // Capture state BEFORE the original runs
+      const slotBefore = window.csCreatingSlot;
+      await origCsDoCreate();
+      // After creation, find the newest character in Firestore
+      setTimeout(async () => {
+        try {
+          if (!player || !player.uid) return;
+          // Fetch all characters, sort client-side to find the newest
+          const snap = await getDocs(collection(db, 'players', player.uid, 'characters'));
+          if (!snap.empty) {
+            const sorted = snap.docs.slice().sort((a,b) => {
+              const ta = a.data().createdAt || '';
+              const tb = b.data().createdAt || '';
+              return tb.localeCompare(ta);
+            });
+            const newChar = { id: sorted[0].id, ...sorted[0].data() };
+            // Only show if character has no portrait yet
+            if (!newChar.currentPortraitUrl) {
+              window.showPortraitCreationScreen(newChar.id, newChar.name, newChar.className);
+            }
+          }
+        } catch(e) { console.warn('Portrait hook: could not find new character:', e); }
+      }, 1000);
+    };
+    console.log('✅ Portrait hook attached to csDoCreate');
+  }
+  // Fallback: listen for a custom event fired when character creation closes
+  if (!window._portraitEventListenerAdded) {
+    window._portraitEventListenerAdded = true;
+    document.addEventListener('testquest:characterCreated', async (e) => {
+      const { characterId, name, className } = e.detail || {};
+      if (characterId && name && className) {
+        setTimeout(() => window.showPortraitCreationScreen(characterId, name, className), 500);
+      }
+    });
+  }
+}, 500);
+
+setTimeout(() => {
+
+  // Add Portrait Hall button to character select screen
+  const csEnterBtn = document.getElementById('cs-enter-btn');
+  if (csEnterBtn && !document.getElementById('cs-portrait-btn')) {
+    const portraitBtn = document.createElement('button');
+    portraitBtn.id = 'cs-portrait-btn';
+    portraitBtn.className = 'game-btn';
+    portraitBtn.style.cssText = 'background:linear-gradient(145deg,#2c3e50,#34495e);font-size:13px;padding:10px 20px;margin-top:8px;';
+    portraitBtn.textContent = '🎨 Portrait Hall';
+    portraitBtn.onclick = () => window.showPortraitGallery();
+    csEnterBtn.parentNode.insertBefore(portraitBtn, csEnterBtn.nextSibling);
+    console.log('✅ Portrait Hall button added to character select');
+  }
+
+  // Add "Create Portrait" option to existing characters that have no portrait
+  // by patching csRenderGrid to add a portrait button to each card
+  const origCsRenderGrid = window.csRenderGrid;
+  if (origCsRenderGrid && !window._portraitGridPatched) {
+    window._portraitGridPatched = true;
+    window.csRenderGrid = () => {
+      origCsRenderGrid();
+      // After grid renders, add portrait indicators to each slot
+      setTimeout(() => {
+        (window.csCharacters || []).forEach(char => {
+          const card = document.querySelector(`[data-slot="${char.slotIndex}"]`);
+          if (!card) return;
+          // Add portrait thumbnail if character has one
+          if (char.currentPortraitUrl && !card.querySelector('.cs-portrait-thumb')) {
+            const thumb = document.createElement('img');
+            thumb.className = 'cs-portrait-thumb';
+            // Sanitize — old Firestore records stored raw base64 without data: prefix
+            const _thumbUrl = char.currentPortraitUrl;
+            thumb.src = (_thumbUrl.startsWith('data:') || _thumbUrl.startsWith('http'))
+              ? _thumbUrl : 'data:image/jpeg;base64,' + _thumbUrl;
+            thumb.style.cssText = 'width:48px;height:48px;border-radius:50%;border:2px solid #c9a84c;object-fit:cover;position:absolute;top:10px;right:10px;cursor:pointer;';
+            thumb.onclick = (e) => { e.stopPropagation(); window.showPortraitGallery(); };
+            card.style.position = 'relative';
+            card.appendChild(thumb);
+          }
+          // Add "Create Portrait" button if no portrait exists
+          if (!char.currentPortraitUrl && !card.querySelector('.cs-create-portrait-btn')) {
+            const btn = document.createElement('button');
+            btn.className = 'cs-create-portrait-btn game-btn';
+            btn.style.cssText = 'font-size:11px;padding:6px 12px;margin-top:8px;background:linear-gradient(145deg,#667eea,#764ba2);display:block;width:100%;';
+            btn.textContent = '🎨 Create Portrait';
+            btn.onclick = (e) => {
+              e.stopPropagation();
+              window.showPortraitCreationScreen(char.id, char.name, char.className);
+            };
+            card.appendChild(btn);
+          }
+        });
+      }, 100);
+    };
+    console.log('✅ Portrait grid patch applied');
+  }
+}, 2000);
+
+console.log('✅ Section 19 COMPLETE — Character Portrait System loaded');
+
+/* === SECTION 20: STREAK LOOT DROPS & INTERMITTENT REINFORCEMENT === */
+/* Volney Cothran — Test Quest — VKC-TQ-S20                          */
+console.log('🎲 Loading Section 20: Streak Loot Drops...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// LOOT POOL — weighted random rewards
+// Rarity: common (60%), uncommon (25%), rare (12%), legendary (3%)
+// ─────────────────────────────────────────────────────────────────────────
+window.LOOT_POOL = [
+  // Common (60%)
+  { id: 'xp_25',        type: 'xp',     value: 25,   label: '+25 Bonus XP',              icon: '⭐', rarity: 'common'    },
+  { id: 'xp_35',        type: 'xp',     value: 35,   label: '+35 Bonus XP',              icon: '⭐', rarity: 'common'    },
+  { id: 'xp_50',        type: 'xp',     value: 50,   label: '+50 Bonus XP',              icon: '💫', rarity: 'common'    },
+  { id: 'focus_10',     type: 'focus',  value: 10,   label: '+10 Focus Restored',         icon: '💚', rarity: 'common'    },
+  { id: 'focus_20',     type: 'focus',  value: 20,   label: '+20 Focus Restored',         icon: '💚', rarity: 'common'    },
+  // Uncommon (25%)
+  { id: 'xp_75',        type: 'xp',     value: 75,   label: '+75 Bonus XP',              icon: '✨', rarity: 'uncommon'  },
+  { id: 'focus_30',     type: 'focus',  value: 30,   label: '+30 Focus Restored',         icon: '💎', rarity: 'uncommon'  },
+  { id: 'double_next',  type: 'effect', value: 1,    label: 'Double XP — Next Question', icon: '🔥', rarity: 'uncommon'  },
+  { id: 'ability_rech', type: 'effect', value: 1,    label: '+1 Use — Random Ability',    icon: '⚡', rarity: 'uncommon'  },
+  // Rare (12%)
+  { id: 'xp_100',       type: 'xp',     value: 100,  label: '+100 Bonus XP',             icon: '🌟', rarity: 'rare'      },
+  { id: 'double_3',     type: 'effect', value: 3,    label: 'Double XP — Next 3 Questions', icon: '🔮', rarity: 'rare'   },
+  { id: 'focus_full',   type: 'focus',  value: 999,  label: 'Focus Fully Restored!',      icon: '💖', rarity: 'rare'      },
+  // Legendary (3%)
+  { id: 'xp_200',       type: 'xp',     value: 200,  label: '+200 Bonus XP',             icon: '👑', rarity: 'legendary' },
+  { id: 'invincible',   type: 'effect', value: 5,    label: 'Invincible — Next 5 Questions Cost 0 Focus', icon: '🛡️', rarity: 'legendary' },
+];
+
+// Base rarity weights — used at threshold 5
+window.LOOT_WEIGHTS_BASE = { common: 60, uncommon: 25, rare: 12, legendary: 3 };
+
+// Escalating weights by threshold level — longer streak = better odds
+// Resets to base after a legendary drop
+window.LOOT_WEIGHTS_BY_THRESHOLD = {
+  5:  { common: 60, uncommon: 25, rare: 12, legendary: 3  },
+  10: { common: 45, uncommon: 30, rare: 18, legendary: 7  },
+  15: { common: 30, uncommon: 33, rare: 25, legendary: 12 },
+  20: { common: 20, uncommon: 30, rare: 32, legendary: 18 },
+  25: { common: 10, uncommon: 25, rare: 37, legendary: 28 },
+};
+
+// Guaranteed drop thresholds
+window.LOOT_STREAK_THRESHOLDS = [5, 10, 15, 20, 25];
+
+// Surprise drop config — random chance between thresholds
+window.SURPRISE_DROP_CHANCE     = 0.08;  // 8% chance on each non-threshold correct answer
+window.SURPRISE_DROP_COOLDOWN   = 5;     // Min questions between surprise drops
+window.SURPRISE_DROP_BUFFER     = 2;     // No surprise within this many of a threshold
+window.SURPRISE_DROP_WEIGHTS    = { common: 55, uncommon: 32, rare: 11, legendary: 2 };
+
+// State tracking
+window._lootRarityReset   = false;  // True after legendary — next threshold uses base weights
+window._lastSurpriseAt    = -99;    // Question index of last surprise drop
+window._totalQuestionsAnswered = 0; // Running count for surprise cooldown
+
+// ─────────────────────────────────────────────────────────────────────────
+// WEIGHTED RANDOM LOOT PICKER
+// ─────────────────────────────────────────────────────────────────────────
+window.pickLootDrop = (weights) => {
+  const w = weights || window.LOOT_WEIGHTS_BASE;
+  const roll = Math.random() * 100;
+  let rarity;
+  if      (roll < w.legendary)                          rarity = 'legendary';
+  else if (roll < w.legendary + w.rare)                 rarity = 'rare';
+  else if (roll < w.legendary + w.rare + w.uncommon)    rarity = 'uncommon';
+  else                                                  rarity = 'common';
+
+  const pool = window.LOOT_POOL.filter(l => l.rarity === rarity);
+  const loot = pool[Math.floor(Math.random() * pool.length)];
+
+  // Reset rarity escalation after a legendary drop
+  if (loot && loot.rarity === 'legendary') {
+    window._lootRarityReset = true;
+    console.log('👑 Legendary drop! Rarity resets to base for next cycle.');
+  }
+  return loot;
+};
+
+// Get weights for a specific threshold — respects reset flag
+window.getLootWeightsForThreshold = (threshold) => {
+  if (window._lootRarityReset) {
+    window._lootRarityReset = false; // Consume the reset
+    return window.LOOT_WEIGHTS_BASE;
+  }
+  return window.LOOT_WEIGHTS_BY_THRESHOLD[threshold] || window.LOOT_WEIGHTS_BASE;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// APPLY LOOT EFFECT to player
+// ─────────────────────────────────────────────────────────────────────────
+window.applyLootDrop = async (loot) => {
+  if (!loot || !player) return;
+  window._totalQuestionsAnswered++;
+
+  switch (loot.type) {
+    case 'xp':
+      player.xp = (player.xp || 0) + loot.value;
+      if (typeof savePlayerProgress === 'function') await savePlayerProgress();
+      if (window.checkForLevelUp) window.checkForLevelUp();
+      if (window.updateHUDLevel)  window.updateHUDLevel();
+      break;
+
+    case 'focus':
+      const maxFocus = window.getMaxFocus ? window.getMaxFocus(window.getPlayerLevel()) : 100;
+      if (loot.value === 999) {
+        player.focus = maxFocus; // Full restore
+      } else {
+        player.focus = Math.min(maxFocus, (player.focus || 0) + loot.value);
+      }
+      if (typeof updatePlayerStats === 'function') updatePlayerStats();
+      break;
+
+    case 'effect':
+      if (!player.activeEffects) player.activeEffects = {};
+      if (loot.id === 'double_next') {
+        player.activeEffects.doubleXPNext = true;
+      } else if (loot.id === 'double_3') {
+        player.activeEffects.doubleXPDuration = loot.value;
+        player.activeEffects.bonusXP = 2;
+      } else if (loot.id === 'invincible') {
+        player.activeEffects.invincibleQuestions = loot.value;
+      } else if (loot.id === 'ability_rech') {
+        // Restore 1 use to a random ability that has uses
+        if (player.abilities) {
+          const keys = Object.keys(player.abilities).filter(k =>
+            player.abilities[k].uses >= 0 && player.abilities[k].uses < (player.abilities[k].maxUses || 3)
+          );
+          if (keys.length) {
+            const key = keys[Math.floor(Math.random() * keys.length)];
+            player.abilities[key].uses++;
+          }
+        }
+      }
+      if (typeof savePlayerProgress === 'function') await savePlayerProgress();
+      break;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// RARITY COLORS & STYLES
+// ─────────────────────────────────────────────────────────────────────────
+window.RARITY_STYLES = {
+  common:    { color: '#8892a4', glow: 'rgba(136,146,164,0.4)', label: 'Common',    border: 'rgba(136,146,164,0.4)' },
+  uncommon:  { color: '#27ae60', glow: 'rgba(39,174,96,0.5)',   label: 'Uncommon',  border: 'rgba(39,174,96,0.4)'   },
+  rare:      { color: '#667eea', glow: 'rgba(102,126,234,0.6)', label: 'Rare',      border: 'rgba(102,126,234,0.5)' },
+  legendary: { color: '#c9a84c', glow: 'rgba(201,168,76,0.7)',  label: 'Legendary', border: 'rgba(201,168,76,0.6)'  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// SHOW LOOT DROP OVERLAY
+// ─────────────────────────────────────────────────────────────────────────
+window.showLootDropOverlay = async (loot, streak) => {
+  const existing = document.getElementById('loot-drop-overlay');
+  if (existing) existing.remove();
+
+  const rs = window.RARITY_STYLES[loot.rarity] || window.RARITY_STYLES.common;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'loot-drop-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.75);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99985;animation:lootDropFadeIn 0.3s ease-out;
+    pointer-events:none;`;
+
+  overlay.innerHTML = `
+    <div style="
+      background:linear-gradient(145deg,#1a2035,#0d1117);
+      border:2px solid ${rs.border};
+      border-radius:20px;padding:36px 40px;
+      max-width:380px;width:90%;text-align:center;
+      box-shadow:0 0 60px ${rs.glow};
+      animation:lootDropBounce 0.5s ease-out;
+      pointer-events:auto;">
+
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:3px;
+                  color:${rs.color};margin-bottom:6px;font-family:'Cinzel',serif;">
+        ${streak} Answer Streak!
+      </div>
+      <div style="font-size:13px;color:#8892a4;margin-bottom:20px;">
+        Loot Drop — <span style="color:${rs.color};font-weight:700;">${rs.label}</span>
+      </div>
+
+      <div style="font-size:72px;margin-bottom:16px;
+                  filter:drop-shadow(0 0 20px ${rs.glow});">
+        ${loot.icon}
+      </div>
+
+      <div style="font-family:'Cinzel',serif;font-size:18px;
+                  color:white;font-weight:700;margin-bottom:8px;">
+        ${loot.label}
+      </div>
+
+      <div style="font-size:12px;color:#4a5568;margin-bottom:24px;">
+        Keep the streak going for more drops!
+      </div>
+
+      <button id="loot-claim-btn" style="
+        padding:12px 32px;
+        background:linear-gradient(135deg,${rs.color},${rs.color}99);
+        border:none;border-radius:10px;color:white;
+        font-size:14px;font-weight:700;cursor:pointer;
+        font-family:'Cinzel',serif;letter-spacing:0.05em;">
+        Claim It!
+      </button>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  // Claim button
+  document.getElementById('loot-claim-btn').onclick = async () => {
+    overlay.remove();
+    await window.applyLootDrop(loot);
+  };
+
+  // Auto-claim after 8 seconds
+  setTimeout(async () => {
+    if (overlay.parentNode) {
+      overlay.remove();
+      await window.applyLootDrop(loot);
+    }
+  }, 8000);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// INJECT STYLES
+// ─────────────────────────────────────────────────────────────────────────
+if (!document.getElementById('loot-drop-styles')) {
+  const s = document.createElement('style');
+  s.id = 'loot-drop-styles';
+  s.textContent = `
+    @keyframes lootDropFadeIn  { from{opacity:0} to{opacity:1} }
+    @keyframes lootDropBounce  {
+      0%  { transform:scale(0.7) translateY(30px); opacity:0; }
+      60% { transform:scale(1.06) translateY(-5px); opacity:1; }
+      100%{ transform:scale(1) translateY(0); }
+    }`;
+  document.head.appendChild(s);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOOK INTO STREAK TRACKING
+// Fires after each correct answer — checks streak thresholds
+// Uses MutationObserver on feedback-box (same pattern as Section 18)
+// ─────────────────────────────────────────────────────────────────────────
+window._lastLootStreakFired = 0; // Track last streak that triggered a drop
+
+window.checkForLootDrop = () => {
+  if (!player || !sessionStats) return;
+  const streak = sessionStats.currentStreak || 0;
+  if (streak < 1) return;
+  if (streak === window._lastLootStreakFired) return;
+
+  // ── GUARANTEED DROP at threshold ───────────────────────────────────────
+  const isThreshold = window.LOOT_STREAK_THRESHOLDS.includes(streak);
+  if (isThreshold) {
+    window._lastLootStreakFired = streak;
+    const weights = window.getLootWeightsForThreshold(streak);
+    const loot = window.pickLootDrop(weights);
+    if (loot) {
+      console.log(`🎲 Guaranteed drop at streak ${streak}:`, loot.label, `(${loot.rarity})`);
+      window.showLootDropOverlay(loot, streak);
+    }
+    return;
+  }
+
+  // ── SURPRISE DROP between thresholds ──────────────────────────────────
+  // Only between threshold 5+ and with cooldown
+  if (streak < 5) return;
+  const questionsSinceSurprise = window._totalQuestionsAnswered - window._lastSurpriseAt;
+  if (questionsSinceSurprise < window.SURPRISE_DROP_COOLDOWN) return;
+  // No surprise if we're within buffer distance of an upcoming threshold
+  const nearThreshold = window.LOOT_STREAK_THRESHOLDS.some(t => t > streak && t - streak <= window.SURPRISE_DROP_BUFFER);
+  if (nearThreshold) return;
+
+  // Roll for surprise
+  if (Math.random() < window.SURPRISE_DROP_CHANCE) {
+    window._lastSurpriseAt = window._totalQuestionsAnswered;
+    const loot = window.pickLootDrop(window.SURPRISE_DROP_WEIGHTS);
+    if (loot) {
+      console.log(`🎁 Surprise drop at streak ${streak}:`, loot.label, `(${loot.rarity})`);
+      window.showLootDropOverlay(loot, `${streak} ✨ Surprise`);
+    }
+  }
+};
+
+// Reset streak tracker at start of each episode
+window._s20_resetStreak = () => {
+  window._lastLootStreakFired    = 0;
+  window._lastSurpriseAt         = -99;
+  window._totalQuestionsAnswered = 0;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// ATTACH TO FEEDBACK BOX via MutationObserver
+// ─────────────────────────────────────────────────────────────────────────
+setTimeout(() => {
+  const feedbackBox = document.getElementById('feedback-box');
+  if (feedbackBox) {
+    const observer = new MutationObserver(() => {
+      if (player && sessionStats) {
+        window._totalQuestionsAnswered++;
+        window.checkForLootDrop();
+      }
+    });
+    observer.observe(feedbackBox, { childList: true, subtree: false });
+    console.log('✅ Loot drop observer attached to feedback box');
+  }
+
+  // Reset loot streak counter when returning to episodes
+  const returnBtn = document.getElementById('return-to-episodes');
+  if (returnBtn) {
+    const origClick = returnBtn.onclick;
+    returnBtn.onclick = (e) => {
+      window._s20_resetStreak();
+      if (origClick) origClick(e);
+    };
+  }
+}, 2000);
+
+console.log('✅ Section 20 COMPLETE — Streak loot drops loaded');
+console.log('   Thresholds:', window.LOOT_STREAK_THRESHOLDS.join(', '));
+console.log('   Pool size:', window.LOOT_POOL.length, 'items');
+
+/* === SECTION 21: TITLES & BADGES SYSTEM === */
+/* Volney Cothran — Test Quest — VKC-TQ-S21  */
+console.log('🏆 Loading Section 21: Titles & Badges...');
+
+// ─────────────────────────────────────────────────────────────────────────
+// TITLE DEFINITIONS
+// Each title has: id, name, description, how to earn, category
+// ─────────────────────────────────────────────────────────────────────────
+window.TITLE_DEFINITIONS = [
+  // Streak titles
+  { id: 'relentless',    name: 'The Relentless',    desc: 'Answer 10 questions in a row without missing',         cat: 'streak',      secret: false },
+  { id: 'unstoppable',   name: 'The Unstoppable',   desc: 'Reach a 15-question streak',                           cat: 'streak',      secret: true  },
+  // Accuracy titles
+  { id: 'perfectionist', name: 'The Perfectionist', desc: 'Complete an episode at 100% accuracy',                 cat: 'accuracy',    secret: false },
+  { id: 'sharpshooter',  name: 'Sharpshooter',      desc: 'Complete 3 encounters in a row above 90% accuracy',   cat: 'accuracy',    secret: true  },
+  // Comeback titles
+  { id: 'comeback_kid',  name: 'Comeback Kid',      desc: 'Win an encounter after 3 wrong answers in a row',     cat: 'comeback',    secret: true  },
+  { id: 'iron_will',     name: 'Iron Will',          desc: 'Finish an episode after reaching 0 Focus',            cat: 'resilience',  secret: true  },
+  // Speed titles
+  { id: 'the_swift',     name: 'The Swift',          desc: 'Complete an encounter in under 2 minutes',            cat: 'speed',       secret: true  },
+  // Completion titles
+  { id: 'thorough',      name: 'The Thorough',       desc: 'Complete 3 episodes in a row',                        cat: 'completion',  secret: false },
+  { id: 'explorer',      name: 'The Explorer',       desc: 'Play 5 different episodes',                           cat: 'completion',  secret: false },
+  // Level titles
+  { id: 'veteran',       name: 'Veteran',            desc: 'Reach Level 10',                                      cat: 'level',       secret: false },
+  { id: 'grandmaster',   name: 'Grandmaster',        desc: 'Reach Level 15',                                      cat: 'level',       secret: false },
+  { id: 'legend',        name: 'Legend',             desc: 'Reach Level 20',                                      cat: 'level',       secret: false },
+  // Loot titles
+  { id: 'lucky',         name: 'The Lucky One',      desc: 'Receive a Legendary loot drop',                       cat: 'loot',        secret: true  },
+  // Attendance
+  { id: 'dedicated',     name: 'The Dedicated',      desc: 'Log in 7 days in a row',                              cat: 'attendance',  secret: false },
+  // Portrait
+  { id: 'legend_made',   name: "Legend in the Making", desc: 'Create your first character portrait',              cat: 'portrait',    secret: false },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// BADGE DEFINITIONS
+// ─────────────────────────────────────────────────────────────────────────
+window.BADGE_DEFINITIONS = [
+  { id: 'first_episode',  icon: '🎮', name: 'First Adventure',    desc: 'Complete your first episode'        },
+  { id: 'streak_5',       icon: '🔥', name: 'On Fire',            desc: 'Hit a 5-question streak'            },
+  { id: 'streak_10',      icon: '💥', name: 'Unstoppable',        desc: 'Hit a 10-question streak'           },
+  { id: 'perfect_ep',     icon: '💎', name: 'Flawless',           desc: 'Complete an episode at 100%'        },
+  { id: 'level_5',        icon: '⚔️', name: 'Journeyman',         desc: 'Reach Level 5'                      },
+  { id: 'level_10',       icon: '🌟', name: 'Expert',             desc: 'Reach Level 10'                     },
+  { id: 'level_20',       icon: '👑', name: 'Legend',             desc: 'Reach Level 20'                     },
+  { id: 'loot_rare',      icon: '💫', name: 'Lucky Find',         desc: 'Receive a Rare or better loot drop' },
+  { id: 'portrait_done',  icon: '🎨', name: 'Portrait Painted',   desc: 'Create your character portrait'     },
+  { id: 'login_7',        icon: '📅', name: 'Week Warrior',       desc: 'Log in 7 days in a row'             },
+  { id: 'comeback',       icon: '💪', name: 'Never Give Up',      desc: 'Win after 3 wrong in a row'         },
+  { id: 'all_classes',    icon: '🧭', name: 'Explorer',           desc: 'Try all 5 character classes'        },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// STATE HELPERS
+// ─────────────────────────────────────────────────────────────────────────
+window.getPlayerTitles = () => (player && player.titles) ? player.titles : [];
+window.getPlayerBadges = () => (player && player.badges) ? player.badges : [];
+window.getEquippedTitle = () => (player && player.equippedTitle) ? player.equippedTitle : null;
+
+window.hasTitle = (id) => window.getPlayerTitles().includes(id);
+window.hasBadge = (id) => window.getPlayerBadges().includes(id);
+
+// ─────────────────────────────────────────────────────────────────────────
+// AWARD TITLE
+// ─────────────────────────────────────────────────────────────────────────
+window.awardTitle = async (titleId) => {
+  if (!player || window.hasTitle(titleId)) return;
+  const def = window.TITLE_DEFINITIONS.find(t => t.id === titleId);
+  if (!def) return;
+
+  if (!player.titles) player.titles = [];
+  player.titles.push(titleId);
+
+  // Auto-equip first title
+  if (!player.equippedTitle) player.equippedTitle = titleId;
+
+  // Save to Firestore
+  try {
+    await setDoc(doc(db, 'players', player.uid), {
+      titles: player.titles,
+      equippedTitle: player.equippedTitle
+    }, { merge: true });
+    if (player.activeCharacterId) {
+      await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId), {
+        titles: player.titles,
+        equippedTitle: player.equippedTitle
+      }, { merge: true });
+    }
+  } catch(e) { console.warn('Could not save title:', e); }
+
+  window.showTitleUnlockOverlay(def);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// AWARD BADGE
+// ─────────────────────────────────────────────────────────────────────────
+window.awardBadge = async (badgeId) => {
+  if (!player || window.hasBadge(badgeId)) return;
+  const def = window.BADGE_DEFINITIONS.find(b => b.id === badgeId);
+  if (!def) return;
+
+  if (!player.badges) player.badges = [];
+  player.badges.push(badgeId);
+
+  // Save to Firestore
+  try {
+    await setDoc(doc(db, 'players', player.uid), { badges: player.badges }, { merge: true });
+    if (player.activeCharacterId) {
+      await setDoc(doc(db, 'players', player.uid, 'characters', player.activeCharacterId), {
+        badges: player.badges
+      }, { merge: true });
+    }
+  } catch(e) { console.warn('Could not save badge:', e); }
+
+  window.showBadgeUnlockNotification(def);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// TITLE UNLOCK OVERLAY — dramatic reveal for secret titles
+// ─────────────────────────────────────────────────────────────────────────
+window.showTitleUnlockOverlay = (def) => {
+  const existing = document.getElementById('title-unlock-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'title-unlock-overlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.88);
+    display:flex;align-items:center;justify-content:center;
+    z-index:99984;animation:titleRevealFade 0.5s ease-out;`;
+
+  overlay.innerHTML = `
+    <div style="text-align:center;max-width:440px;width:90%;padding:20px;">
+      <div style="font-size:13px;text-transform:uppercase;letter-spacing:4px;
+                  color:#8892a4;margin-bottom:16px;font-family:'Cinzel',serif;
+                  animation:titleRevealSlide 0.6s ease-out;">
+        ${def.secret ? '✦ Hidden Title Discovered ✦' : '✦ Title Unlocked ✦'}
+      </div>
+      <div style="font-family:'Cinzel',serif;font-size:32px;font-weight:900;
+                  color:#c9a84c;margin-bottom:12px;
+                  text-shadow:0 0 40px rgba(201,168,76,0.8);
+                  animation:titleRevealGlow 1s ease-out;">
+        ${def.name}
+      </div>
+      <div style="font-size:14px;color:#8892a4;margin-bottom:32px;
+                  font-style:italic;line-height:1.6;">
+        ${def.desc}
+      </div>
+      <button onclick="document.getElementById('title-unlock-overlay').remove()"
+        style="padding:12px 36px;background:linear-gradient(135deg,#c9a84c,#a07030);
+               border:none;border-radius:10px;color:white;font-size:14px;
+               font-weight:700;cursor:pointer;font-family:'Cinzel',serif;">
+        Claim Title
+      </button>
+      <div style="font-size:11px;color:#3a4456;margin-top:16px;">
+        Equip it from your Character panel
+      </div>
+    </div>`;
+
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 10000);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// BADGE NOTIFICATION — small toast in corner
+// ─────────────────────────────────────────────────────────────────────────
+window.showBadgeUnlockNotification = (def) => {
+  const notif = document.createElement('div');
+  notif.style.cssText = `
+    position:fixed;bottom:80px;right:20px;
+    background:linear-gradient(145deg,#1a2035,#0d1117);
+    border:2px solid rgba(201,168,76,0.5);border-radius:12px;
+    padding:12px 16px;z-index:99983;
+    display:flex;align-items:center;gap:12px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    animation:badgeSlideIn 0.4s ease-out;
+    max-width:260px;`;
+
+  notif.innerHTML = `
+    <div style="font-size:32px;flex-shrink:0;">${def.icon}</div>
+    <div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;
+                  color:#c9a84c;font-family:'Cinzel',serif;">Badge Earned!</div>
+      <div style="font-size:14px;font-weight:700;color:white;
+                  font-family:'Cinzel',serif;">${def.name}</div>
+      <div style="font-size:11px;color:#8892a4;margin-top:2px;">${def.desc}</div>
+    </div>`;
+
+  document.body.appendChild(notif);
+  setTimeout(() => {
+    notif.style.transition = 'opacity 0.4s';
+    notif.style.opacity = '0';
+    setTimeout(() => { if (notif.parentNode) notif.remove(); }, 400);
+  }, 4000);
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// INJECT ANIMATION STYLES
+// ─────────────────────────────────────────────────────────────────────────
+if (!document.getElementById('titles-badges-styles')) {
+  const s = document.createElement('style');
+  s.id = 'titles-badges-styles';
+  s.textContent = `
+    @keyframes titleRevealFade  { from{opacity:0} to{opacity:1} }
+    @keyframes titleRevealSlide { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes titleRevealGlow  {
+      0%  { opacity:0; transform:scale(0.8); }
+      50% { text-shadow:0 0 60px rgba(201,168,76,1); }
+      100%{ opacity:1; transform:scale(1); }
+    }
+    @keyframes badgeSlideIn { from{opacity:0;transform:translateX(60px)} to{opacity:1;transform:translateX(0)} }`;
+  document.head.appendChild(s);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TITLE DISPLAY in HUD
+// Shows equipped title under player name
+// ─────────────────────────────────────────────────────────────────────────
+window.updateHUDTitle = () => {
+  const titleId = window.getEquippedTitle();
+  if (!titleId) return;
+  const def = window.TITLE_DEFINITIONS.find(t => t.id === titleId);
+  if (!def) return;
+
+  let titleEl = document.getElementById('hud-equipped-title');
+  if (!titleEl) {
+    const playerInfo = document.getElementById('player-info');
+    if (!playerInfo) return;
+    titleEl = document.createElement('div');
+    titleEl.id = 'hud-equipped-title';
+    titleEl.style.cssText = 'font-size:10px;color:#c9a84c;font-style:italic;margin-top:2px;font-family:"Cinzel",serif;letter-spacing:0.05em;';
+    playerInfo.appendChild(titleEl);
+  }
+  titleEl.textContent = def.name;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// ACHIEVEMENT CHECKS — called from game events
+// ─────────────────────────────────────────────────────────────────────────
+
+// Check after every answer
+window.checkTitleTriggers = () => {
+  if (!player || !sessionStats) return;
+  const streak = sessionStats.currentStreak || 0;
+
+  // Streak titles
+  if (streak >= 10) window.awardTitle('relentless');
+  if (streak >= 15) window.awardTitle('unstoppable');
+
+  // Streak badges
+  if (streak >= 5)  window.awardBadge('streak_5');
+  if (streak >= 10) window.awardBadge('streak_10');
+
+  // Comeback — 3 wrong then correct
+  if (player._consecutiveWrong >= 3 && streak === 1) {
+    window.awardTitle('comeback_kid');
+    window.awardBadge('comeback');
+  }
+};
+
+// Check after episode completes
+window.checkEpisodeTitleTriggers = () => {
+  if (!player || !sessionStats) return;
+  const accuracy = sessionStats.calculateAccuracy();
+
+  // Perfect episode
+  if (accuracy === 100) {
+    window.awardTitle('perfectionist');
+    window.awardBadge('perfect_ep');
+  }
+
+  // First episode
+  const completed = (player.episodesCompleted || 0) + 1;
+  player.episodesCompleted = completed;
+  if (completed === 1) window.awardBadge('first_episode');
+  if (completed >= 3)  window.awardTitle('thorough');
+
+  // Iron will — finished after hitting 0 focus
+  if (player._hitZeroFocus) {
+    window.awardTitle('iron_will');
+    player._hitZeroFocus = false;
+  }
+};
+
+// Check on level up
+window.checkLevelTitleTriggers = (level) => {
+  if (level >= 5)  window.awardBadge('level_5');
+  if (level >= 10) { window.awardTitle('veteran');     window.awardBadge('level_10'); }
+  if (level >= 15) window.awardTitle('grandmaster');
+  if (level >= 20) { window.awardTitle('legend');      window.awardBadge('level_20'); }
+};
+
+// Check on loot drop
+window.checkLootTitleTriggers = (loot) => {
+  if (!loot) return;
+  if (loot.rarity === 'legendary') window.awardTitle('lucky');
+  if (loot.rarity === 'rare' || loot.rarity === 'legendary') window.awardBadge('loot_rare');
+};
+
+// Check on portrait creation
+window.checkPortraitTitleTriggers = () => {
+  window.awardTitle('legend_made');
+  window.awardBadge('portrait_done');
+};
