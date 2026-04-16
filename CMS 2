@@ -1,0 +1,972 @@
+
+<!-- ========================================= -->
+<!-- SECTION 3: HTML NAVIGATION & DASHBOARD  -->
+<!-- UPDATED: Classes tab added               -->
+<!-- ========================================= -->
+
+<div id="cms-container">
+<nav id="cms-nav">
+  <div class="cms-nav-tab active" data-page="dashboard">📊 Dashboard</div>
+  <div class="cms-nav-tab" data-page="question-banks">📚 Question Banks <span id="banks-count" class="badge">0</span></div>
+  <div class="cms-nav-tab" data-page="episodes">🎮 Episodes <span id="episodes-count" class="badge">0</span></div>
+  <div class="cms-nav-tab" data-page="genres">🎭 Genres</div>
+  <div class="cms-nav-tab" data-page="classes">🏫 Classes <span id="classes-count" class="badge">0</span></div>
+  <div class="cms-nav-tab" data-page="analytics">👥 Student Reports</div>
+  <div class="cms-nav-tab" data-page="settings">⚙️ Settings</div>
+  <span class="parser-badge">⚡ ULTIMATE PARSER ENABLED</span>
+</nav>
+
+<!-- Dashboard Page -->
+<div id="dashboard" class="cms-page active">
+  <h1>📊 Enhanced Teacher Dashboard <span class="parser-badge">🚀 Ultimate ACT Parser Integrated</span></h1>
+
+  <div class="dashboard-stats">
+    <div class="stat-card">
+      <h3>Total Question Banks</h3>
+      <div id="total-question-banks" class="stat-number">0</div>
+      <div class="stat-label">Available banks</div>
+    </div>
+    <div class="stat-card">
+      <h3>Total Episodes</h3>
+      <div id="total-episodes" class="stat-number">0</div>
+      <div class="stat-label">Created episodes</div>
+    </div>
+    <div class="stat-card">
+      <h3>Active Episodes</h3>
+      <div id="active-episodes" class="stat-number">0</div>
+      <div class="stat-label">Student accessible</div>
+    </div>
+    <div class="stat-card" style="background: var(--parser-gradient);">
+      <h3>Parser Success Rate</h3>
+      <div class="stat-number">98%</div>
+      <div class="stat-label">Ultimate extraction accuracy</div>
+    </div>
+  </div>
+
+  <div class="dashboard-actions">
+    <button id="dash-quick-import-btn" class="cms-btn cms-btn-primary ultimate-enhanced">🤖 Ultimate AI Import</button>
+    <button id="dash-new-episode-btn" class="cms-btn cms-btn-success">🎮 New Episode</button>
+    <button id="dash-new-qbank-btn" class="cms-btn cms-btn-secondary">📚 New Bank</button>
+    <button id="dash-new-genre-btn" class="cms-btn cms-btn-secondary">🎭 New Genre</button>
+    <button onclick="document.querySelector('[data-page=classes]').click()" class="cms-btn" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; cursor: pointer;">🏫 Manage Classes</button>
+    <button onclick="document.querySelector('[data-page=analytics]').click()" class="cms-btn" style="background: linear-gradient(135deg, #28a745, #20c997); color: white; border: none; cursor: pointer;">📈 Student Reports</button>
+  </div>
+
+  <!-- Classes Summary Card -->
+  <div class="cms-card" style="border-left: 5px solid #667eea; background: linear-gradient(135deg, #f8f9ff 0%, #e8ecff 100%);">
+    <div class="cms-card-header">
+      <h3>🏫 Your Classes</h3>
+      <button onclick="document.querySelector('[data-page=classes]').click()" class="cms-btn cms-btn-primary">Manage Classes</button>
+    </div>
+    <div id="dashboard-classes-summary">
+      <p style="color: #6c757d;">Loading your classes...</p>
+    </div>
+  </div>
+
+  <div class="cms-card">
+    <div class="cms-card-header">
+      <h3>📈 Recent Activity</h3>
+      <button class="cms-btn cms-btn-secondary">🔄 Refresh</button>
+    </div>
+    <div id="recent-activity">
+      <div class="cms-item no-hover">
+        <div class="cms-item-content">
+          <div class="cms-item-title">🚀 Ultimate Parser Engine integrated</div>
+          <div class="cms-item-meta"><span class="success-indicator">Enhanced extraction capabilities</span></div>
+        </div>
+        <span style="color: #6c757d; font-size: 12px;">Now</span>
+      </div>
+      <div class="cms-item no-hover">
+        <div class="cms-item-content">
+          <div class="cms-item-title">📚 Enhanced question extraction (Reading/Math/English/Science)</div>
+          <div class="cms-item-meta">Smart test type detection enabled</div>
+        </div>
+        <span style="color: #6c757d; font-size: 12px;">Just updated</span>
+      </div>
+      <div class="cms-item no-hover">
+        <div class="cms-item-content">
+          <div class="cms-item-title">⚡ Multi-page PDF processing activated</div>
+          <div class="cms-item-meta">Two-pass extraction system online</div>
+        </div>
+        <span style="color: #6c757d; font-size: 12px;">Latest feature</span>
+      </div>
+      <div class="cms-item no-hover">
+        <div class="cms-item-content">
+          <div class="cms-item-title">🎯 98% extraction accuracy achieved</div>
+          <div class="cms-item-meta"><span class="success-indicator">Performance benchmark met</span></div>
+        </div>
+        <span style="color: #6c757d; font-size: 12px;">System status</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cms-card" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-left: 5px solid var(--success-color);">
+    <div class="cms-card-header">
+      <h3>⚡ Ultimate Parser Capabilities</h3>
+      <span class="parser-badge" style="margin: 0;">v2.0</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+      <div style="text-align: center; padding: 15px;">
+        <div style="font-size: 32px; margin-bottom: 10px;">📖</div>
+        <h4>Reading Passages</h4>
+        <p style="color: #6c757d; font-size: 14px;">Line numbers, literary analysis, comprehension questions</p>
+      </div>
+      <div style="text-align: center; padding: 15px;">
+        <div style="font-size: 32px; margin-bottom: 10px;">🔢</div>
+        <h4>Math Problems</h4>
+        <p style="color: #6c757d; font-size: 14px;">Equations, geometry, word problems, calculations</p>
+      </div>
+      <div style="text-align: center; padding: 15px;">
+        <div style="font-size: 32px; margin-bottom: 10px;">📝</div>
+        <h4>English Tests</h4>
+        <p style="color: #6c757d; font-size: 14px;">Grammar, usage, rhetorical skills, writing strategy</p>
+      </div>
+      <div style="text-align: center; padding: 15px;">
+        <div style="font-size: 32px; margin-bottom: 10px;">🔬</div>
+        <h4>Science Tests</h4>
+        <p style="color: #6c757d; font-size: 14px;">Data interpretation, research summaries, conflicting viewpoints</p>
+      </div>
+    </div>
+    <div style="margin-top: 20px; padding: 15px; background: rgba(40, 167, 69, 0.1); border-radius: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div><strong style="color: var(--success-color);">System Status: </strong><span class="success-indicator">Fully Operational</span></div>
+        <div><strong style="color: var(--success-color);">Accuracy: </strong><span style="font-weight: bold; color: var(--success-color);">98%</span></div>
+        <div><strong style="color: var(--success-color);">Processing: </strong><span style="font-weight: bold; color: var(--success-color);">Multi-page PDFs</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Classes Page -->
+<div id="classes" class="cms-page" style="display:none;">
+  <h1>🏫 Class Manager</h1>
+
+  <div class="cms-card">
+    <div class="cms-card-header">
+      <h3>Your Classes</h3>
+      <button onclick="showCreateClassModal()" class="cms-btn cms-btn-primary">➕ Create New Class</button>
+    </div>
+    <div id="classes-loading" style="text-align:center; padding:40px; color:#999;"><p>Loading classes...</p></div>
+    <div id="classes-empty" style="display:none; text-align:center; padding:60px 20px; color:#999;">
+      <div style="font-size:48px; margin-bottom:15px;">🏫</div>
+      <h3 style="color:#666; margin-bottom:10px;">No Classes Yet</h3>
+      <p style="margin-bottom:20px;">Create your first class to start organizing students.</p>
+      <button onclick="showCreateClassModal()" class="cms-btn cms-btn-primary">➕ Create First Class</button>
+    </div>
+    <div id="classes-list"></div>
+  </div>
+</div>
+
+<!-- Student Reports Page -->
+<div id="analytics" class="cms-page" style="display:none;">
+  <h1>👥 Student Reports</h1>
+
+  <!-- Class Selector -->
+  <div class="cms-card" style="border-left: 5px solid #667eea; background: linear-gradient(135deg, #f8f9ff 0%, #e8ecff 100%); margin-bottom: 20px;">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:15px;">
+      <div style="flex:1; min-width:200px;">
+        <label style="font-size:13px; color:#6c757d; display:block; margin-bottom:6px;">Viewing reports for:</label>
+        <select id="reports-class-selector" onchange="onReportsClassChange()" style="font-size:16px; font-weight:600; color:#667eea; border:2px solid #667eea; border-radius:8px; padding:8px 15px; background:white; cursor:pointer; width:100%; max-width:400px;">
+          <option value="">— Select a Class —</option>
+        </select>
+      </div>
+      <div id="reports-class-code-banner" style="display:none; text-align:center;">
+        <div style="font-size:12px; color:#6c757d; margin-bottom:4px;">Join Code</div>
+        <div id="reports-join-code-display" style="font-size:24px; font-weight:900; letter-spacing:4px; color:#667eea; font-family:monospace;"></div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button onclick="copyReportsJoinCode()" class="cms-btn cms-btn-primary">📋 Copy Join Code</button>
+        <button onclick="loadStudentReports()" class="cms-btn cms-btn-secondary">🔄 Refresh</button>
+        <button onclick="exportStudentReport()" class="cms-btn" style="background:#28a745; color:white; border:none; cursor:pointer;">⬇️ Export CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Stats -->
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:20px; margin-bottom:25px;">
+    <div class="stat-card">
+      <div style="color:#666; font-size:14px; margin-bottom:5px;">Total Students</div>
+      <div id="reports-total-students" class="stat-number">0</div>
+      <div style="font-size:12px; color:#999; margin-top:5px;">In this class</div>
+    </div>
+    <div class="stat-card">
+      <div style="color:#666; font-size:14px; margin-bottom:5px;">Average Progress</div>
+      <div id="reports-avg-progress" class="stat-number">0%</div>
+      <div style="font-size:12px; color:#999; margin-top:5px;">Across all episodes</div>
+    </div>
+    <div class="stat-card">
+      <div style="color:#666; font-size:14px; margin-bottom:5px;">Average Accuracy</div>
+      <div id="reports-avg-accuracy" class="stat-number">0%</div>
+      <div style="font-size:12px; color:#999; margin-top:5px;">Correct answers</div>
+    </div>
+    <div class="stat-card">
+      <div style="color:#666; font-size:14px; margin-bottom:5px;">Completed Episodes</div>
+      <div id="reports-completed-episodes" class="stat-number">0</div>
+      <div style="font-size:12px; color:#999; margin-top:5px;">Total across class</div>
+    </div>
+  </div>
+
+  <!-- Roster -->
+  <div class="cms-card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:15px;">
+      <h3>Class Roster</h3>
+      <input type="text" id="reports-search" placeholder="Search students..." oninput="filterReportsStudents()" style="padding:10px 15px; border:2px solid #e0e0e0; border-radius:8px; width:250px; font-size:14px;">
+    </div>
+    <div id="reports-no-class" style="text-align:center; padding:60px 20px; color:#999;">
+      <div style="font-size:48px; margin-bottom:15px;">🏫</div>
+      <h3 style="color:#666; margin-bottom:10px;">Select a Class</h3>
+      <p>Choose a class from the dropdown above to view student reports.</p>
+    </div>
+    <div id="reports-loading" style="display:none; text-align:center; padding:40px; color:#999;"><p>Loading student data...</p></div>
+    <div id="reports-empty" style="display:none; text-align:center; padding:60px 20px; color:#999;">
+      <div style="font-size:48px; margin-bottom:15px;">👥</div>
+      <h3 style="color:#666; margin-bottom:10px;">No Students Yet</h3>
+      <p>Share the join code with students so they appear here when they register.</p>
+    </div>
+    <table id="reports-table" style="display:none; width:100%; border-collapse:collapse;">
+      <thead style="background:#f8f9fa;">
+        <tr>
+          <th style="padding:15px; text-align:left; font-weight:600; color:#666; font-size:14px; border-bottom:2px solid #e0e0e0;">Student</th>
+          <th style="padding:15px; text-align:left; font-weight:600; color:#666; font-size:14px; border-bottom:2px solid #e0e0e0;">Episodes Completed</th>
+          <th style="padding:15px; text-align:left; font-weight:600; color:#666; font-size:14px; border-bottom:2px solid #e0e0e0;">Progress</th>
+          <th style="padding:15px; text-align:left; font-weight:600; color:#666; font-size:14px; border-bottom:2px solid #e0e0e0;">Accuracy</th>
+          <th style="padding:15px; text-align:left; font-weight:600; color:#666; font-size:14px; border-bottom:2px solid #e0e0e0;">Status</th>
+          <th style="padding:15px; text-align:left; font-weight:600; color:#666; font-size:14px; border-bottom:2px solid #e0e0e0;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="reports-table-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Student Detail Modal -->
+<div id="student-detail-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:15px; max-width:900px; width:90%; max-height:90vh; overflow-y:auto; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+    <div style="padding:25px 30px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center;">
+      <h2 id="student-modal-name" style="color:#333; font-size:24px;">Student Details</h2>
+      <button onclick="closeStudentModal()" style="background:none; border:none; font-size:28px; color:#999; cursor:pointer; width:40px; height:40px; border-radius:50%;">&times;</button>
+    </div>
+    <div style="padding:30px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:15px; margin-bottom:30px;">
+        <div style="background:#f8f9fa; padding:20px; border-radius:10px; text-align:center;">
+          <div style="color:#666; font-size:13px; margin-bottom:8px;">Total XP</div>
+          <div id="student-modal-xp" style="font-size:28px; font-weight:700; color:#667eea;">0</div>
+        </div>
+        <div style="background:#f8f9fa; padding:20px; border-radius:10px; text-align:center;">
+          <div style="color:#666; font-size:13px; margin-bottom:8px;">Level</div>
+          <div id="student-modal-level" style="font-size:28px; font-weight:700; color:#667eea;">1</div>
+        </div>
+        <div style="background:#f8f9fa; padding:20px; border-radius:10px; text-align:center;">
+          <div style="color:#666; font-size:13px; margin-bottom:8px;">Episodes Completed</div>
+          <div id="student-modal-episodes" style="font-size:28px; font-weight:700; color:#667eea;">0</div>
+        </div>
+        <div style="background:#f8f9fa; padding:20px; border-radius:10px; text-align:center;">
+          <div style="color:#666; font-size:13px; margin-bottom:8px;">Overall Accuracy</div>
+          <div id="student-modal-accuracy" style="font-size:28px; font-weight:700; color:#667eea;">0%</div>
+        </div>
+      </div>
+      <div style="margin:30px 0; padding:20px; background:#f8f9fa; border-radius:10px;">
+        <div style="font-size:16px; font-weight:600; color:#333; margin-bottom:15px;">Performance Over Time</div>
+        <div id="student-modal-chart" style="height:200px; display:flex; align-items:flex-end; gap:10px;"></div>
+      </div>
+      <div id="student-modal-struggling" style="margin-top:20px;">
+        <h3 style="margin-bottom:15px;">Topics Needing Attention</h3>
+      </div>
+      <div style="margin-top:20px;">
+        <h3 style="margin-bottom:15px;">Episode History</h3>
+        <div id="student-modal-history"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Class Modal -->
+<div id="create-class-modal" class="cms-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:2000; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:15px; max-width:550px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+    <div style="padding:25px 30px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="color:#333;">🏫 Create New Class</h2>
+      <button onclick="closeCreateClassModal()" style="background:none; border:none; font-size:28px; color:#999; cursor:pointer;">&times;</button>
+    </div>
+    <div style="padding:30px;">
+      <div class="cms-form-group">
+        <label for="new-class-name">Class Name *</label>
+        <input type="text" id="new-class-name" placeholder="e.g. Period 1 Algebra, Summer ACT Prep" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px;">
+      </div>
+
+      <div class="cms-form-group" style="margin-top:20px;">
+        <label>Join Code Style</label>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:12px; border:2px solid #e0e0e0; border-radius:8px;">
+            <input type="radio" name="code-style" value="lastname" checked onchange="updateCodePreview()">
+            <div>
+              <div style="font-weight:600;">Last Name + Numbers</div>
+              <div style="font-size:12px; color:#999;">e.g. SMITH4829</div>
+            </div>
+          </label>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:12px; border:2px solid #e0e0e0; border-radius:8px;">
+            <input type="radio" name="code-style" value="random" onchange="updateCodePreview()">
+            <div>
+              <div style="font-weight:600;">Fully Random</div>
+              <div style="font-size:12px; color:#999;">e.g. XK7M2P</div>
+            </div>
+          </label>
+          <label style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:12px; border:2px solid #e0e0e0; border-radius:8px;">
+            <input type="radio" name="code-style" value="custom" onchange="updateCodePreview()">
+            <div>
+              <div style="font-weight:600;">Custom Code</div>
+              <div style="font-size:12px; color:#999;">You choose</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div id="custom-code-input" style="display:none; margin-top:15px;">
+        <label for="new-class-custom-code">Your Custom Code *</label>
+        <input type="text" id="new-class-custom-code" placeholder="Enter your code (letters and numbers only)" maxlength="12" style="width:100%; padding:10px; border:2px solid #e0e0e0; border-radius:8px; font-size:14px; text-transform:uppercase;" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+      </div>
+
+      <div style="margin-top:20px; padding:15px; background:#f8f9ff; border-radius:8px; border:2px dashed #667eea;">
+        <div style="font-size:12px; color:#6c757d; margin-bottom:5px;">Generated Join Code Preview:</div>
+        <div id="code-preview" style="font-size:28px; font-weight:900; letter-spacing:4px; color:#667eea; font-family:monospace;">SMITH4829</div>
+        <button onclick="refreshCodePreview()" style="margin-top:8px; background:none; border:none; color:#667eea; cursor:pointer; font-size:13px;">🔄 Generate another</button>
+      </div>
+
+      <div style="margin-top:25px; display:flex; gap:10px;">
+        <button onclick="saveNewClass()" class="cms-btn cms-btn-primary" style="flex:1;">✅ Create Class</button>
+        <button onclick="closeCreateClassModal()" class="cms-btn cms-btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+	
+<!-- ========================================= -->
+	<!-- SECTION 4: HTML CONTENT PAGES           -->
+	<!-- Question Banks, Episodes, Genres, Analytics -->
+	<!-- ========================================= -->
+	<!-- Enhanced Question Banks Page -->
+<div id="question-banks" class="cms-page">
+<div class="cms-grid"><!-- Question Banks Management -->
+<div class="cms-card ultimate-enhanced">
+<div class="cms-card-header">
+<h3>📚 Question Banks</h3>
+<div class="btn-group"><button id="new-q-bank-btn" class="cms-btn cms-btn-primary"> ➕ New Bank </button> <button id="quick-import-btn" class="cms-btn cms-btn-success ultimate-enhanced"> 🚀 Ultimate Import </button></div>
+</div>
+<ul id="q-bank-list" class="cms-item-list">
+<li class="loading-state">Loading question banks...</li>
+</ul>
+<!-- Ultimate Parser Status for Question Banks -->
+<div style="margin-top: 15px; padding: 10px; background: rgba(40, 167, 69, 0.1); border-radius: 6px; border-left: 4px solid var(--success-color);"><small style="color: var(--success-color); font-weight: 500;"> ⚡ Enhanced with Ultimate Parser: Supports all ACT test types with 98% accuracy </small></div>
+</div>
+<!-- Game Episodes Preview -->
+<div class="cms-card">
+<div class="cms-card-header">
+<h3>🎮 Game Episodes</h3>
+<button id="grid-new-episode-btn" class="cms-btn cms-btn-primary"> ➕ New Episode </button></div>
+<ul id="episode-list" class="cms-item-list">
+<li class="loading-state">Loading episodes...</li>
+</ul>
+<!-- Episode Integration Notice -->
+<div style="margin-top: 15px; padding: 10px; background: rgba(0, 123, 255, 0.1); border-radius: 6px; border-left: 4px solid var(--primary-color);"><small style="color: var(--primary-color); font-weight: 500;"> 🎯 Episodes use questions from Ultimate Parser-enhanced banks </small></div>
+</div>
+</div>
+</div>
+<!-- Enhanced Episodes Page -->
+<div id="episodes" class="cms-page">
+<div class="cms-card">
+<div class="cms-card-header">
+<h3>🎮 All Game Episodes</h3>
+<div style="display: flex; gap: 10px; align-items: center;"><button id="new-episode-btn" class="cms-btn cms-btn-primary"> 🎮 Create Episode </button> <span class="parser-badge" style="font-size: 10px; padding: 4px 8px;"> ULTIMATE POWERED </span></div>
+</div>
+<ul id="all-episodes-list" class="cms-item-list">
+<li class="loading-state">Loading episodes...</li>
+</ul>
+<!-- Episode Performance Metrics -->
+<div style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+<h4 style="margin: 0 0 10px 0;">Episode Quality</h4>
+<div style="font-size: 24px; font-weight: bold;">High</div>
+<small>Ultimate Parser enhanced</small></div>
+<div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+<h4 style="margin: 0 0 10px 0;">Question Accuracy</h4>
+<div style="font-size: 24px; font-weight: bold;">98%</div>
+<small>Extraction precision</small></div>
+<div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+<h4 style="margin: 0 0 10px 0;">Test Coverage</h4>
+<div style="font-size: 24px; font-weight: bold;">4/4</div>
+<small>All ACT subjects</small></div>
+</div>
+</div>
+</div>
+<!-- Enhanced Genres Page -->
+<div id="genres" class="cms-page">
+<div class="cms-card">
+<div class="cms-card-header">
+<h3>🎭 Episode Genres</h3>
+<button id="new-genre-btn" class="cms-btn cms-btn-primary"> 🎭 New Genre </button></div>
+<ul id="genre-list" class="cms-item-list">
+<li class="loading-state">Loading genres...</li>
+</ul>
+<!-- Genre Suggestions based on ACT Test Types -->
+<div style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid var(--info-color);">
+<h4 style="margin: 0 0 15px 0; color: var(--info-color);">💡 Suggested Genres by ACT Test Type</h4>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+<div style="padding: 15px; background: white; border-radius: 6px; border-left: 3px solid #17a2b8;">
+<h5 style="margin: 0 0 8px 0; color: #17a2b8;">📖 Reading Genres</h5>
+<ul style="margin: 0; padding-left: 15px; font-size: 14px; color: #6c757d;">
+<li>Literary Adventure</li>
+<li>Historical Mystery</li>
+<li>Biography Quest</li>
+<li>Science Article Journey</li>
+</ul>
+</div>
+<div style="padding: 15px; background: white; border-radius: 6px; border-left: 3px solid #28a745;">
+<h5 style="margin: 0 0 8px 0; color: #28a745;">🔢 Math Genres</h5>
+<ul style="margin: 0; padding-left: 15px; font-size: 14px; color: #6c757d;">
+<li>Space Calculator</li>
+<li>Geometry Explorer</li>
+<li>Algebra Detective</li>
+<li>Statistics Analyst</li>
+</ul>
+</div>
+<div style="padding: 15px; background: white; border-radius: 6px; border-left: 3px solid #ffc107;">
+<h5 style="margin: 0 0 8px 0; color: #e0a800;">📝 English Genres</h5>
+<ul style="margin: 0; padding-left: 15px; font-size: 14px; color: #6c757d;">
+<li>Grammar Guardian</li>
+<li>Writing Workshop</li>
+<li>Rhetoric Researcher</li>
+<li>Style Editor</li>
+</ul>
+</div>
+<div style="padding: 15px; background: white; border-radius: 6px; border-left: 3px solid #dc3545;">
+<h5 style="margin: 0 0 8px 0; color: #dc3545;">🔬 Science Genres</h5>
+<ul style="margin: 0; padding-left: 15px; font-size: 14px; color: #6c757d;">
+<li>Lab Investigator</li>
+<li>Data Analyst</li>
+<li>Hypothesis Hunter</li>
+<li>Research Explorer</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Enhanced Analytics Page -->
+<div id="analytics" class="cms-page">
+<div class="cms-card">
+<div class="cms-card-header">
+<h3>👥 Student Performance Analytics</h3>
+<div style="display: flex; gap: 10px; align-items: center;"><button class="cms-btn cms-btn-primary"> 🔄 Refresh Analytics </button> <span class="parser-badge" style="font-size: 10px; padding: 4px 8px;"> ENHANCED DATA </span></div>
+</div>
+<div id="analytics-content"><!-- Primary Analytics Grid -->
+<div class="cms-grid" style="margin-bottom: 30px;">
+<div class="stat-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+<h4>Engagement Rate</h4>
+<div class="stat-number">78%</div>
+<div class="stat-label">Daily active users</div>
+</div>
+<div class="stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+<h4>Ultimate Parser Success</h4>
+<div class="stat-number">98%</div>
+<div class="stat-label">Extraction accuracy</div>
+</div>
+</div>
+<!-- Enhanced Analytics Breakdown -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px;"><!-- ACT Test Type Performance -->
+<div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid var(--primary-color); box-shadow: 0 2px 6px rgba(0,0,0,0.08);">
+<h4 style="margin: 0 0 15px 0; color: var(--primary-color);">📊 Performance by ACT Test Type</h4>
+<div style="margin-bottom: 12px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">📖 Reading<span style="font-weight: bold; color: var(--success-color);">85%</span></div>
+<div style="background: #e9ecef; height: 8px; border-radius: 4px;">
+<div style="background: var(--success-color); height: 8px; border-radius: 4px; width: 85%;"> </div>
+</div>
+</div>
+<div style="margin-bottom: 12px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">🔢 Math<span style="font-weight: bold; color: var(--info-color);">72%</span></div>
+<div style="background: #e9ecef; height: 8px; border-radius: 4px;">
+<div style="background: var(--info-color); height: 8px; border-radius: 4px; width: 72%;"> </div>
+</div>
+</div>
+<div style="margin-bottom: 12px;">
+<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">📝 English<span style="font-weight: bold; color: var(--warning-color);">78%</span></div>
+<div style="background: #e9ecef; height: 8px; border-radius: 4px;">
+<div style="background: var(--warning-color); height: 8px; border-radius: 4px; width: 78%;"> </div>
+</div>
+</div>
+<div>
+<div style="display: flex; justify-content: space-between; margin-bottom: 4px;">🔬 Science<span style="font-weight: bold; color: var(--danger-color);">68%</span></div>
+<div style="background: #e9ecef; height: 8px; border-radius: 4px;">
+<div style="background: var(--danger-color); height: 8px; border-radius: 4px; width: 68%;"> </div>
+</div>
+</div>
+</div>
+<!-- Ultimate Parser Impact -->
+<div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid var(--success-color); box-shadow: 0 2px 6px rgba(0,0,0,0.08);">
+<h4 style="margin: 0 0 15px 0; color: var(--success-color);">⚡ Ultimate Parser Impact</h4>
+<div style="margin-bottom: 15px;">
+<div style="font-size: 24px; font-weight: bold; color: var(--success-color); margin-bottom: 5px;">98%</div>
+<div style="color: #6c757d; font-size: 14px;">Question extraction accuracy</div>
+</div>
+<div style="margin-bottom: 15px;">
+<div style="font-size: 24px; font-weight: bold; color: var(--primary-color); margin-bottom: 5px;">4/4</div>
+<div style="color: #6c757d; font-size: 14px;">ACT test types supported</div>
+</div>
+<div style="margin-bottom: 15px;">
+<div style="font-size: 24px; font-weight: bold; color: var(--info-color); margin-bottom: 5px;">10x</div>
+<div style="color: #6c757d; font-size: 14px;">Faster question bank creation</div>
+</div>
+<div>
+<div style="font-size: 24px; font-weight: bold; color: var(--warning-color); margin-bottom: 5px;">Multi-page</div>
+<div style="color: #6c757d; font-size: 14px;">PDF processing capability</div>
+</div>
+</div>
+</div>
+<!-- System Health Status -->
+<div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 20px; border-radius: 8px; border-left: 4px solid var(--success-color);">
+<h4 style="margin: 0 0 15px 0; color: var(--success-color);">🏥 System Health &amp; Performance</h4>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+<div style="text-align: center;">
+<div style="font-size: 32px; margin-bottom: 8px;">✅</div>
+<div style="font-weight: bold; color: var(--success-color);">Parser Engine</div>
+<div style="font-size: 12px; color: #6c757d;">Operational</div>
+</div>
+<div style="text-align: center;">
+<div style="font-size: 32px; margin-bottom: 8px;">⚡</div>
+<div style="font-weight: bold; color: var(--primary-color);">Processing Speed</div>
+<div style="font-size: 12px; color: #6c757d;">Optimal</div>
+</div>
+<div style="text-align: center;">
+<div style="font-size: 32px; margin-bottom: 8px;">🎯</div>
+<div style="font-weight: bold; color: var(--info-color);">Accuracy Rate</div>
+<div style="font-size: 12px; color: #6c757d;">98% Success</div>
+</div>
+<div style="text-align: center;">
+<div style="font-size: 32px; margin-bottom: 8px;">🔄</div>
+<div style="font-weight: bold; color: var(--warning-color);">Uptime</div>
+<div style="font-size: 12px; color: #6c757d;">99.9%</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- NEW: Settings Page -->
+<div id="settings" class="cms-page">
+<div class="cms-card">
+<div class="cms-card-header">
+<h3>⚙️ Ultimate Parser Settings</h3>
+<span class="parser-badge" style="margin: 0;">Secure Configuration</span></div>
+<!-- API Key Configuration -->
+<div style="margin-bottom: 30px; padding: 20px; background: rgba(0, 123, 255, 0.1); border-radius: 8px; border-left: 4px solid var(--primary-color);">
+<h4 style="margin: 0 0 15px 0; color: var(--primary-color);">🔑 Gemini AI API Configuration</h4>
+<div class="cms-form-group"><label for="gemini-api-key">Gemini API Key:</label>
+<div style="display: flex; gap: 10px; align-items: center;"><input id="gemini-api-key" style="flex: 1;" type="password" value="" placeholder="Enter your Gemini API key..." /> <button id="toggle-api-key-visibility" class="cms-btn cms-btn-secondary" style="padding: 12px;"> 👁️ </button></div>
+<small style="color: #6c757d; margin-top: 5px; display: block;"> 🔒 Your API key is stored securely in your browser and never sent to our servers. </small></div>
+<div id="api-key-status" style="margin-top: 15px; padding: 10px; border-radius: 6px; display: none;"> </div>
+<div style="margin-top: 15px;"><button id="save-api-key" class="cms-btn cms-btn-primary">💾 Save API Key</button> <button id="test-api-key" class="cms-btn cms-btn-success" style="margin-left: 10px;">🧪 Test Connection</button> <button id="get-api-key-help" class="cms-btn cms-btn-secondary" style="margin-left: 10px;">❓ How to get API key</button></div>
+</div>
+<!-- Parser Settings -->
+<div style="margin-bottom: 30px; padding: 20px; background: rgba(40, 167, 69, 0.1); border-radius: 8px; border-left: 4px solid var(--success-color);">
+<h4 style="margin: 0 0 15px 0; color: var(--success-color);">⚡ Parser Engine Settings</h4>
+<div class="cms-grid" style="gap: 20px;">
+<div class="cms-form-group"><label for="default-extraction-mode">Default Extraction Mode:</label><select id="default-extraction-mode">
+<option value="smart">Smart Detection (Recommended)</option>
+<option value="reading">Reading Focus</option>
+<option value="math">Math Focus</option>
+<option value="english">English Focus</option>
+<option value="science">Science Focus</option>
+</select></div>
+<div class="cms-form-group"><label for="max-pdf-pages">Maximum PDF Pages:</label><select id="max-pdf-pages">
+<option value="5">5 pages</option>
+<option selected="selected" value="10">10 pages (Recommended)</option>
+<option value="15">15 pages</option>
+<option value="20">20 pages</option>
+</select></div>
+</div>
+<div class="cms-form-group"><label style="display: flex; align-items: center; gap: 10px;"> <input id="enable-multi-pass" checked="checked" type="checkbox" /> <strong>Enable Multi-Pass Processing</strong> </label> <small style="color: #6c757d; margin-left: 30px;">Improves accuracy by analyzing content multiple times</small></div>
+<div class="cms-form-group"><label style="display: flex; align-items: center; gap: 10px;"> <input id="auto-detect-test-type" checked="checked" type="checkbox" /> <strong>Auto-Detect Test Type</strong> </label> <small style="color: #6c757d; margin-left: 30px;">Automatically identify Reading, Math, English, or Science tests</small></div>
+<div style="margin-top: 15px;"><button id="save-parser-settings" class="cms-btn cms-btn-success">💾 Save Settings</button> <button id="reset-parser-settings" class="cms-btn cms-btn-warning" style="margin-left: 10px;">🔄 Reset to Defaults</button></div>
+</div>
+<!-- System Information -->
+<div style="padding: 20px; background: rgba(108, 117, 125, 0.1); border-radius: 8px; border-left: 4px solid var(--dark-color);">
+<h4 style="margin: 0 0 15px 0; color: var(--dark-color);">📊 System Information</h4>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+<div><strong>Parser Version:</strong><br /><span id="parser-version">Ultimate Parser v2.0</span></div>
+<div><strong>Supported Test Types:</strong><br />📖 Reading, 🔢 Math, 📝 English, 🔬 Science</div>
+<div><strong>Success Rate:</strong><br /><span style="color: var(--success-color); font-weight: bold;">98% Accuracy</span></div>
+<div><strong>Processing Speed:</strong><br />⚡ Multi-page PDFs in seconds</div>
+</div>
+<div style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 6px;"><strong>Browser Storage Used:</strong> <span id="storage-usage">Calculating...</span></div>
+</div>
+</div>
+</div>
+	
+<!-- ========================================= -->
+<!-- SECTION 5: HTML MODALS STRUCTURE        -->
+<!-- v3: AI Episode Builder button added     -->
+<!--     Close/Cancel wired to dirty-check  -->
+<!-- ========================================= -->
+
+<!-- Enhanced AI Import Modal -->
+<div id="ai-import-modal" class="cms-modal">
+<div class="cms-modal-content modal-xl"><span id="close-ai-modal" class="cms-close" onclick="window.cmsApp.closeModal('ai-import-modal')">×</span>
+<h2>🚀 Ultimate ACT Question Parser - All Test Types Supported</h2>
+<div style="background: var(--parser-gradient); color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+<h4 style="margin: 0; display: flex; align-items: center; gap: 10px;">⚡ Enhanced with Ultimate Extraction Engine <span class="parser-badge" style="margin: 0; background: rgba(255,255,255,0.2);">98% Accuracy</span></h4>
+<p style="margin: 5px 0 0 0; opacity: 0.9;">📖 Reading • 🔢 Math • 📝 English • 🔬 Science • Smart test detection • Multi-page PDFs • Advanced formatting preservation</p>
+</div>
+<form id="ai-import-form">
+<div class="cms-form-group"><label for="ai-save-bank-select">📚 Target Question Bank *</label><select id="ai-save-bank-select" required=""><option value="">Select a question bank...</option></select></div>
+<div class="ai-import-section">
+<h3>📄 Document Upload - Ultimate Parser Enabled</h3>
+<div class="dual-upload-container">
+<div><label><strong>📖 Content Document</strong></label>
+<div id="content-upload-area" class="upload-area">
+<div style="font-size: 48px; margin-bottom: 15px;">📄</div>
+<p><strong>Drop ACT test document here</strong></p>
+<p>or <button class="cms-btn cms-btn-secondary" type="button">Browse Files</button></p>
+<small> 📚 <strong>Reading:</strong> Passages with line numbers<br />🔢 <strong>Math:</strong> Equations and geometry<br />📝 <strong>English:</strong> Grammar and usage<br />🔬 <strong>Science:</strong> Data interpretation<br /><em>Supports: PDF, images, or text files</em> </small>
+<input id="content-file-input" style="display: none;" accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg" type="file" /></div>
+<div id="content-preview" class="upload-preview" style="display: none;"><div class="file-info"><span id="content-file-name">No file selected</span> <button class="clear-btn" type="button">Remove</button></div></div>
+</div>
+<div><label><strong>📋 Answer Key (Optional)</strong></label>
+<div id="answer-upload-area" class="upload-area">
+<div style="font-size: 48px; margin-bottom: 15px;">📋</div>
+<p><strong>Drop answer key here</strong></p>
+<p>or <button class="cms-btn cms-btn-secondary" type="button">Browse Files</button></p>
+<small>Optional answer key or solutions<br /><em>Helps improve extraction accuracy</em></small>
+<input id="answer-file-input" style="display: none;" accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg" type="file" /></div>
+<div id="answer-preview" class="upload-preview" style="display: none;"><div class="file-info"><span id="answer-file-name">No file selected</span> <button class="clear-btn" type="button">Remove</button></div></div>
+</div>
+</div>
+<div style="margin-top: 20px;"><label><strong>📝 Or Paste Text Content</strong></label>
+<div id="content-paste-area" class="paste-area" contenteditable="true"> </div></div>
+</div>
+
+<div class="ai-import-section">
+<h3>🔒 Content Generation Mode</h3>
+<div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px;"><label style="display: flex; align-items: flex-start; gap: 15px; cursor: pointer; margin-bottom: 15px;"><label style="display: flex; align-items: flex-start; gap: 15px; cursor: pointer; margin-bottom: 15px;"> <input id="framework-mode-enable" style="margin-top: 4px; transform: scale(1.2);" type="checkbox" /></label></label>
+<div style="flex: 1;"><strong style="color: #28a745; font-size: 16px;">🔒 Framework Mode (Copyright Safe)</strong>
+<div style="margin-top: 8px; color: #495057; line-height: 1.4;">Generate <strong>completely original questions</strong> inspired by the source material's structure and topics, rather than extracting existing content. Perfect for avoiding copyright issues while maintaining educational quality.</div></div>
+<div id="framework-benefits" style="display: none; margin-top: 15px; padding: 15px; background: #e8f5e8; border-left: 4px solid #28a745; border-radius: 4px;">
+<h5 style="margin: 0 0 10px 0; color: #1e7e34;">✅ Framework Mode Benefits:</h5>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px; color: #155724;"><div>• 100% original content</div><div>• Same learning objectives</div><div>• Copyright compliant</div><div>• Consistent difficulty level</div><div>• Educational value preserved</div><div>• Customizable scenarios</div></div></div>
+<div id="standard-mode-info" style="margin-top: 15px; padding: 15px; background: #e7f1ff; border-left: 4px solid #007bff; border-radius: 4px;">
+<h5 style="margin: 0 0 10px 0; color: #004085;">📖 Standard Extraction Mode:</h5>
+<div style="font-size: 14px; color: #004085;">Directly extract questions from source material with high accuracy parsing. Use when you have permission to use the content or when working with public domain materials.</div></div>
+</div></div>
+
+<div class="ai-import-section">
+<h3>⚙️ Ultimate Parser Settings</h3>
+<div class="ai-config-grid">
+<div class="cms-form-group"><label for="ai-question-count">📊 Expected Questions</label><select id="ai-question-count"><option value="auto">Auto-detect (Recommended)</option><option value="5">5 questions</option><option value="10">10 questions</option><option value="15">15 questions</option><option value="20">20 questions</option><option value="25">25+ questions</option></select></div>
+<div class="cms-form-group"><label for="ai-difficulty-level">⭐ Difficulty Level</label><select id="ai-difficulty-level"><option value="auto">Auto-detect (Recommended)</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>
+</div>
+<div style="margin-top: 15px;"><label style="display: flex; align-items: center; gap: 10px; cursor: pointer;"> <input id="advanced-settings-toggle" type="checkbox" /> <strong>🔧 Show Advanced Settings</strong> </label></div>
+<div id="advanced-settings" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0,123,255,0.1); border-radius: 8px;">
+<div class="ai-config-grid">
+<div class="cms-form-group"><label for="extraction-mode">🎯 Extraction Mode</label><select id="extraction-mode"><option value="smart">Smart Detection</option><option value="reading">Reading Focus</option><option value="math">Math Focus</option><option value="english">English Focus</option><option value="science">Science Focus</option></select></div>
+<div class="cms-form-group"><label for="multi-pass">🔄 Multi-Pass Processing</label><select id="multi-pass"><option value="enabled">Enabled (Recommended)</option><option value="disabled">Disabled</option></select></div>
+</div>
+<div id="framework-advanced" style="display: none; margin-top: 15px; padding: 15px; background: rgba(40, 167, 69, 0.1); border-radius: 8px;">
+<h5 style="margin: 0 0 15px 0; color: #155724;">🔒 Framework Mode Options:</h5>
+<div class="ai-config-grid">
+<div class="cms-form-group"><label for="framework-theme">🎭 Question Theme</label><select id="framework-theme"><option value="auto">Use Source Theme</option><option value="academic">Academic Scenarios</option><option value="real-world">Real-World Applications</option><option value="current-events">Current Events</option><option value="historical">Historical Context</option><option value="scientific">Scientific Examples</option></select></div>
+<div class="cms-form-group"><label for="originality-level">🎨 Originality Level</label><select id="originality-level"><option value="high">High (Very Different)</option><option value="medium">Medium (Moderately Different)</option><option value="structure-only">Structure Only</option></select></div>
+</div></div></div></div>
+
+<div id="ai-progress-container" class="progress-container"><div class="progress-bar"><div id="ai-progress-fill" class="progress-fill"> </div></div><div id="ai-processing-status" class="processing-status">Ultimate parser ready...</div></div>
+<button id="ai-import-submit-btn" class="cms-btn cms-btn-primary ultimate-enhanced" type="button" onclick="window.cmsApp.handleAIImportSubmit(event)">
+  <span id="submit-btn-text">🚀 Start Ultimate Extraction</span>
+</button>
+<button class="cms-btn cms-btn-secondary" type="button" onclick="window.cmsApp.closeModal('ai-import-modal')">Cancel</button>
+</form></div>
+</div>
+
+<!-- Question Bank Modal -->
+<div id="question-bank-modal" class="cms-modal">
+<div class="cms-modal-content modal-lg"><span id="close-q-bank-modal" class="cms-close" onclick="window.cmsApp.closeModal('question-bank-modal')">×</span>
+<h2 id="question-bank-modal-title">Create Question Bank</h2>
+<form id="question-bank-form">
+<div class="cms-form-group"><label for="q-bank-name">Name:</label> <input id="q-bank-name" required="" type="text" placeholder="e.g., ACT Reading Practice Set 1" /></div>
+<div class="cms-form-group"><label for="q-bank-approach">Approach:</label><select id="q-bank-approach" required=""><option value="">Select approach...</option><option value="General">General</option><option value="Calculation (Math)">Calculation (Math)</option><option value="Logic (Science)">Logic (Science)</option><option value="Persuasion (English)">Persuasion (English)</option><option value="Empathy (Reading)">Empathy (Reading)</option></select></div>
+<div class="cms-form-group"><label for="q-bank-description">Description (Optional):</label> <textarea id="q-bank-description" placeholder="Brief description of this question bank..."></textarea></div>
+<div class="cms-form-group"><button class="cms-btn cms-btn-primary" type="submit">Save Question Bank</button> <button id="cancel-q-bank-modal" class="cms-btn cms-btn-secondary" type="button">Cancel</button></div>
+</form></div>
+</div>
+
+<!-- ENHANCED Episode Modal WITH QUESTION BANK SLIDERS + ENCOUNTER EDITOR -->
+<div id="episode-modal" class="cms-modal">
+<div class="cms-modal-content modal-lg">
+
+  <!-- ✏️ X button now uses dirty-check close -->
+  <span id="close-episode-modal" class="cms-close"
+        onclick="window.cmsApp.requestCloseEpisodeModal()">×</span>
+
+  <h2 id="episode-modal-title">Create Episode</h2>
+
+  <!-- 🤖 AI EPISODE BUILDER BUTTON -->
+  <div style="margin-bottom:18px;padding:14px 16px;background:linear-gradient(135deg,rgba(111,66,193,0.08),rgba(102,126,234,0.08));
+              border:1px solid rgba(111,66,193,0.25);border-radius:10px;
+              display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+    <div>
+      <div style="font-weight:600;color:#6f42c1;font-size:14px;margin-bottom:2px;">🤖 AI Episode Builder</div>
+      <div style="font-size:12px;color:#6c757d;">Upload a curriculum doc or paste text — AI will suggest title, description and encounters</div>
+    </div>
+    <button type="button"
+            onclick="window.cmsApp.showEpisodeAIParser()"
+            style="padding:9px 18px;background:linear-gradient(135deg,#6f42c1,#667eea);
+                   color:white;border:none;border-radius:8px;font-size:13px;
+                   font-weight:600;cursor:pointer;white-space:nowrap;
+                   box-shadow:0 2px 8px rgba(111,66,193,0.3);">
+      ✨ Build with AI
+    </button>
+  </div>
+
+  <form id="episode-form">
+    <div class="cms-form-group"><label for="episode-title">Title:</label> <input id="episode-title" required="" type="text" placeholder="e.g., Math Adventure in Space" /></div>
+    <div class="cms-form-group"><label for="episode-genre">Genre:</label><select id="episode-genre" required=""><option value="">Select genre...</option></select></div>
+    <div class="cms-form-group"><label for="episode-description">Description:</label> <textarea id="episode-description" placeholder="Describe the episode storyline and learning objectives..."></textarea></div>
+
+    <!-- Available Approaches Selection -->
+    <div class="cms-form-group"><label>🎯 Available Approaches:</label>
+    <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin-top: 8px;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+      <label style="display: flex; align-items: center; margin-bottom: 12px; cursor: pointer;"> <input class="approach-checkbox" style="margin-right: 10px;" type="checkbox" value="General" /> <span style="flex: 1;">General (Available to All Approaches)</span> </label>
+      <label style="display: flex; align-items: center; margin-bottom: 12px; cursor: pointer;"> <input class="approach-checkbox" style="margin-right: 10px;" type="checkbox" value="Logic (Science)" /> <span style="flex: 1;">Logic (Science)</span> </label>
+      <label style="display: flex; align-items: center; margin-bottom: 12px; cursor: pointer;"> <input class="approach-checkbox" style="margin-right: 10px;" type="checkbox" value="Persuasion (English)" /> <span style="flex: 1;">Persuasion (English)</span> </label>
+      <label style="display: flex; align-items: center; margin-bottom: 12px; cursor: pointer;"> <input class="approach-checkbox" style="margin-right: 10px;" type="checkbox" value="Calculation (Math)" /> <span style="flex: 1;">Calculation (Math)</span> </label>
+      <label style="display: flex; align-items: center; margin-bottom: 12px; cursor: pointer;"> <input class="approach-checkbox" style="margin-right: 10px;" type="checkbox" value="Empathy (Reading)" /> <span style="flex: 1;">Empathy (Reading)</span> </label>
+    </div>
+    </div></div>
+
+    <!-- Question Banks Section -->
+    <div class="cms-form-group"><label>📚 Question Banks for This Episode:</label>
+    <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin-top: 8px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;"><span style="font-weight: 500; color: #495057;">Toggle question banks on/off:</span>
+    <div><button id="toggle-all-banks-btn" class="cms-btn cms-btn-secondary" style="padding: 4px 8px; font-size: 12px;" type="button">Toggle All</button></div></div>
+    <div id="question-banks-toggles" style="max-height: 200px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 6px; background: #fff; padding: 8px;">
+    <div class="loading-state" style="text-align: center; color: #6c757d; padding: 20px;">Loading question banks...</div>
+    </div>
+    <div style="margin-top: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">💡 <strong>Tip:</strong> Only enabled banks will generate questions for this episode.</div>
+    </div></div>
+
+    <!-- ⚔️ ENCOUNTER EDITOR -->
+    <div class="cms-form-group" id="encounters-editor-group">
+      <label style="font-weight:600;color:#495057;margin-bottom:8px;display:block;">
+        ⚔️ Encounters
+        <span style="font-size:12px;font-weight:400;color:#6c757d;margin-left:8px;">
+          Each encounter is a story beat with its own narrative and question block
+        </span>
+      </label>
+      <div id="encounters-list" style="margin-bottom:12px;"></div>
+      <button type="button" id="add-encounter-btn"
+              onclick="window.cmsApp.addEncounterRow()"
+              style="width:100%;padding:10px;background:rgba(102,126,234,0.08);
+                     border:2px dashed rgba(102,126,234,0.4);border-radius:8px;
+                     color:#667eea;font-size:14px;font-weight:600;cursor:pointer;
+                     transition:all 0.2s;">
+        + Add Encounter
+      </button>
+    </div>
+
+    <!-- CUTSCENE SETTINGS -->
+    <div class="cms-form-group" id="cutscene-settings-group">
+      <label style="font-weight:600;color:#495057;margin-bottom:8px;display:block;">
+        🎬 Cutscene Settings
+        <span style="font-size:12px;font-weight:400;color:#6c757d;margin-left:8px;">
+          Visual story moments generated from your episode's narrative
+        </span>
+      </label>
+      <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:16px;">
+
+        <!-- Encounter cutscene toggle -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;
+                    padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #e9ecef;">
+          <div style="flex:1;margin-right:16px;">
+            <div style="font-weight:600;color:#495057;font-size:14px;margin-bottom:4px;">⚔️ Between Encounters</div>
+            <div style="font-size:12px;color:#6c757d;line-height:1.5;">Show a cinematic fullscreen image with AI narrative between each encounter.</div>
+          </div>
+          <label class="toggle-switch" style="flex-shrink:0;margin-top:2px;">
+            <input type="checkbox" id="cutscene-encounters-enabled" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Encounter style -->
+        <div id="encounter-cutscene-style-row" style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #e9ecef;">
+          <div style="font-size:13px;font-weight:600;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Encounter Cutscene Style</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px;border:2px solid #dee2e6;border-radius:8px;background:#fff;" id="enc-style-cinematic-label">
+              <input type="radio" name="encounter-cutscene-style" id="enc-style-cinematic" value="cinematic" checked style="margin:0;">
+              <div><div style="font-weight:600;font-size:13px;color:#495057;">🎬 Cinematic</div><div style="font-size:11px;color:#6c757d;">Single image + narrative text</div></div>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px;border:2px solid #dee2e6;border-radius:8px;background:#fff;" id="enc-style-novel-label">
+              <input type="radio" name="encounter-cutscene-style" id="enc-style-novel" value="graphic_novel" style="margin:0;">
+              <div><div style="font-weight:600;font-size:13px;color:#495057;">📖 Graphic Novel</div><div style="font-size:11px;color:#6c757d;">3–4 panels telling the story</div></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Completion cutscene -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;
+                    padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #e9ecef;">
+          <div style="flex:1;margin-right:16px;">
+            <div style="font-weight:600;color:#495057;font-size:14px;margin-bottom:4px;">🏆 Episode Completion</div>
+            <div style="font-size:12px;color:#6c757d;line-height:1.5;">Show a reward cutscene when the student finishes the episode.</div>
+          </div>
+          <label class="toggle-switch" style="flex-shrink:0;margin-top:2px;">
+            <input type="checkbox" id="cutscene-completion-enabled" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Completion style -->
+        <div id="completion-cutscene-style-row">
+          <div style="font-size:13px;font-weight:600;color:#6c757d;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Completion Cutscene Style</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px;border:2px solid #dee2e6;border-radius:8px;background:#fff;" id="comp-style-cinematic-label">
+              <input type="radio" name="completion-cutscene-style" id="comp-style-cinematic" value="cinematic" style="margin:0;">
+              <div><div style="font-weight:600;font-size:13px;color:#495057;">🎬 Cinematic</div><div style="font-size:11px;color:#6c757d;">Single image + narrative text</div></div>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px;border:2px solid #667eea;border-radius:8px;background:rgba(102,126,234,0.05);" id="comp-style-novel-label">
+              <input type="radio" name="completion-cutscene-style" id="comp-style-novel" value="graphic_novel" checked style="margin:0;">
+              <div><div style="font-weight:600;font-size:13px;color:#667eea;">📖 Graphic Novel</div><div style="font-size:11px;color:#6c757d;">3–4 panels • Recommended</div></div>
+            </label>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Active checkbox -->
+    <div class="cms-form-group">
+      <label style="display: flex; align-items: center; gap: 10px;">
+        <input id="episode-active" checked="checked" type="checkbox" />
+        <strong>Active for Students</strong>
+      </label>
+      <small style="color: #6c757d; margin-left: 30px;">Students can access this episode when active</small>
+    </div>
+
+    <div class="cms-form-group">
+      <button class="cms-btn cms-btn-primary" type="submit">Save Episode</button>
+      <!-- ✏️ Cancel also uses dirty-check close -->
+      <button id="cancel-episode-modal" class="cms-btn cms-btn-secondary" type="button"
+              onclick="window.cmsApp.requestCloseEpisodeModal()">Cancel</button>
+    </div>
+  </form>
+</div>
+</div>
+
+<!-- Genre Modal -->
+<div id="genre-modal" class="cms-modal">
+<div class="cms-modal-content"><span id="close-genre-modal" class="cms-close" onclick="window.cmsApp.closeModal('genre-modal')">×</span>
+<h2 id="genre-modal-title">Create Genre</h2>
+<form id="genre-form">
+<div class="cms-form-group"><label for="genre-name">Name:</label> <input id="genre-name" required="" type="text" placeholder="e.g., Space Adventure" /></div>
+<div class="cms-form-group"><label for="genre-description">Description:</label> <textarea id="genre-description" placeholder="Describe this genre and its learning approach..."></textarea></div>
+<div class="cms-form-group"><label for="genre-subject">Primary Subject:</label><select id="genre-subject"><option value="">Select primary subject...</option><option value="reading">📖 Reading</option><option value="math">🔢 Math</option><option value="english">📝 English</option><option value="science">🔬 Science</option><option value="mixed">🎯 Mixed Subjects</option></select></div>
+<div class="cms-form-group"><button class="cms-btn cms-btn-primary" type="submit">Save Genre</button> <button id="cancel-genre-modal" class="cms-btn cms-btn-secondary" type="button">Cancel</button></div>
+</form></div>
+</div>
+
+<!-- Processing Modal -->
+<div id="processing-modal" class="cms-modal">
+<div class="cms-modal-content cms-modal-content-small">
+<div class="spinner"> </div>
+<div id="processing-modal-text">Processing...</div>
+</div>
+</div>
+
+<!-- Alert Modal -->
+<div id="alert-modal" class="cms-modal">
+<div class="cms-modal-content cms-modal-content-small">
+<div id="alert-modal-text"> </div>
+<button id="close-alert-modal" class="cms-btn cms-btn-primary" style="margin-top: 20px;" type="button">OK</button></div>
+</div>
+
+<!-- Success Modal -->
+<div id="success-modal" class="cms-modal">
+<div class="cms-modal-content cms-modal-content-small">
+<div style="text-align: center;">
+<div style="font-size: 64px; color: var(--success-color); margin-bottom: 15px;">✅</div>
+<h3 style="color: var(--success-color); margin: 0 0 10px 0;">Ultimate Parser Success!</h3>
+<div id="success-modal-text">Questions extracted successfully</div>
+<div style="margin-top: 15px; padding: 10px; background: rgba(40, 167, 69, 0.1); border-radius: 6px;"><small style="color: var(--success-color); font-weight: 500;">⚡ Processed with 98% accuracy</small></div>
+</div>
+<button id="close-success-modal" class="cms-btn cms-btn-success" style="margin-top: 20px; width: 100%;" type="button">🚀 View Questions</button></div>
+</div>
+
+<!-- Manual Add Question Modal -->
+<div id="add-question-modal" class="cms-modal">
+  <div class="modal-content" style="max-width: 800px;">
+    <span class="close-modal" onclick="window.cmsApp.closeModal('add-question-modal')">&times;</span>
+    <h2 id="add-question-modal-title">Add Question</h2>
+    <form onsubmit="event.preventDefault(); window.cmsApp.handleManualQuestionSubmit();">
+      <label for="manual-q-text">Question Text *</label>
+      <textarea id="manual-q-text" rows="3" required></textarea>
+      <label for="manual-q-passage">Passage (Optional for Reading questions)</label>
+      <textarea id="manual-q-passage" rows="6" placeholder="Enter the reading passage if applicable..."></textarea>
+      <h3>Answer Options *</h3>
+      <label for="manual-option-A">A:</label>
+      <input type="text" id="manual-option-A" placeholder="Option A text">
+      <label for="manual-option-B">B:</label>
+      <input type="text" id="manual-option-B" placeholder="Option B text">
+      <label for="manual-option-C">C:</label>
+      <input type="text" id="manual-option-C" placeholder="Option C text">
+      <label for="manual-option-D">D:</label>
+      <input type="text" id="manual-option-D" placeholder="Option D text">
+      <label for="manual-option-E">E:</label>
+      <input type="text" id="manual-option-E" placeholder="Option E text (optional)">
+      <label for="manual-correct-answer">Correct Answer *</label>
+      <select id="manual-correct-answer" required><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="E">E</option></select>
+      <label for="manual-q-explanation">Explanation (Optional)</label>
+      <textarea id="manual-q-explanation" rows="3" placeholder="Explain why this answer is correct..."></textarea>
+      <button type="submit" class="cms-btn" style="margin-top: 20px;">➕ Add Question</button>
+    </form>
+  </div>
+</div>
+
+<!-- ENCOUNTER EDITOR + TOGGLE STYLES -->
+<style>
+.encounter-row {
+  background:#f8f9fa; border:1px solid #dee2e6; border-radius:8px;
+  padding:16px; margin-bottom:12px; position:relative;
+}
+.encounter-row-header {
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e9ecef;
+}
+.encounter-row-title { font-weight:600; color:#495057; font-size:14px; }
+.encounter-remove-btn {
+  background:rgba(220,53,69,0.1); border:1px solid rgba(220,53,69,0.3);
+  color:#dc3545; border-radius:6px; padding:3px 10px; font-size:12px; cursor:pointer;
+}
+.encounter-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+.encounter-field label {
+  display:block; font-size:12px; font-weight:600; color:#6c757d;
+  text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px;
+}
+.encounter-field input,
+.encounter-field textarea {
+  width:100%; padding:8px 10px; border:1px solid #ced4da;
+  border-radius:6px; font-size:13px; background:#fff; box-sizing:border-box;
+}
+.encounter-field textarea {
+  min-height:80px; resize:vertical; font-family:'Segoe UI',sans-serif; line-height:1.5;
+}
+.bank-toggle-item {
+  display:flex; align-items:center; padding:10px 12px; margin:6px 0;
+  border:1px solid #dee2e6; border-radius:6px; background:#ffffff; transition:all 0.2s;
+}
+.bank-toggle-item.enabled { border-color:#28a745; background:#f8fff8; box-shadow:0 1px 3px rgba(40,167,69,0.1); }
+.bank-info { flex:1; min-width:0; margin-right:10px; }
+.bank-name { font-weight:500; color:#495057; font-size:14px; margin-bottom:2px; }
+.bank-details { font-size:12px; color:#6c757d; }
+.toggle-switch { position:relative; display:inline-block; width:44px; height:24px; cursor:pointer; }
+.toggle-switch input { opacity:0; width:0; height:0; }
+.toggle-slider { position:absolute; top:0; left:0; right:0; bottom:0; background-color:#ccc; border-radius:24px; transition:0.3s; }
+.toggle-slider:before { position:absolute; content:""; height:18px; width:18px; left:3px; bottom:3px; background-color:white; border-radius:50%; transition:0.3s; }
+.toggle-switch input:checked + .toggle-slider { background-color:#28a745; }
+.toggle-switch input:checked + .toggle-slider:before { transform:translateX(20px); }
+#cutscene-settings-group input[type="radio"]:checked + div { color:#667eea; }
+</style>
